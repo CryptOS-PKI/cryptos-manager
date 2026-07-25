@@ -24,6 +24,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	connect "connectrpc.com/connect"
@@ -40,7 +41,11 @@ const (
 	phaseAwaitingReboot = "awaiting-reboot"
 	phaseCeremony       = "ceremony"
 	phaseEstablished    = "established"
-	phaseError          = "error"
+	// phaseAwaitingCertificate is the terminal phase for a subordinate
+	// (intermediate/issuing) adoption: the node is provisioned and awaiting a
+	// parent-signed certificate, delivered separately by a SUBORDINATE enrollment.
+	phaseAwaitingCertificate = "awaiting-certificate"
+	phaseError               = "error"
 )
 
 // rebootWait bounds how long AdoptNode waits for a node to install, self-reboot,
@@ -177,24 +182,30 @@ func (s *Service) runAdoption(ctx context.Context, msg *fleetv1.AdoptNodeRequest
 	}
 	defer func() { _ = conn.Close() }()
 
-	// Drive the first-boot ceremony, relaying each event as a ceremony phase.
-	if err := send(phaseCeremony, "starting first-boot ceremony", false); err != nil {
-		return err
-	}
-	yaml, err := marshalConfigYAML(cfg)
-	if err != nil {
-		return s.adoptFail(send, connect.CodeInternal, fmt.Errorf("fleet: marshal config: %w", err))
-	}
-	cstream, err := conn.StartCeremony(ctx, cryptosv1.CeremonyKind_CEREMONY_KIND_FIRST_BOOT_ROOT, yaml)
-	if err != nil {
-		return s.adoptFail(send, connect.CodeInternal, fmt.Errorf("fleet: start ceremony: %w", err))
-	}
-	complete, err := relayCeremony(cstream, send)
-	if err != nil {
-		return s.adoptFail(send, connect.CodeInternal, err)
-	}
-	if !complete {
-		return s.adoptFail(send, connect.CodeInternal, errors.New("fleet: ceremony stream ended before completing"))
+	// A root self-signs its CA via the first-boot ceremony. A subordinate
+	// (intermediate/issuing) node cannot: the node has already staged its own
+	// subordinate CSR on boot and is awaiting a parent-signed chain, which a
+	// SUBORDINATE enrollment delivers as a separate admin-approved step. Only a
+	// root reaches "established" during adoption.
+	if isRootRole(cfg) {
+		if err := send(phaseCeremony, "starting first-boot ceremony", false); err != nil {
+			return err
+		}
+		yaml, err := marshalConfigYAML(cfg)
+		if err != nil {
+			return s.adoptFail(send, connect.CodeInternal, fmt.Errorf("fleet: marshal config: %w", err))
+		}
+		cstream, err := conn.StartCeremony(ctx, cryptosv1.CeremonyKind_CEREMONY_KIND_FIRST_BOOT_ROOT, yaml)
+		if err != nil {
+			return s.adoptFail(send, connect.CodeInternal, fmt.Errorf("fleet: start ceremony: %w", err))
+		}
+		complete, err := relayCeremony(cstream, send)
+		if err != nil {
+			return s.adoptFail(send, connect.CodeInternal, err)
+		}
+		if !complete {
+			return s.adoptFail(send, connect.CodeInternal, errors.New("fleet: ceremony stream ended before completing"))
+		}
 	}
 
 	// Register the node with the manager-held bootstrap admin credentials so
@@ -211,6 +222,10 @@ func (s *Service) runAdoption(ctx context.Context, msg *fleetv1.AdoptNodeRequest
 		TargetPath: "/nodes/" + adoptedNodeName(cfg, endpoint),
 	})
 
+	if !isRootRole(cfg) {
+		return send(phaseAwaitingCertificate,
+			"subordinate node provisioned and awaiting a parent-signed certificate (complete via a subordinate enrollment)", true)
+	}
 	return send(phaseEstablished, "node adopted and established", true)
 }
 
@@ -336,6 +351,15 @@ func adoptedNodeRole(cfg *cryptosv1.MachineConfig) string {
 		return r
 	}
 	return "node"
+}
+
+// isRootRole reports whether the config declares a root CA node — the only role
+// that self-signs via the first-boot ceremony. Intermediate and issuing nodes
+// are subordinates, established later by a parent-signed enrollment. An omitted
+// role is treated as root, matching the adopt wizard's default.
+func isRootRole(cfg *cryptosv1.MachineConfig) bool {
+	kind := cfg.GetRole().GetKind()
+	return kind == "" || strings.EqualFold(kind, "root")
 }
 
 // marshalConfigYAML renders a MachineConfig for the node's StartCeremony, which

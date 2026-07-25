@@ -149,6 +149,49 @@ func TestRunAdoption_HappyPath_StreamsPhasesRegistersAndAudits(t *testing.T) {
 	}
 }
 
+func TestRunAdoption_Subordinate_AwaitsCertificate_NoCeremony(t *testing.T) {
+	adoptCredsBaseDir = t.TempDir()
+	st := memory.New(nil)
+	mconn := &fakeConn{applyConfigResp: &cryptosv1.ApplyConfigResponse{RequiresReboot: true, Generation: 1}}
+	// A subordinate node comes back running but has NO ceremony: it staged its
+	// own subordinate CSR on boot and awaits a parent-signed chain. The ceremony
+	// stream is intentionally absent — running it would be a bug.
+	running := &fakeConn{status: &cryptosv1.GetStatusResponse{}}
+	svc := New(st, dialFor(map[string]*fakeConn{"sub-node": running})).WithAdoption(nil,
+		func(endpoint, pin, clientCertPEM, clientKeyPEM string) (NodeConn, error) { return mconn, nil })
+
+	restore := setRebootTiming(5*time.Millisecond, 1*time.Millisecond, 1*time.Millisecond)
+	defer restore()
+
+	cfg := &cryptosv1.MachineConfig{
+		Metadata: &cryptosv1.Metadata{Name: "sub-node"},
+		Role:     &cryptosv1.Role{Kind: "intermediate"},
+	}
+	sink := &collectSink{}
+	err := svc.runAdoption(context.Background(), &fleetv1.AdoptNodeRequest{
+		Endpoint: "node:4443", PinnedCertSha256: "abc", Config: cfg,
+	}, sink.send)
+	if err != nil {
+		t.Fatalf("runAdoption subordinate error = %v", err)
+	}
+
+	if !sink.done {
+		t.Error("subordinate adoption did not stream a terminal done phase")
+	}
+	if !containsPhase(sink.phases, phaseAwaitingCertificate) {
+		t.Errorf("phases = %v, want a terminal awaiting-certificate", sink.phases)
+	}
+	if containsPhase(sink.phases, phaseCeremony) || containsPhase(sink.phases, phaseEstablished) {
+		t.Errorf("phases = %v, a subordinate must not run the root ceremony or reach established", sink.phases)
+	}
+	if len(running.gotCeremonyYAML) != 0 {
+		t.Error("StartCeremony was called on a subordinate node")
+	}
+	if _, ok := st.Node("sub-node"); !ok {
+		t.Error("adopted subordinate was not registered in the inventory")
+	}
+}
+
 func TestRunAdoption_RebootNeverReturns_StreamsErrorPhase_NoHang(t *testing.T) {
 	adoptCredsBaseDir = t.TempDir()
 	st := memory.New(nil)
