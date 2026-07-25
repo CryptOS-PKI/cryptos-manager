@@ -75,7 +75,7 @@ type Service struct {
 	// TOFU-pinned maintenance connection. Both are seams so tests inject fakes
 	// instead of reaching a real node; production wires nodeclient.
 	previewCert     func(endpoint string) (certSHA256, subject string, err error)
-	dialMaintenance func(endpoint, pinnedSHA256 string) (NodeConn, error)
+	dialMaintenance func(endpoint, pinnedSHA256, clientCertPEM, clientKeyPEM string) (NodeConn, error)
 }
 
 // New builds a Service backed by st, dialing nodes with dial. Callers in
@@ -107,7 +107,7 @@ func (s *Service) WithOperatorCA(nodeName string) *Service {
 // WithAdoption supplies the S10 adoption seams: previewCert fetches a
 // maintenance node's TOFU fingerprint, and dialMaintenance opens a pinned
 // maintenance connection. Returns s for chaining.
-func (s *Service) WithAdoption(previewCert func(endpoint string) (certSHA256, subject string, err error), dialMaintenance func(endpoint, pinnedSHA256 string) (NodeConn, error)) *Service {
+func (s *Service) WithAdoption(previewCert func(endpoint string) (certSHA256, subject string, err error), dialMaintenance func(endpoint, pinnedSHA256, clientCertPEM, clientKeyPEM string) (NodeConn, error)) *Service {
 	s.previewCert = previewCert
 	s.dialMaintenance = dialMaintenance
 

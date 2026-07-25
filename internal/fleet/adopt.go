@@ -20,6 +20,7 @@ limitations under the License.
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -42,11 +43,13 @@ const (
 	phaseError          = "error"
 )
 
-// rebootWait bounds how long AdoptNode waits for a rebooting node to come back
-// on the maintenance endpoint before streaming an error phase. It is a var so
-// tests can shrink it; the reboot poll never blocks the stream indefinitely.
+// rebootWait bounds how long AdoptNode waits for a node to install, self-reboot,
+// and come back in running mode before streaming an error phase. A real
+// bare-disk install plus reboot plus first-boot bring-up runs well past a
+// minute, so this is generous; the reboot poll never blocks the stream
+// indefinitely. It is a var so tests can shrink it.
 var (
-	rebootWait      = 90 * time.Second
+	rebootWait      = 180 * time.Second
 	rebootPollGap   = 3 * time.Second
 	rebootPollGrace = 1 * time.Second
 )
@@ -121,15 +124,35 @@ func (s *Service) runAdoption(ctx context.Context, msg *fleetv1.AdoptNodeRequest
 		return connect.NewError(connect.CodeInvalidArgument, errors.New("fleet: config is required"))
 	}
 
+	// Option A: the manager mints a bootstrap admin identity, embeds its cert in
+	// the config so the node trusts it as admin, and keeps the private key to
+	// manage the node over mTLS afterward. Without a bootstrap admin the node's
+	// config is invalid; with the manager holding the key, managed operations
+	// (issue/revoke/rekey/config) can dial the node once it is established.
+	nodeName := adoptedNodeName(cfg, endpoint)
+	admin, err := mintBootstrapAdmin("fleet-admin@" + nodeName)
+	if err != nil {
+		return s.adoptFail(send, connect.CodeInternal, err)
+	}
+	adminCertPath, adminKeyPath, err := writeAdminCreds(nodeName, admin)
+	if err != nil {
+		return s.adoptFail(send, connect.CodeInternal, err)
+	}
+	if cfg.Bootstrap == nil {
+		cfg.Bootstrap = &cryptosv1.Bootstrap{}
+	}
+	cfg.Bootstrap.AdminCertPem = string(admin.certPEM)
+
 	// Apply the initial config on the pinned maintenance endpoint.
 	if err := send(phaseApplyingConfig, "dialing maintenance endpoint and applying initial config", false); err != nil {
 		return err
 	}
-	conn, err := s.dialMaintenance(endpoint, pin)
+	adminCert, adminKey := string(admin.certPEM), string(admin.keyPEM)
+	conn, err := s.dialMaintenance(endpoint, pin, adminCert, adminKey)
 	if err != nil {
 		return s.adoptFail(send, connect.CodeUnavailable, fmt.Errorf("fleet: dial maintenance: %w", err))
 	}
-	applied, err := conn.ApplyConfig(ctx, cfg)
+	_, err = conn.ApplyConfig(ctx, cfg)
 	if err != nil {
 		_ = conn.Close()
 		return s.adoptFail(send, connect.CodeInternal, fmt.Errorf("fleet: apply config: %w", err))
@@ -140,24 +163,17 @@ func (s *Service) runAdoption(ctx context.Context, msg *fleetv1.AdoptNodeRequest
 		return err
 	}
 
-	// If the node needs a reboot to install, wait a bounded time for it to come
-	// back on the maintenance endpoint. This is the reboot-gap the plan flags:
-	// the node reboots into a no-identity state still on the maintenance
-	// endpoint, where the ceremony then runs.
-	if applied.GetRequiresReboot() {
-		if err := send(phaseAwaitingReboot, "waiting for the node to reboot", false); err != nil {
-			return err
-		}
-		rebootedConn, err := s.awaitMaintenanceReboot(ctx, endpoint, pin)
-		if err != nil {
-			return s.adoptFail(send, connect.CodeDeadlineExceeded, err)
-		}
-		conn = rebootedConn
-	} else {
-		conn, err = s.dialMaintenance(endpoint, pin)
-		if err != nil {
-			return s.adoptFail(send, connect.CodeUnavailable, fmt.Errorf("fleet: re-dial maintenance: %w", err))
-		}
+	// The node installs to disk, self-reboots, and boots the installed system
+	// into RUNNING mode — serving mTLS with the bootstrap admin trust (a fresh
+	// identity cert, NOT the maintenance cert), awaiting the first-boot ceremony.
+	// Wait for it there, dialing with the admin cert the node now trusts (a
+	// managed dial, no maintenance pin — the running server cert differs).
+	if err := send(phaseAwaitingReboot, "node installing and rebooting into the installed system", false); err != nil {
+		return err
+	}
+	conn, err = s.awaitRunningNode(ctx, nodeName, endpoint, adminCertPath, adminKeyPath)
+	if err != nil {
+		return s.adoptFail(send, connect.CodeDeadlineExceeded, err)
 	}
 	defer func() { _ = conn.Close() }()
 
@@ -181,11 +197,10 @@ func (s *Service) runAdoption(ctx context.Context, msg *fleetv1.AdoptNodeRequest
 		return s.adoptFail(send, connect.CodeInternal, errors.New("fleet: ceremony stream ended before completing"))
 	}
 
-	// Register the node so it appears in the inventory. Managed mTLS admin
-	// material is attached afterward via the LINK enrollment path (the ceremony
-	// rotates the node's admin cert; the operator links it with that material),
-	// so the inventory entry carries the endpoint and role now.
-	s.registerAdoptedNode(cfg, endpoint)
+	// Register the node with the manager-held bootstrap admin credentials so
+	// managed operations can dial its mTLS endpoint immediately (Option A: the
+	// manager minted and kept this node's admin key).
+	s.registerAdoptedNode(cfg, endpoint, adminCertPath, adminKeyPath)
 
 	s.store.AddAuditEvent(store.AuditEvent{
 		ID:         newAuditID(),
@@ -199,20 +214,24 @@ func (s *Service) runAdoption(ctx context.Context, msg *fleetv1.AdoptNodeRequest
 	return send(phaseEstablished, "node adopted and established", true)
 }
 
-// awaitMaintenanceReboot polls the maintenance endpoint until it accepts a
-// pinned connection again or the bounded rebootWait elapses. It gives the node
-// a grace period to begin shutting down before the first poll so a still-up
-// pre-reboot listener is not mistaken for the rebooted one.
-func (s *Service) awaitMaintenanceReboot(ctx context.Context, endpoint, pin string) (NodeConn, error) {
+// awaitRunningNode waits for the node to finish installing, self-reboot, and
+// come back in RUNNING mode: serving mTLS with the bootstrap admin trust,
+// awaiting the first-boot ceremony. It dials with a managed admin-cert dial
+// (no maintenance pin — the running server cert differs from the maintenance
+// one) and confirms a cheap RPC before returning, bounded by rebootWait so a
+// node that never returns streams an error rather than hanging. A grace period
+// lets the node begin rebooting before the first poll.
+func (s *Service) awaitRunningNode(ctx context.Context, name, endpoint, adminCertPath, adminKeyPath string) (NodeConn, error) {
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	case <-time.After(rebootPollGrace):
 	}
 
+	node := store.Node{Name: name, Endpoint: endpoint, AdminCert: adminCertPath, AdminKey: adminKeyPath}
 	deadline := time.Now().Add(rebootWait)
 	for {
-		conn, err := s.dialMaintenance(endpoint, pin)
+		conn, err := s.dial(node)
 		if err == nil {
 			// A lazy gRPC client dial can succeed before the server is up;
 			// confirm the node answers a cheap RPC before proceeding.
@@ -222,7 +241,7 @@ func (s *Service) awaitMaintenanceReboot(ctx context.Context, endpoint, pin stri
 			_ = conn.Close()
 		}
 		if time.Now().After(deadline) {
-			return nil, fmt.Errorf("fleet: node did not return on %s within %s of reboot", endpoint, rebootWait)
+			return nil, fmt.Errorf("fleet: node did not come back in running mode on %s within %s of install", endpoint, rebootWait)
 		}
 		select {
 		case <-ctx.Done():
@@ -286,15 +305,17 @@ func ceremonyEventDetail(kind cryptosv1.CeremonyEventKind) string {
 // already present, keyed by the config's metadata name (falling back to the
 // endpoint). It carries the endpoint and role; managed mTLS material is
 // attached later via the LINK enrollment path.
-func (s *Service) registerAdoptedNode(cfg *cryptosv1.MachineConfig, endpoint string) {
+func (s *Service) registerAdoptedNode(cfg *cryptosv1.MachineConfig, endpoint, adminCertPath, adminKeyPath string) {
 	name := adoptedNodeName(cfg, endpoint)
 	if _, ok := s.store.Node(name); ok {
 		return
 	}
 	s.store.AddNode(store.Node{
-		Name:     name,
-		Endpoint: endpoint,
-		Role:     adoptedNodeRole(cfg),
+		Name:      name,
+		Endpoint:  endpoint,
+		Role:      adoptedNodeRole(cfg),
+		AdminCert: adminCertPath,
+		AdminKey:  adminKeyPath,
 	})
 }
 
@@ -318,8 +339,25 @@ func adoptedNodeRole(cfg *cryptosv1.MachineConfig) string {
 }
 
 // marshalConfigYAML renders a MachineConfig for the node's StartCeremony, which
-// accepts the config as YAML/JSON bytes and parses it server-side. protojson is
-// deterministic and the node parses it the same as YAML.
+// parses the bytes with a strict (KnownFields) YAML decoder. JSON is valid
+// YAML, so protojson output parses server-side — but the node's config keys are
+// snake_case (state_key, root_key_alg, root_subject, admin_cert_pem, ...), and
+// protojson's default camelCase is rejected as unknown fields. UseProtoNames
+// emits the proto's snake_case names, which match the node's yaml tags for every
+// field except the k8s-style apiVersion, whose proto name is api_version; we
+// rename that single top-level key so the whole document matches the node schema.
 func marshalConfigYAML(cfg *cryptosv1.MachineConfig) ([]byte, error) {
-	return protojson.Marshal(cfg)
+	raw, err := protojson.MarshalOptions{UseProtoNames: true}.Marshal(cfg)
+	if err != nil {
+		return nil, err
+	}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return nil, fmt.Errorf("marshal config yaml: %w", err)
+	}
+	if v, ok := m["api_version"]; ok {
+		delete(m, "api_version")
+		m["apiVersion"] = v
+	}
+	return json.Marshal(m)
 }

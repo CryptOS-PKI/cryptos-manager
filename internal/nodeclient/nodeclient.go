@@ -57,7 +57,13 @@ func Dial(node store.Node) (*Client, error) {
 	}
 
 	tlsCfg := &tls.Config{
-		Certificates:       []tls.Certificate{adminCert},
+		// GetClientCertificate (not Certificates) presents the admin cert
+		// unconditionally, even when the node advertises acceptable-CA hints its
+		// issuer does not match; Go's default selection would otherwise send no
+		// cert and the node answers "tls: certificate required".
+		GetClientCertificate: func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
+			return &adminCert, nil
+		},
 		InsecureSkipVerify: true, //nolint:gosec // node's server cert is ephemeral self-signed; client-cert auth is the trust boundary here.
 	}
 
@@ -133,7 +139,7 @@ func FetchMaintenanceCert(endpoint string) (certSHA256, subject string, err erro
 // handshake unless the presented leaf certificate's SHA-256 equals the
 // operator-confirmed pin. That is the whole trust boundary for adoption: no
 // admin or client secret is ever presented to an unpinned endpoint.
-func DialMaintenance(endpoint, pinnedSHA256 string) (*Client, error) {
+func DialMaintenance(endpoint, pinnedSHA256, clientCertPEM, clientKeyPEM string) (*Client, error) {
 	pin := normalizeFingerprint(pinnedSHA256)
 	if pin == "" {
 		return nil, fmt.Errorf("nodeclient: maintenance dial requires a non-empty pinned SHA-256")
@@ -152,6 +158,23 @@ func DialMaintenance(endpoint, pinnedSHA256 string) (*Client, error) {
 			return nil
 		},
 		MinVersion: tls.VersionTLS12,
+	}
+	// The maintenance server requires a client certificate (mirrors cryptosctl,
+	// which always presents its bootstrap admin identity). We present the admin
+	// cert the manager minted for this node; the node accepts it and the applied
+	// config's bootstrap.admin_cert_pem then pins it.
+	if clientCertPEM != "" {
+		cert, err := tls.X509KeyPair([]byte(clientCertPEM), []byte(clientKeyPEM))
+		if err != nil {
+			return nil, fmt.Errorf("nodeclient: maintenance client cert: %w", err)
+		}
+		// GetClientCertificate (not Certificates) so we ALWAYS present this cert,
+		// even when the maintenance server advertises acceptable-CA hints that our
+		// self-signed admin cert does not chain to. Go's default cert selection
+		// filters by those hints and would send no cert (openssl always sends).
+		tlsCfg.GetClientCertificate = func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
+			return &cert, nil
+		}
 	}
 
 	conn, err := grpc.NewClient(endpoint, grpc.WithTransportCredentials(credentials.NewTLS(tlsCfg)))

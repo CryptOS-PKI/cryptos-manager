@@ -19,6 +19,7 @@ limitations under the License.
 */
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -31,6 +32,7 @@ import (
 	"github.com/CryptOS-PKI/manager/internal/authz"
 	"github.com/CryptOS-PKI/manager/internal/store/memory"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	"gopkg.in/yaml.v3"
 )
 
 // scriptedCeremony replays a fixed sequence of ceremony event kinds, then EOF.
@@ -96,18 +98,22 @@ func TestPreviewAdoption_OperatorDenied(t *testing.T) {
 }
 
 func TestRunAdoption_HappyPath_StreamsPhasesRegistersAndAudits(t *testing.T) {
+	adoptCredsBaseDir = t.TempDir()
 	st := memory.New(nil)
-	mconn := &fakeConn{
-		applyConfigResp: &cryptosv1.ApplyConfigResponse{RequiresReboot: true, Generation: 1},
-		status:          &cryptosv1.GetStatusResponse{},
+	// The maintenance dial applies the config (install).
+	mconn := &fakeConn{applyConfigResp: &cryptosv1.ApplyConfigResponse{RequiresReboot: true, Generation: 1}}
+	// After install + self-reboot the node is dialed in running mode (by name,
+	// via s.dial) for the ceremony.
+	running := &fakeConn{
+		status: &cryptosv1.GetStatusResponse{},
 		ceremonyStream: &scriptedCeremony{kinds: []cryptosv1.CeremonyEventKind{
 			cryptosv1.CeremonyEventKind_CEREMONY_EVENT_KIND_KEY_CREATED,
 			cryptosv1.CeremonyEventKind_CEREMONY_EVENT_KIND_CERT_SIGNED,
 			cryptosv1.CeremonyEventKind_CEREMONY_EVENT_KIND_COMPLETE,
 		}},
 	}
-	svc := New(st, dialFor(nil)).WithAdoption(nil,
-		func(endpoint, pin string) (NodeConn, error) { return mconn, nil })
+	svc := New(st, dialFor(map[string]*fakeConn{"new-node": running})).WithAdoption(nil,
+		func(endpoint, pin, clientCertPEM, clientKeyPEM string) (NodeConn, error) { return mconn, nil })
 
 	// Shrink the reboot timing so the bounded wait is fast in the test.
 	restore := setRebootTiming(5*time.Millisecond, 1*time.Millisecond, 1*time.Millisecond)
@@ -130,7 +136,7 @@ func TestRunAdoption_HappyPath_StreamsPhasesRegistersAndAudits(t *testing.T) {
 		!containsPhase(sink.phases, phaseEstablished) {
 		t.Errorf("phases = %v, want applying-config/awaiting-reboot/ceremony/established", sink.phases)
 	}
-	if got := mconn.gotCeremonyYAML; len(got) == 0 {
+	if got := running.gotCeremonyYAML; len(got) == 0 {
 		t.Error("StartCeremony was not given the config YAML")
 	}
 
@@ -144,20 +150,18 @@ func TestRunAdoption_HappyPath_StreamsPhasesRegistersAndAudits(t *testing.T) {
 }
 
 func TestRunAdoption_RebootNeverReturns_StreamsErrorPhase_NoHang(t *testing.T) {
+	adoptCredsBaseDir = t.TempDir()
 	st := memory.New(nil)
-	// The first dial applies the config fine; every re-dial after the reboot
-	// returns a conn whose GetStatus errors, so the node never confirms it is
-	// back. The bounded reboot wait must expire and stream an error phase
-	// rather than blocking forever.
-	var dials int
-	dial := func(endpoint, pin string) (NodeConn, error) {
-		dials++
-		if dials == 1 {
-			return &fakeConn{applyConfigResp: &cryptosv1.ApplyConfigResponse{RequiresReboot: true}}, nil
-		}
-		return &fakeConn{err: errors.New("node down")}, nil
+	// The maintenance dial applies the config (install) fine. After the reboot
+	// the node is dialed in running mode (by name, via s.dial), but its
+	// GetStatus keeps erroring so the node never confirms it is back. The
+	// bounded reboot wait must expire and stream an error phase rather than
+	// blocking forever.
+	mdial := func(endpoint, pin, clientCertPEM, clientKeyPEM string) (NodeConn, error) {
+		return &fakeConn{applyConfigResp: &cryptosv1.ApplyConfigResponse{RequiresReboot: true}}, nil
 	}
-	svc := New(st, dialFor(nil)).WithAdoption(nil, dial)
+	down := &fakeConn{err: errors.New("node down")}
+	svc := New(st, dialFor(map[string]*fakeConn{"new-node": down})).WithAdoption(nil, mdial)
 
 	restore := setRebootTiming(10*time.Millisecond, 2*time.Millisecond, 1*time.Millisecond)
 	defer restore()
@@ -193,7 +197,7 @@ func TestRunAdoption_RebootNeverReturns_StreamsErrorPhase_NoHang(t *testing.T) {
 
 func TestRunAdoption_MissingPin_InvalidArgument(t *testing.T) {
 	svc := New(memory.New(nil), dialFor(nil)).WithAdoption(nil,
-		func(string, string) (NodeConn, error) { return &fakeConn{}, nil })
+		func(string, string, string, string) (NodeConn, error) { return &fakeConn{}, nil })
 	sink := &collectSink{}
 	err := svc.runAdoption(context.Background(), &fleetv1.AdoptNodeRequest{
 		Endpoint: "node:4443", Config: adoptConfig(),
@@ -203,13 +207,89 @@ func TestRunAdoption_MissingPin_InvalidArgument(t *testing.T) {
 
 func TestAdoptNode_OperatorDenied(t *testing.T) {
 	svc := New(memory.New(nil), dialFor(nil)).WithAdoption(nil,
-		func(string, string) (NodeConn, error) { return &fakeConn{}, nil })
+		func(string, string, string, string) (NodeConn, error) { return &fakeConn{}, nil })
 	ctx := operatorCtx("op@acme.example", authz.LevelOperator)
 	// requireAdmin runs before any streaming, so a nil stream is never touched.
 	err := svc.AdoptNode(ctx, connect.NewRequest(&fleetv1.AdoptNodeRequest{
 		Endpoint: "n:1", PinnedCertSha256: "p", Config: adoptConfig(),
 	}), nil)
 	requireConnectCode(t, err, connect.CodePermissionDenied)
+}
+
+// nodeConfigMirror mirrors the node's config.Config yaml tags exactly (k8s-style
+// apiVersion, snake_case body). Decoding marshalConfigYAML output into it under
+// KnownFields(true) reproduces the node's strict StartCeremony parse, so a
+// camelCase regression (rootKeyAlg, stateKey, adminCertPem, ...) fails here.
+type nodeConfigMirror struct {
+	APIVersion string `yaml:"apiVersion"`
+	Kind       string `yaml:"kind"`
+	Metadata   struct {
+		Name string `yaml:"name"`
+	} `yaml:"metadata"`
+	Role struct {
+		Kind string `yaml:"kind"`
+	} `yaml:"role"`
+	Network struct {
+		Interface string `yaml:"interface"`
+		Address   string `yaml:"address"`
+		Gateway   string `yaml:"gateway"`
+	} `yaml:"network"`
+	Bootstrap struct {
+		AdminCertPem string `yaml:"admin_cert_pem"`
+	} `yaml:"bootstrap"`
+	PKI struct {
+		RootKeyAlg  string `yaml:"root_key_alg"`
+		RootSubject struct {
+			CommonName string `yaml:"common_name"`
+		} `yaml:"root_subject"`
+		RootValidityYears int `yaml:"root_validity_years"`
+	} `yaml:"pki"`
+	Install struct {
+		Disk string `yaml:"disk"`
+	} `yaml:"install"`
+	StateKey struct {
+		Mode string `yaml:"mode"`
+	} `yaml:"state_key"`
+}
+
+func TestMarshalConfigYAML_MatchesNodeStrictSchema(t *testing.T) {
+	cfg := &cryptosv1.MachineConfig{
+		ApiVersion: "cryptos.dev/v1alpha1",
+		Kind:       "MachineConfig",
+		Metadata:   &cryptosv1.Metadata{Name: "cryptos-lab-a"},
+		Role:       &cryptosv1.Role{Kind: "root"},
+		Network:    &cryptosv1.Network{Interface: "eth0", Address: "203.0.113.40/24", Gateway: "203.0.113.1"},
+		Bootstrap:  &cryptosv1.Bootstrap{AdminCertPem: "-----BEGIN CERTIFICATE-----\nMII...\n-----END CERTIFICATE-----\n"},
+		Install:    &cryptosv1.Install{Disk: "/dev/nvme0n1"},
+		StateKey:   &cryptosv1.StateKey{Mode: "nodeid"},
+		Pki: &cryptosv1.Pki{
+			RootKeyAlg:        "ECDSA-P384",
+			RootSubject:       &cryptosv1.Subject{CommonName: "CryptOS Lab Root CA"},
+			RootValidityYears: 10,
+		},
+	}
+
+	raw, err := marshalConfigYAML(cfg)
+	if err != nil {
+		t.Fatalf("marshalConfigYAML: %v", err)
+	}
+
+	var got nodeConfigMirror
+	dec := yaml.NewDecoder(bytes.NewReader(raw))
+	dec.KnownFields(true) // mirror the node's strict decode
+	if err := dec.Decode(&got); err != nil {
+		t.Fatalf("node-strict decode rejected the marshaled config: %v\n---\n%s", err, raw)
+	}
+
+	if got.APIVersion != "cryptos.dev/v1alpha1" {
+		t.Errorf("apiVersion = %q, want cryptos.dev/v1alpha1", got.APIVersion)
+	}
+	if got.PKI.RootKeyAlg != "ECDSA-P384" || got.PKI.RootSubject.CommonName != "CryptOS Lab Root CA" || got.PKI.RootValidityYears != 10 {
+		t.Errorf("pki round-trip = %+v", got.PKI)
+	}
+	if got.StateKey.Mode != "nodeid" || got.Bootstrap.AdminCertPem == "" || got.Install.Disk != "/dev/nvme0n1" {
+		t.Errorf("state_key/bootstrap/install round-trip failed: %+v %+v %+v", got.StateKey, got.Bootstrap, got.Install)
+	}
 }
 
 func containsPhase(phases []string, want string) bool {

@@ -128,8 +128,8 @@ func main() {
 	svc = svc.WithOperatorCA(cfg.OperatorCANode)
 	svc = svc.WithAdoption(
 		nodeclient.FetchMaintenanceCert,
-		func(endpoint, pinnedSHA256 string) (fleet.NodeConn, error) {
-			return nodeclient.DialMaintenance(endpoint, pinnedSHA256)
+		func(endpoint, pinnedSHA256, clientCertPEM, clientKeyPEM string) (fleet.NodeConn, error) {
+			return nodeclient.DialMaintenance(endpoint, pinnedSHA256, clientCertPEM, clientKeyPEM)
 		},
 	)
 
