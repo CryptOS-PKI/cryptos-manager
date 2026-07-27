@@ -67,23 +67,26 @@ func main() {
 			CACert:    n.CACertPath,
 		}
 	}
-	profiles, adapters, audit, enrollments := seed.Catalog()
-
-	// When an operator-CA node is configured, seed the three operator-<level>
-	// issuing profiles into the catalog so an admin can push them to that node
-	// (via ApplyProfileToNode) and S9 issuance can route to them.
+	// Operator-CA issuing profiles (operator-viewer/operator/admin) are
+	// functional config, not demo data: seed them when an operator CA node is
+	// configured so S9 issuance can route to them.
+	var operatorProfiles []store.Profile
 	if cfg.OperatorCANode != "" {
-		opProfiles, err := fleet.OperatorProfiles()
+		var err error
+		operatorProfiles, err = fleet.OperatorProfiles()
 		if err != nil {
 			log.Fatalf("manager: build operator profiles: %v", err)
 		}
-		profiles = append(profiles, opProfiles...)
 	}
 
 	var st store.Store
 	if cfg.DatabaseURL == "" {
+		// Dev-only in-memory store: seed the demo catalog so the offline mock UI
+		// renders against fixtures. The demo catalog never touches a real store.
+		profiles, adapters, audit, enrollments := seed.Catalog()
+		profiles = append(profiles, operatorProfiles...)
 		st = memory.NewWithCatalog(nodes, profiles, adapters, audit, enrollments)
-		log.Printf("manager: no database_url configured, using in-memory store")
+		log.Printf("manager: no database_url configured, using in-memory store (demo catalog seeded)")
 	} else {
 		ctx := context.Background()
 		pg, err := postgres.New(ctx, cfg.DatabaseURL)
@@ -91,7 +94,10 @@ func main() {
 			log.Fatalf("manager: connect postgres: %v", err)
 		}
 		defer pg.Close()
-		if err := pg.SeedIfEmpty(ctx, nodes, profiles, adapters, audit, enrollments); err != nil {
+		// A live store starts clean: no demo nodes, profiles, adapters, audit,
+		// or enrollments. Only configured nodes and the functional operator-CA
+		// profiles are seeded.
+		if err := pg.SeedIfEmpty(ctx, nodes, operatorProfiles, nil, nil, nil); err != nil {
 			log.Fatalf("manager: seed postgres: %v", err)
 		}
 		st = pg
@@ -189,8 +195,7 @@ func main() {
 	// store.Store interface; see #40.
 	rootHandler := withRecover(withCORS(cfg.CORSOrigins, authMW(mux)))
 
-	log.Printf("manager: %d node(s) configured, catalog seeded (%d profiles, %d adapters, %d audit events, %d enrollments)",
-		len(nodes), len(profiles), len(adapters), len(audit), len(enrollments))
+	log.Printf("manager: %d node(s) configured", len(nodes))
 
 	server := &http.Server{Addr: cfg.Listen}
 
