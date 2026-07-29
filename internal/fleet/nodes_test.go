@@ -42,6 +42,7 @@ import (
 // fakeConn is a canned NodeConn used to drive Service without a real dial.
 type fakeConn struct {
 	status      *cryptosv1.GetStatusResponse
+	disks       *cryptosv1.ListInstallDisksResponse
 	identity    *cryptosv1.GetIdentityResponse
 	issued      *cryptosv1.ListIssuedResponse
 	revocations *cryptosv1.ListRevocationsResponse
@@ -173,6 +174,13 @@ func (f *fakeConn) GetStatus(context.Context) (*cryptosv1.GetStatusResponse, err
 		return nil, f.err
 	}
 	return f.status, nil
+}
+
+func (f *fakeConn) ListInstallDisks(context.Context) (*cryptosv1.ListInstallDisksResponse, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.disks, nil
 }
 
 func (f *fakeConn) GetIdentity(context.Context) (*cryptosv1.GetIdentityResponse, error) {

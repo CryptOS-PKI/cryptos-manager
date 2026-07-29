@@ -97,6 +97,34 @@ func TestPreviewAdoption_OperatorDenied(t *testing.T) {
 	requireConnectCode(t, err, connect.CodePermissionDenied)
 }
 
+func TestListInstallDisks_ReturnsNodeDisks(t *testing.T) {
+	conn := &fakeConn{disks: &cryptosv1.ListInstallDisksResponse{Disks: []*cryptosv1.InstallDisk{
+		{Path: "/dev/nvme0n1", SizeBytes: 1 << 30, Model: "Test SSD"},
+	}}}
+	svc := New(memory.New(nil), dialFor(nil)).WithAdoption(nil,
+		func(endpoint, pin, clientCertPEM, clientKeyPEM string) (NodeConn, error) { return conn, nil })
+	ctx := operatorCtx("admin@acme.example", authz.LevelAdmin)
+	resp, err := svc.ListInstallDisks(ctx, connect.NewRequest(&fleetv1.ListInstallDisksRequest{
+		Endpoint: "node:443", PinnedCertSha256: "abc",
+	}))
+	if err != nil {
+		t.Fatalf("ListInstallDisks(admin) error = %v", err)
+	}
+	if disks := resp.Msg.GetDisks(); len(disks) != 1 || disks[0].GetPath() != "/dev/nvme0n1" {
+		t.Errorf("disks = %+v, want one /dev/nvme0n1", resp.Msg.GetDisks())
+	}
+}
+
+func TestListInstallDisks_OperatorDenied(t *testing.T) {
+	svc := New(memory.New(nil), dialFor(nil)).WithAdoption(nil,
+		func(string, string, string, string) (NodeConn, error) { return &fakeConn{}, nil })
+	ctx := operatorCtx("op@acme.example", authz.LevelOperator)
+	_, err := svc.ListInstallDisks(ctx, connect.NewRequest(&fleetv1.ListInstallDisksRequest{
+		Endpoint: "n:1", PinnedCertSha256: "p",
+	}))
+	requireConnectCode(t, err, connect.CodePermissionDenied)
+}
+
 func TestRunAdoption_HappyPath_StreamsPhasesRegistersAndAudits(t *testing.T) {
 	adoptCredsBaseDir = t.TempDir()
 	st := memory.New(nil)

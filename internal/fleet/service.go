@@ -36,6 +36,7 @@ import (
 // fake instead of dialing a real node.
 type NodeConn interface {
 	GetStatus(ctx context.Context) (*cryptosv1.GetStatusResponse, error)
+	ListInstallDisks(ctx context.Context) (*cryptosv1.ListInstallDisksResponse, error)
 	GetIdentity(ctx context.Context) (*cryptosv1.GetIdentityResponse, error)
 	ListIssued(ctx context.Context) (*cryptosv1.ListIssuedResponse, error)
 	ListRevocations(ctx context.Context) (*cryptosv1.ListRevocationsResponse, error)

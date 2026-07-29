@@ -92,6 +92,34 @@ func (s *Service) PreviewAdoption(ctx context.Context, req *connect.Request[flee
 	}), nil
 }
 
+// ListInstallDisks returns the candidate install disks a maintenance node
+// reports, so the adopt wizard offers real devices instead of a free-text
+// guess. Pinned to the fingerprint confirmed via PreviewAdoption; maintenance
+// mode is client-auth off, so no client cert is presented. Admin-gated read.
+func (s *Service) ListInstallDisks(ctx context.Context, req *connect.Request[fleetv1.ListInstallDisksRequest]) (*connect.Response[fleetv1.ListInstallDisksResponse], error) {
+	if err := requireAdmin(ctx); err != nil {
+		return nil, err
+	}
+	if s.dialMaintenance == nil {
+		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("fleet: adoption not configured"))
+	}
+	endpoint := req.Msg.GetEndpoint()
+	pin := req.Msg.GetPinnedCertSha256()
+	if endpoint == "" || pin == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("fleet: endpoint and pinned_cert_sha256 are required"))
+	}
+	conn, err := s.dialMaintenance(endpoint, pin, "", "")
+	if err != nil {
+		return nil, connect.NewError(connect.CodeUnavailable, fmt.Errorf("fleet: dial maintenance: %w", err))
+	}
+	defer func() { _ = conn.Close() }()
+	resp, err := conn.ListInstallDisks(ctx)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("fleet: list install disks: %w", err))
+	}
+	return connect.NewResponse(&fleetv1.ListInstallDisksResponse{Disks: resp.GetDisks()}), nil
+}
+
 // AdoptNode provisions a not-yet-adopted maintenance node end to end and streams
 // progress. It is admin-gated. Pinned to the fingerprint the operator confirmed
 // via PreviewAdoption, it dials the maintenance endpoint (TOFU, no client

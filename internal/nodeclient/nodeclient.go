@@ -200,6 +200,12 @@ func (c *Client) GetStatus(ctx context.Context) (*cryptosv1.GetStatusResponse, e
 	return c.node.GetStatus(ctx, &cryptosv1.GetStatusRequest{})
 }
 
+// ListInstallDisks returns the node's candidate install block devices (served
+// in maintenance mode, for the adopt wizard).
+func (c *Client) ListInstallDisks(ctx context.Context) (*cryptosv1.ListInstallDisksResponse, error) {
+	return c.node.ListInstallDisks(ctx, &cryptosv1.ListInstallDisksRequest{})
+}
+
 // GetIdentity returns the node's current certificate identity.
 func (c *Client) GetIdentity(ctx context.Context) (*cryptosv1.GetIdentityResponse, error) {
 	return c.node.GetIdentity(ctx, &cryptosv1.GetIdentityRequest{})

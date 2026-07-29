@@ -563,6 +563,10 @@ func (r *routingConn) GetStatus(ctx context.Context) (*cryptosv1.GetStatusRespon
 	return r.ferry.GetStatus(ctx)
 }
 
+func (r *routingConn) ListInstallDisks(ctx context.Context) (*cryptosv1.ListInstallDisksResponse, error) {
+	return r.ferry.ListInstallDisks(ctx)
+}
+
 func (r *routingConn) GetIdentity(ctx context.Context) (*cryptosv1.GetIdentityResponse, error) {
 	return r.identity.GetIdentity(ctx)
 }
