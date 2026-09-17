@@ -36,8 +36,9 @@ type Config struct {
 	AuthBypass  bool     `yaml:"authBypass"`
 
 	// TLS + client-auth material. Required when AuthBypass is false: the
-	// manager then serves HTTPS with RequireAndVerifyClientCert against
-	// OperatorCA. Ignored in the AuthBypass dev path (h2c).
+	// manager then serves HTTPS and verifies a client certificate against
+	// OperatorCA when one is presented. Ignored in the AuthBypass dev path
+	// (h2c).
 	TLSCert        string `yaml:"tlsCert"`
 	TLSKey         string `yaml:"tlsKey"`
 	OperatorCAPath string `yaml:"operatorCAPath"`

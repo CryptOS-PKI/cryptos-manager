@@ -141,14 +141,10 @@ func main() {
 
 	path, handler := fleetv1connect.NewFleetServiceHandler(svc)
 
-	mux := http.NewServeMux()
-	mux.Handle(path, handler)
-
 	web, err := webui.Handler()
 	if err != nil {
 		log.Fatalf("manager: webui: %v", err)
 	}
-	mux.Handle("/", web)
 
 	// S9 revocation enforcement: when an operator-CA node is configured, the
 	// manager periodically fetches its revoked serials and the mTLS middleware
@@ -189,11 +185,7 @@ func main() {
 	if cfg.AuthBypass {
 		authMW = authz.BypassMiddleware
 	}
-	// withRecover is the outermost layer so a panic on any path -- including the
-	// Postgres store panicking on a query error -- is logged and answered with a
-	// 500 instead of a bare aborted stream. The real fix is an error-returning
-	// store.Store interface; see #40.
-	rootHandler := withRecover(withCORS(cfg.CORSOrigins, authMW(mux)))
+	rootHandler := newRootHandler(path, handler, web, authMW, cfg.CORSOrigins)
 
 	log.Printf("manager: %d node(s) configured", len(nodes))
 
@@ -221,7 +213,18 @@ func main() {
 }
 
 // buildTLSConfig builds the server TLS config: the adopter-provided server
-// cert/key plus RequireAndVerifyClientCert against the operator CA.
+// cert/key, and a client certificate that is requested and verified against the
+// operator CA when the client presents one.
+//
+// VerifyClientCertIfGiven rather than RequireAndVerifyClientCert (#68): the
+// handshake must succeed without a client certificate so the web surface can
+// serve a landing page and say what is missing. A certificate that *is*
+// presented still has to verify against the operator CA -- an untrusted one
+// fails the handshake exactly as before -- and authorization is unchanged,
+// because it never lived in the TLS layer. What moved is where the absence of a
+// certificate is answered: newRootHandler gates the API on it, so an
+// unauthenticated client gets a 401 from the API instead of a dead connection
+// from the whole service.
 func buildTLSConfig(cfg config.Config) (*tls.Config, error) {
 	serverCert, err := tls.LoadX509KeyPair(cfg.TLSCert, cfg.TLSKey)
 	if err != nil {
@@ -237,10 +240,33 @@ func buildTLSConfig(cfg config.Config) (*tls.Config, error) {
 	}
 	return &tls.Config{
 		Certificates: []tls.Certificate{serverCert},
-		ClientAuth:   tls.RequireAndVerifyClientCert,
+		ClientAuth:   tls.VerifyClientCertIfGiven,
 		ClientCAs:    pool,
 		MinVersion:   tls.VersionTLS12,
 	}, nil
+}
+
+// newRootHandler assembles the serving chain. The auth middleware wraps the API
+// handler only, so the SPA is reachable without a client certificate while
+// every API call still needs one (#68). Wrapping the whole mux -- which is what
+// this used to do -- would have meant softening the TLS mode also exposed the
+// API to anonymous callers.
+//
+// withRecover is the outermost layer so a panic on any path -- including the
+// Postgres store panicking on a query error -- is logged and answered with a
+// 500 instead of a bare aborted stream. The real fix is an error-returning
+// store.Store interface; see #40.
+func newRootHandler(
+	apiPath string,
+	apiHandler, webHandler http.Handler,
+	authMW func(http.Handler) http.Handler,
+	corsOrigins []string,
+) http.Handler {
+	mux := http.NewServeMux()
+	mux.Handle(apiPath, authMW(apiHandler))
+	mux.Handle("/", webHandler)
+
+	return withRecover(withCORS(corsOrigins, mux))
 }
 
 // withRecover wraps next so a panic in any downstream handler is caught,

@@ -34,6 +34,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CryptOS-PKI/manager/internal/authz"
 	"github.com/CryptOS-PKI/manager/internal/config"
 )
 
@@ -112,7 +113,14 @@ func TestWithRecover_PassesThroughWhenNoPanic(t *testing.T) {
 	}
 }
 
-func TestBuildTLSConfig_RequiresClientCert(t *testing.T) {
+// TestBuildTLSConfig_RequestsButDoesNotRequireAClientCert is the core of #68:
+// requiring the certificate during the handshake meant a browser without one
+// got no response at all -- no landing page, not even a health surface -- so an
+// operator could not tell a live service from a dead one before importing a
+// certificate. The certificate is still requested and still verified against
+// the operator CA when presented; what changed is that its absence is now the
+// API's answer to give, not the handshake's.
+func TestBuildTLSConfig_RequestsButDoesNotRequireAClientCert(t *testing.T) {
 	dir := t.TempDir()
 	certPath, keyPath := writeSelfSigned(t, dir)
 	cfg := config.Config{TLSCert: certPath, TLSKey: keyPath, OperatorCAPath: certPath}
@@ -120,8 +128,8 @@ func TestBuildTLSConfig_RequiresClientCert(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildTLSConfig: %v", err)
 	}
-	if tc.ClientAuth != tls.RequireAndVerifyClientCert {
-		t.Errorf("ClientAuth = %v, want RequireAndVerifyClientCert", tc.ClientAuth)
+	if tc.ClientAuth != tls.VerifyClientCertIfGiven {
+		t.Errorf("ClientAuth = %v, want VerifyClientCertIfGiven", tc.ClientAuth)
 	}
 	if tc.ClientCAs == nil {
 		t.Error("ClientCAs is nil, want the operator CA pool")
@@ -141,5 +149,52 @@ func TestBuildTLSConfig_BadOperatorCA(t *testing.T) {
 	cfg := config.Config{TLSCert: certPath, TLSKey: keyPath, OperatorCAPath: junk}
 	if _, err := buildTLSConfig(cfg); err == nil {
 		t.Fatal("buildTLSConfig with junk CA = nil error, want error")
+	}
+}
+
+// stubHandler answers with a fixed status and body so routing can be asserted
+// without the real SPA or Connect handler.
+func stubHandler(status int, body string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(body))
+	})
+}
+
+// TestRootHandler_SPAIsAnonymousAndAPIIsNot pins the split #68 asks for: the web
+// surface answers a client with no certificate, and the API does not. The auth
+// middleware used to wrap the whole mux, which is why softening the TLS mode on
+// its own would have exposed the API to anonymous callers.
+func TestRootHandler_SPAIsAnonymousAndAPIIsNot(t *testing.T) {
+	h := newRootHandler(
+		"/cryptos.fleet.v1.FleetService/",
+		stubHandler(http.StatusOK, "api"),
+		stubHandler(http.StatusOK, "spa"),
+		authz.ClientCertMiddleware,
+		nil,
+	)
+
+	for _, tc := range []struct {
+		name     string
+		target   string
+		want     int
+		wantBody string
+	}{
+		{"spa root", "/", http.StatusOK, "spa"},
+		{"spa deep link", "/nodes/pki-root-01", http.StatusOK, "spa"},
+		{"api", "/cryptos.fleet.v1.FleetService/WhoAmI", http.StatusUnauthorized, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			// No TLS on the request: a client that presented no certificate.
+			h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tc.target, nil))
+
+			if rec.Code != tc.want {
+				t.Fatalf("status = %d, want %d (body %q)", rec.Code, tc.want, rec.Body.String())
+			}
+			if tc.wantBody != "" && rec.Body.String() != tc.wantBody {
+				t.Errorf("body = %q, want %q", rec.Body.String(), tc.wantBody)
+			}
+		})
 	}
 }
