@@ -214,7 +214,11 @@ func main() {
 	}
 	server.Handler = rootHandler // TLS negotiates HTTP/2 via ALPN; no h2c
 	server.TLSConfig = tlsCfg
-	log.Printf("manager: listening on %s (mTLS client-cert auth)", cfg.Listen)
+	// Say what is actually enforced. Since #68 the handshake no longer requires
+	// a client certificate -- the API does -- and a log line claiming otherwise
+	// is the kind of thing an operator reads as confirmation that the web
+	// surface is locked down when it is deliberately not.
+	log.Printf("manager: listening on %s (client-cert auth on the API, web surface anonymous)", cfg.Listen)
 	if err := server.ListenAndServeTLS("", ""); err != nil {
 		log.Fatalf("manager: serve: %v", err)
 	}
