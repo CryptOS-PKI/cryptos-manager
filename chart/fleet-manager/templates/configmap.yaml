@@ -8,6 +8,11 @@ data:
     listen: {{ .Values.listen | quote }}
     authBypass: {{ .Values.authBypass }}
     corsOrigins: {{ toJson .Values.corsOrigins }}
+    httpRedirectListen: {{ .Values.httpRedirectListen | quote }}
+    {{- if ne (int .Values.service.port) 443 }}
+    # The redirect has to name the port clients reach, not the listener's.
+    httpsPublicPort: {{ .Values.service.port | quote }}
+    {{- end }}
     {{- if not .Values.authBypass }}
     tlsCert: /etc/cryptos/fleet/tls/tls.crt
     tlsKey: /etc/cryptos/fleet/tls/tls.key

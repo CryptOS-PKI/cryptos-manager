@@ -19,7 +19,12 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           args: ["-config", "/etc/cryptos/fleet/config.yaml"]
           ports:
-            - containerPort: {{ .Values.service.targetPort }}
+            - name: https
+              containerPort: {{ .Values.service.targetPort }}
+            {{- if .Values.httpRedirectListen }}
+            - name: http-redirect
+              containerPort: {{ .Values.service.httpTargetPort }}
+            {{- end }}
           volumeMounts:
             - name: config
               mountPath: /etc/cryptos/fleet/config.yaml

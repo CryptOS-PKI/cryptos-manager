@@ -198,3 +198,72 @@ func TestRootHandler_SPAIsAnonymousAndAPIIsNot(t *testing.T) {
 		})
 	}
 }
+
+// TestHTTPSRedirectHandler covers the port 80 listener (#70). The redirect
+// target is the *public* HTTPS port, which is not the port the manager listens
+// on: the container serves 8443 internally and is published on 443, so
+// redirecting to the listener's own port would send the browser somewhere it
+// cannot reach.
+func TestHTTPSRedirectHandler(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		publicPort string
+		method     string
+		host       string
+		target     string
+		want       string
+	}{
+		{"bare host", "", http.MethodGet, "fm.acme.example", "/", "https://fm.acme.example/"},
+		{"strips the http port", "", http.MethodGet, "fm.acme.example:80", "/", "https://fm.acme.example/"},
+		{
+			"container published on 80 redirects to 443, not 8443",
+			"", http.MethodGet, "fm.acme.example", "/nodes", "https://fm.acme.example/nodes",
+		},
+		{
+			"preserves path and query",
+			"", http.MethodGet, "fm.acme.example", "/nodes?role=root&page=2",
+			"https://fm.acme.example/nodes?role=root&page=2",
+		},
+		{
+			"honours a non-standard public port",
+			"8443", http.MethodGet, "fm.acme.example:8080", "/", "https://fm.acme.example:8443/",
+		},
+		{
+			"explicit 443 is left implicit",
+			"443", http.MethodGet, "fm.acme.example", "/", "https://fm.acme.example/",
+		},
+		{"non-GET is redirected too", "", http.MethodPost, "fm.acme.example", "/api", "https://fm.acme.example/api"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(tc.method, tc.target, nil)
+			req.Host = tc.host
+			rec := httptest.NewRecorder()
+
+			httpsRedirectHandler(tc.publicPort).ServeHTTP(rec, req)
+
+			// Temporary rather than permanent: a browser caches a 301 or 308
+			// for the origin more or less forever, and that is painful to undo
+			// if the deployment ever needs to serve something on 80.
+			if rec.Code != http.StatusTemporaryRedirect {
+				t.Fatalf("status = %d, want %d", rec.Code, http.StatusTemporaryRedirect)
+			}
+			if got := rec.Header().Get("Location"); got != tc.want {
+				t.Errorf("Location = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// A request with no Host header has nowhere to redirect to, and guessing would
+// send the client somewhere arbitrary.
+func TestHTTPSRedirectHandler_NoHost(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Host = ""
+	rec := httptest.NewRecorder()
+
+	httpsRedirectHandler("").ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}

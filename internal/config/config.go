@@ -35,6 +35,20 @@ type Config struct {
 	CORSOrigins []string `yaml:"corsOrigins"`
 	AuthBypass  bool     `yaml:"authBypass"`
 
+	// HTTPRedirectListen is the plaintext address whose only job is to redirect
+	// to HTTPS, so an operator who types a hostname without a scheme reaches the
+	// login page instead of a refused connection (#70). Empty disables it.
+	// Bare host: ":80". Container: ":8080", published as 80, because the image
+	// runs unprivileged and cannot bind a low port.
+	HTTPRedirectListen string `yaml:"httpRedirectListen"`
+
+	// HTTPSPublicPort is the HTTPS port clients actually reach, used as the
+	// redirect target. It is not the port the manager listens on: the container
+	// serves 8443 internally and is published on 443, so the redirect has to
+	// name the published port, not the listener's. Empty means 443 and leaves
+	// the port implicit in the redirect.
+	HTTPSPublicPort string `yaml:"httpsPublicPort"`
+
 	// TLS + client-auth material. Required when AuthBypass is false: the
 	// manager then serves HTTPS and verifies a client certificate against
 	// OperatorCA when one is presented. Ignored in the AuthBypass dev path

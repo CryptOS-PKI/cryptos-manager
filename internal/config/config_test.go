@@ -169,3 +169,66 @@ func TestValidate_TLSOptionalWhenBypass(t *testing.T) {
 		t.Fatalf("validate() = %v, want nil (bypass needs no TLS)", err)
 	}
 }
+
+// TestLoad_HTTPRedirectFields covers the #70 plumbing: the redirect listener and
+// the public HTTPS port have to survive the round trip through YAML, and the
+// public port is separate from the listener precisely because the container's
+// published port differs from the one it binds.
+func TestLoad_HTTPRedirectFields(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	body := `listen: "0.0.0.0:8443"
+authBypass: true
+httpRedirectListen: "0.0.0.0:8080"
+httpsPublicPort: "443"
+nodes:
+  - name: n1
+    endpoint: n1.example:4443
+    role: root
+    adminCertPath: /tmp/admin.crt
+    adminKeyPath: /tmp/admin.key
+    caCertPath: /tmp/ca.pem
+`
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.HTTPRedirectListen != "0.0.0.0:8080" {
+		t.Errorf("HTTPRedirectListen = %q, want 0.0.0.0:8080", cfg.HTTPRedirectListen)
+	}
+	if cfg.HTTPSPublicPort != "443" {
+		t.Errorf("HTTPSPublicPort = %q, want 443", cfg.HTTPSPublicPort)
+	}
+}
+
+// Omitting the fields disables the redirect rather than failing to start, so a
+// bare-host deployment that cannot bind port 80 is unaffected.
+func TestLoad_HTTPRedirectOptional(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	body := `listen: "0.0.0.0:8443"
+authBypass: true
+nodes:
+  - name: n1
+    endpoint: n1.example:4443
+    role: root
+    adminCertPath: /tmp/admin.crt
+    adminKeyPath: /tmp/admin.key
+    caCertPath: /tmp/ca.pem
+`
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.HTTPRedirectListen != "" {
+		t.Errorf("HTTPRedirectListen = %q, want empty", cfg.HTTPRedirectListen)
+	}
+}

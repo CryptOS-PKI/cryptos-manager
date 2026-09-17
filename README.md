@@ -31,12 +31,27 @@ Bring your own trust material: a **server TLS cert** (`tlsCert`/`tlsKey`, any pu
 **Docker:**
 
 ```sh
-docker run -p 443:8443 \
+docker run -p 443:8443 -p 80:8080 \
   -v /etc/cryptos/fleet:/etc/cryptos/fleet:ro \
   ghcr.io/cryptos-pki/manager:vX.Y.Z
 # config.yaml (authBypass:false, tlsCert/tlsKey, operatorCAPath, nodes[]) + the
 # referenced cert/key/CA files live under the mounted /etc/cryptos/fleet.
 ```
+
+Publish 80 as well as 443. The image listens on 8443 for HTTPS and, when
+`httpRedirectListen` is set, on 8080 for a plaintext listener that does nothing but
+redirect to HTTPS -- so an operator who types a hostname without a scheme reaches the
+login page instead of a refused connection. Both are high ports because the image runs
+as uid 65532 and cannot bind a privileged one; the published ports are the conventional
+80 and 443.
+
+The redirect names the **published** HTTPS port, not the one the container binds. If you
+publish HTTPS somewhere other than 443, set `httpsPublicPort` to that port, or the
+redirect will send browsers to a port nothing is listening on.
+
+The web surface itself is reachable without an operator certificate: it serves a landing
+page with a Log in action, and every API call still requires a certificate that verifies
+against the operator CA.
 
 **Helm (OCI):**
 

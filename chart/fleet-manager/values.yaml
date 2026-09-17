@@ -8,9 +8,18 @@ replicaCount: 2
 service:
   port: 443
   targetPort: 8443
+  # Plaintext port that only redirects to HTTPS, so an operator who types a
+  # hostname without a scheme reaches the login page. httpPort is what clients
+  # connect to; httpTargetPort is the in-container listener, which cannot be a
+  # low port because the image runs unprivileged.
+  httpPort: 80
+  httpTargetPort: 8080
 
 # Manager listen address inside the container.
 listen: "0.0.0.0:8443"
+
+# Plaintext redirect listener inside the container. Empty disables it.
+httpRedirectListen: "0.0.0.0:8080"
 
 # Dev-only. Leave false for real deployments (enables mTLS client-cert auth).
 authBypass: false

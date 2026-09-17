@@ -8,6 +8,13 @@ spec:
     app.kubernetes.io/name: {{ include "fleet-manager.name" . }}
     app.kubernetes.io/instance: {{ .Release.Name }}
   ports:
-    - port: {{ .Values.service.port }}
+    - name: https
+      port: {{ .Values.service.port }}
       targetPort: {{ .Values.service.targetPort }}
       protocol: TCP
+    {{- if .Values.httpRedirectListen }}
+    - name: http-redirect
+      port: {{ .Values.service.httpPort }}
+      targetPort: {{ .Values.service.httpTargetPort }}
+      protocol: TCP
+    {{- end }}

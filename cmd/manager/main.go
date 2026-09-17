@@ -28,6 +28,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"runtime/debug"
@@ -204,6 +205,13 @@ func main() {
 	if err != nil {
 		log.Fatalf("manager: tls: %v", err)
 	}
+
+	// Port 80 exists only to send browsers to HTTPS. An operator types a
+	// hostname, not a scheme, and without this they get a connection refused
+	// instead of the login page (#70).
+	if cfg.HTTPRedirectListen != "" {
+		go serveHTTPRedirect(cfg.HTTPRedirectListen, cfg.HTTPSPublicPort)
+	}
 	server.Handler = rootHandler // TLS negotiates HTTP/2 via ALPN; no h2c
 	server.TLSConfig = tlsCfg
 	log.Printf("manager: listening on %s (mTLS client-cert auth)", cfg.Listen)
@@ -267,6 +275,54 @@ func newRootHandler(
 	mux.Handle("/", webHandler)
 
 	return withRecover(withCORS(corsOrigins, mux))
+}
+
+// serveHTTPRedirect runs the plaintext listener whose only job is to redirect to
+// HTTPS. A failure here is logged and not fatal: the HTTPS listener is the
+// service, and losing the convenience redirect should not take it down.
+func serveHTTPRedirect(listen, publicHTTPSPort string) {
+	log.Printf("manager: redirecting HTTP on %s to HTTPS", listen)
+
+	srv := &http.Server{
+		Addr:              listen,
+		Handler:           httpsRedirectHandler(publicHTTPSPort),
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	if err := srv.ListenAndServe(); err != nil {
+		log.Printf("manager: WARNING HTTP redirect listener on %s stopped: %v", listen, err)
+	}
+}
+
+// httpsRedirectHandler redirects every request to the HTTPS scheme on the same
+// host, preserving path and query.
+//
+// publicHTTPSPort is the port clients reach, which is deliberately not the port
+// the manager listens on: the container serves 8443 internally and is published
+// on 443, so redirecting to the listener's own port would send the browser
+// somewhere it cannot reach. Empty (or 443) leaves the port implicit.
+//
+// The redirect is temporary, not permanent. A browser caches a 301 or 308 for an
+// origin more or less indefinitely, which is painful to undo if the deployment
+// ever needs to serve anything else on port 80.
+func httpsRedirectHandler(publicHTTPSPort string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host := r.Host
+		if host == "" {
+			// Nothing to redirect to, and guessing would send the client
+			// somewhere arbitrary.
+			http.Error(w, "missing Host header", http.StatusBadRequest)
+
+			return
+		}
+		if h, _, err := net.SplitHostPort(host); err == nil {
+			host = h
+		}
+		if publicHTTPSPort != "" && publicHTTPSPort != "443" {
+			host = net.JoinHostPort(host, publicHTTPSPort)
+		}
+
+		http.Redirect(w, r, "https://"+host+r.URL.RequestURI(), http.StatusTemporaryRedirect)
+	})
 }
 
 // withRecover wraps next so a panic in any downstream handler is caught,
