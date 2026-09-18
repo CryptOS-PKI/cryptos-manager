@@ -53,6 +53,45 @@ The web surface itself is reachable without an operator certificate: it serves a
 page with a Log in action, and every API call still requires a certificate that verifies
 against the operator CA.
 
+**Everything under the mount must be readable by uid 65532.** The final image stage is
+`gcr.io/distroless/static-debian12:nonroot`, so the process runs as that uid, and that
+includes `config.yaml` itself. This bites hardest on Debian and Ubuntu, where the server
+key normally lives in `/etc/ssl/private` — that directory is `0710 root:ssl-cert`, so
+bind-mounting a key straight out of it gives the container a path it cannot traverse. The
+`usermod -aG ssl-cert` fix that works for a systemd deployment does not carry over, since
+no host account is involved. Copy the material into the mounted tree instead:
+
+```sh
+sudo install -o 65532 -g 65532 -m 0444 fullchain.pem /etc/cryptos/fleet/tls/server-fullchain.pem
+sudo install -o 65532 -g 65532 -m 0400 server.key    /etc/cryptos/fleet/tls/server.key
+sudo install -o 65532 -g 65532 -m 0400 config.yaml   /etc/cryptos/fleet/config.yaml
+```
+
+The failure mode is misleading if you skip this: the manager logs `using postgres store`
+and `N node(s) configured` first, then dies on `tls: load server cert: permission
+denied`, which reads like a TLS problem rather than a permissions one.
+
+**`config.yaml` is a secret, not configuration.** `database_url` carries the Postgres DSN
+inline and the loader does no environment interpolation, so the password is in the file.
+Give it `0400` owned by uid 65532, as above, and keep it out of git — including out of the
+directory you keep a `docker compose` file in.
+
+### Building the image yourself
+
+There is no published image before the first release tag, so until then this is the
+supported path — and it stays useful afterwards for a patched build.
+
+**The build context is the workspace root, not this repo.** The `Dockerfile` copies from
+`manager/` and `web/`, so it needs a parent directory holding both checkouts side by side.
+Running `docker build .` from inside this repo fails on the `COPY` paths:
+
+```sh
+mkdir -p src && cd src
+git clone https://github.com/CryptOS-PKI/manager.git manager
+git clone https://github.com/CryptOS-PKI/web.git web
+docker build -f manager/Dockerfile -t manager:local .
+```
+
 **Helm (OCI):**
 
 ```sh
@@ -75,6 +114,11 @@ database_url: "postgres://manager:secret@db:5432/manager"
 ```
 
 The persistence layer is hand-rolled: raw SQL over [`pgx`](https://github.com/jackc/pgx), a hand-written schema, and a tiny version-tracked migrator — no ORM.
+
+For a bare-host deployment without a container runtime — systemd unit, the
+`/etc/ssl/private` trap, an OpenSSL operator CA for a fleet with no spare node, and how to
+verify the listener without a browser — see
+[`docs/deploying-standalone.md`](docs/deploying-standalone.md).
 
 The Postgres integration tests are gated on the `MANAGER_TEST_DATABASE_URL` env var and **skip** when it is unset, so `task ci` stays green without a database. To run them against a throwaway Postgres:
 
