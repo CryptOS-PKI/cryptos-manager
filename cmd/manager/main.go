@@ -90,7 +90,15 @@ func main() {
 		log.Printf("manager: no database_url configured, using in-memory store (demo catalog seeded)")
 	} else {
 		ctx := context.Background()
-		pg, err := postgres.New(ctx, cfg.DatabaseURL)
+		// Wait for Postgres rather than exiting if it is not up yet: a
+		// restarted container frequently comes back before its database does
+		// (see dbConnectWindow).
+		pg, err := openWithRetry(
+			func() (*postgres.Store, error) { return postgres.New(ctx, cfg.DatabaseURL) },
+			dbConnectWindow,
+			time.Sleep,
+			log.Printf,
+		)
 		if err != nil {
 			log.Fatalf("manager: connect postgres: %v", err)
 		}
