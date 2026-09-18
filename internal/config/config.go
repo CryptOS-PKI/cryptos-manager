@@ -111,13 +111,13 @@ func (c Config) validate() error {
 		return fmt.Errorf("listen must not be empty")
 	}
 
-	if !c.AuthBypass {
-		if c.TLSCert == "" || c.TLSKey == "" {
-			return fmt.Errorf("tlsCert and tlsKey are required when authBypass is false")
-		}
-		if c.OperatorCAPath == "" {
-			return fmt.Errorf("operatorCAPath is required when authBypass is false")
-		}
+	// tlsCert/tlsKey and operatorCAPath are deliberately optional. Omitting
+	// them is how FleetOS is brought up from nothing (#78): the manager
+	// generates a self-signed bootstrap certificate and accepts no operator
+	// until one is minted. Supplying one of a pair is a mistake, though, and
+	// is caught here rather than at TLS load.
+	if !c.AuthBypass && (c.TLSCert == "") != (c.TLSKey == "") {
+		return fmt.Errorf("tlsCert and tlsKey must be set together, or both left unset to generate a bootstrap certificate")
 	}
 
 	for i, n := range c.Nodes {

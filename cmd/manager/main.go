@@ -246,18 +246,49 @@ func main() {
 // unauthenticated client gets a 401 from the API instead of a dead connection
 // from the whole service.
 func buildTLSConfig(cfg config.Config) (*tls.Config, error) {
-	serverCert, err := tls.LoadX509KeyPair(cfg.TLSCert, cfg.TLSKey)
-	if err != nil {
-		return nil, fmt.Errorf("load server cert: %w", err)
+	// No configured material is a deliberate day-zero choice (#78): generate a
+	// throwaway certificate so the site comes up and the operator can be told
+	// what to install. A configured path that fails to load is a mistake, and
+	// still fatal -- it must not be papered over with a self-signed
+	// certificate that looks like it worked.
+	var (
+		serverCert tls.Certificate
+		err        error
+	)
+	if cfg.TLSCert == "" && cfg.TLSKey == "" {
+		serverCert, err = generateServerCert(bootstrapCertHosts(cfg.Listen))
+		if err != nil {
+			return nil, fmt.Errorf("generate bootstrap server cert: %w", err)
+		}
+		log.Printf("manager: WARNING no tlsCert/tlsKey configured, serving a SELF-SIGNED " +
+			"bootstrap certificate; browsers will warn until real material is installed")
+	} else {
+		serverCert, err = tls.LoadX509KeyPair(cfg.TLSCert, cfg.TLSKey)
+		if err != nil {
+			return nil, fmt.Errorf("load server cert: %w", err)
+		}
 	}
-	caPEM, err := os.ReadFile(cfg.OperatorCAPath)
-	if err != nil {
-		return nil, fmt.Errorf("read operator CA: %w", err)
+
+	// Without an operator CA nobody can authenticate yet, which is the correct
+	// day-zero posture rather than a reason to refuse to start: the listener
+	// comes up, the API answers 401 to everyone, and first run opens only its
+	// own endpoint. A nil ClientCAs pool means a presented certificate is
+	// verified against nothing we trust and is refused.
+	var pool *x509.CertPool
+	if cfg.OperatorCAPath != "" {
+		caPEM, readErr := os.ReadFile(cfg.OperatorCAPath)
+		if readErr != nil {
+			return nil, fmt.Errorf("read operator CA: %w", readErr)
+		}
+		pool = x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(caPEM) {
+			return nil, fmt.Errorf("operator CA %s contains no PEM certificates", cfg.OperatorCAPath)
+		}
+	} else {
+		log.Printf("manager: WARNING no operatorCAPath configured, so no operator " +
+			"certificate can be accepted; the API will refuse every caller until the fleet is bootstrapped")
 	}
-	pool := x509.NewCertPool()
-	if !pool.AppendCertsFromPEM(caPEM) {
-		return nil, fmt.Errorf("operator CA %s contains no PEM certificates", cfg.OperatorCAPath)
-	}
+
 	return &tls.Config{
 		Certificates: []tls.Certificate{serverCert},
 		ClientAuth:   tls.VerifyClientCertIfGiven,

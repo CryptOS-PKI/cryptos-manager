@@ -146,10 +146,15 @@ nodes:
 	}
 }
 
-func TestValidate_TLSRequiredWhenNotBypass(t *testing.T) {
+// TestValidate_TLSMaterialOptionalWhenNotBypass: omitting the TLS material and
+// the operator CA is how FleetOS is brought up from nothing (#78). It used to be
+// rejected, which left `authBypass: true` -- plaintext h2c with authentication
+// disabled -- as the only way to start a fresh host. The manager now generates a
+// self-signed bootstrap certificate and accepts no operator until one is minted.
+func TestValidate_TLSMaterialOptionalWhenNotBypass(t *testing.T) {
 	c := Config{Listen: "0.0.0.0:8443", AuthBypass: false}
-	if err := c.validate(); err == nil {
-		t.Fatal("validate() = nil, want error for missing TLS material when authBypass=false")
+	if err := c.validate(); err != nil {
+		t.Fatalf("validate() = %v, want nil for a day-zero config", err)
 	}
 
 	c = Config{
@@ -161,6 +166,24 @@ func TestValidate_TLSRequiredWhenNotBypass(t *testing.T) {
 	}
 	if err := c.validate(); err != nil {
 		t.Fatalf("validate() = %v, want nil with TLS material present", err)
+	}
+}
+
+// Half a pair is a typo, not a day-zero choice, and silently generating a
+// bootstrap certificate would hide it.
+func TestValidate_TLSPairMustBeSetTogether(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		cfg  Config
+	}{
+		{"cert without key", Config{Listen: ":8443", TLSCert: "/srv/tls.crt"}},
+		{"key without cert", Config{Listen: ":8443", TLSKey: "/srv/tls.key"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := tc.cfg.validate(); err == nil {
+				t.Error("validate() = nil, want an error for half a TLS pair")
+			}
+		})
 	}
 }
 

@@ -267,3 +267,64 @@ func TestHTTPSRedirectHandler_NoHost(t *testing.T) {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
 	}
 }
+
+// TestBuildTLSConfig_GeneratesWhenNoCertConfigured is the first step of a
+// FleetOS bring-up (#78): there is no server certificate yet, and the site still
+// has to come up so the operator can reach the first-run screen. Leaving
+// tlsCert/tlsKey unset generates an ephemeral self-signed certificate rather
+// than refusing to start, which is what the CryptOS nodes already do for their
+// own listener before any CA identity exists.
+func TestBuildTLSConfig_GeneratesWhenNoCertConfigured(t *testing.T) {
+	tc, err := buildTLSConfig(config.Config{Listen: "0.0.0.0:8443"})
+	if err != nil {
+		t.Fatalf("buildTLSConfig with no material: %v", err)
+	}
+	if len(tc.Certificates) != 1 {
+		t.Fatalf("Certificates = %d, want 1 generated", len(tc.Certificates))
+	}
+	leaf, err := x509.ParseCertificate(tc.Certificates[0].Certificate[0])
+	if err != nil {
+		t.Fatalf("ParseCertificate: %v", err)
+	}
+	// Self-signed, so the operator can reach the page at all; they will see a
+	// browser warning, which is expected and documented.
+	if leaf.Subject.CommonName == "" {
+		t.Error("generated certificate has no CommonName")
+	}
+	if err := leaf.CheckSignature(leaf.SignatureAlgorithm, leaf.RawTBSCertificate, leaf.Signature); err != nil {
+		t.Errorf("generated certificate is not self-signed: %v", err)
+	}
+	// Reachable by the names an operator will actually type at bring-up.
+	if err := leaf.VerifyHostname("localhost"); err != nil {
+		t.Errorf("VerifyHostname(localhost): %v", err)
+	}
+	if !leaf.NotAfter.After(time.Now()) {
+		t.Error("generated certificate is already expired")
+	}
+}
+
+// With no operator CA configured there is no one who can authenticate yet. The
+// listener must still come up: the API answers 401 to everybody, which is the
+// correct day-zero posture, and the first-run flow opens only its own endpoint.
+func TestBuildTLSConfig_NoOperatorCAIsNotFatal(t *testing.T) {
+	tc, err := buildTLSConfig(config.Config{Listen: "0.0.0.0:8443"})
+	if err != nil {
+		t.Fatalf("buildTLSConfig: %v", err)
+	}
+	if tc.ClientCAs != nil {
+		t.Error("ClientCAs is populated with no operator CA configured, want nil")
+	}
+	if tc.ClientAuth != tls.VerifyClientCertIfGiven {
+		t.Errorf("ClientAuth = %v, want VerifyClientCertIfGiven", tc.ClientAuth)
+	}
+}
+
+// A configured path that does not load is still fatal: an empty setting is a
+// deliberate day-zero choice, a broken path is a mistake and must not be
+// papered over with a self-signed certificate.
+func TestBuildTLSConfig_BrokenPathStillFails(t *testing.T) {
+	cfg := config.Config{TLSCert: "/nonexistent/tls.crt", TLSKey: "/nonexistent/tls.key"}
+	if _, err := buildTLSConfig(cfg); err == nil {
+		t.Fatal("buildTLSConfig with an unreadable cert path = nil error, want error")
+	}
+}
