@@ -20,10 +20,14 @@ limitations under the License.
 
 import (
 	"context"
+	"errors"
+	"slices"
+	"sort"
 	"testing"
 
 	connect "connectrpc.com/connect"
 	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
+	cryptosv1 "github.com/CryptOS-PKI/api/go/cryptos/v1"
 	"github.com/CryptOS-PKI/manager/internal/store"
 	"github.com/CryptOS-PKI/manager/internal/store/memory"
 	"github.com/CryptOS-PKI/manager/internal/store/seed"
@@ -146,5 +150,129 @@ func TestListEnrollments_ReturnsAtLeastOnePending(t *testing.T) {
 	}
 	if pending == 0 {
 		t.Error("ListEnrollments() has no PENDING requests, want at least 1")
+	}
+}
+
+// nodeConfigWith returns a GetConfigResponse carrying the named profiles, as a
+// node reports its own pki.profiles.
+func nodeConfigWith(names ...string) *cryptosv1.GetConfigResponse {
+	profiles := make([]*cryptosv1.CertificateProfile, 0, len(names))
+	for _, n := range names {
+		profiles = append(profiles, &cryptosv1.CertificateProfile{
+			KeyAlg:       "ECDSA-P384",
+			Name:         n,
+			ValidityDays: 90,
+		})
+	}
+
+	return &cryptosv1.GetConfigResponse{
+		Config: &cryptosv1.MachineConfig{Pki: &cryptosv1.Pki{Profiles: profiles}},
+	}
+}
+
+func nodeStore(names ...string) store.Store {
+	nodes := make([]store.Node, 0, len(names))
+	for _, n := range names {
+		nodes = append(nodes, store.Node{Endpoint: n + ".example:443", Name: n, Role: "issuing"})
+	}
+
+	return memory.NewWithCatalog(nodes, nil, nil, nil, nil)
+}
+
+func profileNames(items []*cryptosv1.CertificateProfile) []string {
+	out := make([]string, 0, len(items))
+	for _, p := range items {
+		out = append(out, p.GetName())
+	}
+	sort.Strings(out)
+
+	return out
+}
+
+// TestListProfiles_IncludesProfilesFromNodes is the alpha-run bug (#83): a fleet
+// whose nodes carry profiles reported zero, because the catalog only ever read
+// the FM's own store. The nodes are authoritative for what they serve, so the
+// list has to read through to them.
+func TestListProfiles_IncludesProfilesFromNodes(t *testing.T) {
+	svc := New(nodeStore("A", "B"), dialFor(map[string]*fakeConn{
+		"A": {getConfigResp: nodeConfigWith("leaf-server")},
+		"B": {getConfigResp: nodeConfigWith("sub-ca")},
+	}))
+
+	resp, err := svc.ListProfiles(context.Background(), connect.NewRequest(&fleetv1.ListProfilesRequest{}))
+	if err != nil {
+		t.Fatalf("ListProfiles: %v", err)
+	}
+
+	got := profileNames(resp.Msg.GetItems())
+	if len(got) != 2 || got[0] != "leaf-server" || got[1] != "sub-ca" {
+		t.Errorf("profiles = %v, want [leaf-server sub-ca]", got)
+	}
+}
+
+// A profile the FM holds and a node reports under the same name is one profile,
+// not two. The FM's own row wins, since that is the one an operator edited.
+func TestListProfiles_DedupesByName(t *testing.T) {
+	seeded := catalogTestStore().Profiles()
+	if len(seeded) == 0 {
+		t.Fatal("expected the seeded catalog to have profiles")
+	}
+	dup := seeded[0].Name
+
+	profiles, adapters, audit, enrollments := seed.Catalog()
+	st := memory.NewWithCatalog(
+		[]store.Node{{Endpoint: "a.example:443", Name: "A", Role: "issuing"}},
+		profiles, adapters, audit, enrollments,
+	)
+	svc := New(st, dialFor(map[string]*fakeConn{
+		"A": {getConfigResp: nodeConfigWith(dup, "only-on-the-node")},
+	}))
+
+	resp, err := svc.ListProfiles(context.Background(), connect.NewRequest(&fleetv1.ListProfilesRequest{}))
+	if err != nil {
+		t.Fatalf("ListProfiles: %v", err)
+	}
+
+	seen := 0
+	for _, p := range resp.Msg.GetItems() {
+		if p.GetName() == dup {
+			seen++
+		}
+	}
+	if seen != 1 {
+		t.Errorf("profile %q appeared %d times, want exactly 1", dup, seen)
+	}
+	if !slices.Contains(profileNames(resp.Msg.GetItems()), "only-on-the-node") {
+		t.Error("a profile only the node has was dropped")
+	}
+}
+
+// One unreachable node must not blank the catalog. A fleet view that fails
+// whole because a single node is down is worse than a partial one.
+func TestListProfiles_ToleratesANodeBeingDown(t *testing.T) {
+	svc := New(nodeStore("A", "B"), dialFor(map[string]*fakeConn{
+		"A": {getConfigResp: nodeConfigWith("leaf-server")},
+		"B": {err: errors.New("dial refused")},
+	}))
+
+	resp, err := svc.ListProfiles(context.Background(), connect.NewRequest(&fleetv1.ListProfilesRequest{}))
+	if err != nil {
+		t.Fatalf("ListProfiles: %v", err)
+	}
+	if got := profileNames(resp.Msg.GetItems()); len(got) != 1 || got[0] != "leaf-server" {
+		t.Errorf("profiles = %v, want [leaf-server] from the reachable node", got)
+	}
+}
+
+// A Service with no dial function (the catalog-only tests) must still work.
+func TestListProfiles_NoDialConfigured(t *testing.T) {
+	svc := New(catalogTestStore(), nil)
+
+	resp, err := svc.ListProfiles(context.Background(), connect.NewRequest(&fleetv1.ListProfilesRequest{}))
+	if err != nil {
+		t.Fatalf("ListProfiles: %v", err)
+	}
+	if len(resp.Msg.GetItems()) == 0 {
+		t.Error("no profiles returned, want the seeded catalog")
 	}
 }

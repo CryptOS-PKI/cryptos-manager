@@ -21,6 +21,8 @@ limitations under the License.
 import (
 	"context"
 	"fmt"
+	"sort"
+	"sync"
 
 	connect "connectrpc.com/connect"
 	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
@@ -29,22 +31,93 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// ListProfiles returns every certificate issuance profile known to the
-// manager's store, each unmarshaled from its stored spec into the full
-// cryptos.v1.CertificateProfile the node also uses. This is a pure Store read;
-// no node is dialed. Operator-readable.
-func (s *Service) ListProfiles(_ context.Context, _ *connect.Request[fleetv1.ListProfilesRequest]) (*connect.Response[fleetv1.ListProfilesResponse], error) {
-	profiles := s.store.Profiles()
-	items := make([]*cryptosv1.CertificateProfile, len(profiles))
-	for i, p := range profiles {
+// ListProfiles returns every certificate issuance profile the fleet has: the
+// manager's own rows, plus the profiles each managed node reports in its own
+// machine config, deduplicated by name with the manager's row winning.
+//
+// It dials every node, tolerating any that are down. It used to be a pure store
+// read, which reported zero profiles for a fleet whose nodes were fully
+// configured (#83) -- the nodes are authoritative for what they serve, and the
+// manager is an interface onto them. Operator-readable.
+func (s *Service) ListProfiles(ctx context.Context, _ *connect.Request[fleetv1.ListProfilesRequest]) (*connect.Response[fleetv1.ListProfilesResponse], error) {
+	items := make([]*cryptosv1.CertificateProfile, 0, len(s.store.Profiles()))
+	seen := make(map[string]struct{})
+
+	// The FM's own rows first: a profile an operator authored here wins over a
+	// node's copy of the same name, since that is the one they edited.
+	for _, p := range s.store.Profiles() {
 		cp, err := unmarshalProfile(p)
 		if err != nil {
 			return nil, connect.NewError(connect.CodeInternal, err)
 		}
-		items[i] = cp
+		if _, dup := seen[cp.GetName()]; dup {
+			continue
+		}
+		seen[cp.GetName()] = struct{}{}
+		items = append(items, cp)
+	}
+
+	// Then what the nodes actually carry. The nodes are authoritative for the
+	// profiles they serve, and the FM is an interface onto them (#83): reading
+	// only the local store reported zero profiles for a fleet whose nodes were
+	// fully configured, because nothing ever put them here.
+	for _, cp := range s.nodeProfiles(ctx) {
+		if cp.GetName() == "" {
+			continue
+		}
+		if _, dup := seen[cp.GetName()]; dup {
+			continue
+		}
+		seen[cp.GetName()] = struct{}{}
+		items = append(items, cp)
 	}
 
 	return connect.NewResponse(&fleetv1.ListProfilesResponse{Items: items}), nil
+}
+
+// nodeProfiles collects the certificate profiles every managed node reports in
+// its own machine config, fanned out the way ListNodes does.
+//
+// A node being unreachable is tolerated and skipped: a catalog that blanks
+// because one node is down is worse than a partial one, and the caller has no
+// way to tell the difference from an empty fleet. Results are sorted by name so
+// the list is stable across calls regardless of which goroutine finished first.
+func (s *Service) nodeProfiles(ctx context.Context) []*cryptosv1.CertificateProfile {
+	if s.dial == nil {
+		return nil
+	}
+
+	nodes := s.store.Nodes()
+	perNode := make([][]*cryptosv1.CertificateProfile, len(nodes))
+
+	var wg sync.WaitGroup
+	for i, n := range nodes {
+		wg.Add(1)
+		go func(i int, n store.Node) {
+			defer wg.Done()
+
+			conn, err := s.dial(n)
+			if err != nil {
+				return
+			}
+			defer func() { _ = conn.Close() }()
+
+			resp, err := conn.GetConfig(ctx)
+			if err != nil {
+				return
+			}
+			perNode[i] = resp.GetConfig().GetPki().GetProfiles()
+		}(i, n)
+	}
+	wg.Wait()
+
+	var out []*cryptosv1.CertificateProfile
+	for _, ps := range perNode {
+		out = append(out, ps...)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].GetName() < out[j].GetName() })
+
+	return out
 }
 
 // unmarshalProfile decodes a stored profile's spec bytes into a
