@@ -76,6 +76,35 @@ inline and the loader does no environment interpolation, so the password is in t
 Give it `0400` owned by uid 65532, as above, and keep it out of git — including out of the
 directory you keep a `docker compose` file in.
 
+### Single host with `docker compose`
+
+For a small fleet, the manager plus its own Postgres on one host is a supported topology
+rather than an improvisation. [`deploy/compose.yaml`](deploy/compose.yaml) is the worked
+example and [`deploy/config.example.yaml`](deploy/config.example.yaml) the config that
+goes with it:
+
+```sh
+docker compose -f deploy/compose.yaml up -d
+```
+
+It publishes 80 and 443, waits for Postgres to be healthy before starting the manager,
+and keeps its database in a named volume. Three details in there are load-bearing and
+worth knowing before you adapt it:
+
+- **The Postgres volume mounts at `/var/lib/postgresql`, not `/var/lib/postgresql/data`.**
+  From Postgres 18 the image stores data in major-version-specific subdirectories, and a
+  volume on the old path is rejected outright with
+  `there appears to be PostgreSQL data in /var/lib/postgresql/data (unused mount/volume)`.
+- **Two different things read the mounted files.** `config.yaml`, `tls/` and
+  `operator-ca/` are read by the manager, so they must be readable by uid 65532.
+  `secrets/postgres.env` is read by the `docker compose` CLI on the host before any
+  container starts, so it must be readable by whoever runs compose — do *not* chown that
+  one to 65532.
+- **`depends_on: service_healthy` orders `up`, not `restart`.** `docker compose restart`
+  does not re-evaluate the condition, so the manager can come back before its database.
+  It waits for Postgres itself rather than relying on the restart policy, so this is
+  survivable either way; the condition and the policy are both kept as belt and braces.
+
 ### Building the image yourself
 
 There is no published image before the first release tag, so until then this is the

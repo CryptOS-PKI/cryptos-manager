@@ -1,0 +1,57 @@
+# Fleet Manager config for the compose topology in deploy/compose.yaml.
+#
+# Install as /etc/cryptos/fleet/config.yaml owned by uid 65532, mode 0400. It
+# carries the Postgres password in database_url, so treat it as a secret rather
+# than as configuration: no environment interpolation is performed on it, and it
+# does not belong in git next to the compose file.
+
+# Inside the container. Published as 443 by compose; the low port is not bound
+# here because the image runs unprivileged.
+listen: "0.0.0.0:8443"
+
+# Plaintext listener that only redirects to HTTPS, so an operator who types the
+# hostname without a scheme reaches the login page. Published as 80 by compose.
+# Remove this line to disable the listener entirely.
+httpRedirectListen: "0.0.0.0:8080"
+
+# Only needed when HTTPS is published on something other than 443: the redirect
+# has to name the port clients reach, not the one the container binds.
+# httpsPublicPort: "8443"
+
+# Never true in a real deployment. It disables client-certificate auth and
+# serves plaintext h2c.
+authBypass: false
+
+# Paths are inside the container, under the read-only mount.
+tlsCert: /etc/cryptos/fleet/tls/tls.crt
+tlsKey: /etc/cryptos/fleet/tls/tls.key
+
+# The client-auth trust anchor. Any certificate this CA issued may open a TLS
+# session to the management plane, so keep it separate from the fleet
+# intermediate rather than reusing it. See docs/deploying-standalone.md section 3.
+operatorCAPath: /etc/cryptos/fleet/operator-ca/operator-ca.pem
+
+# The password must match POSTGRES_PASSWORD in
+# /etc/cryptos/fleet/secrets/postgres.env. The host is the compose service name.
+database_url: "postgres://manager:CHANGEME@postgres:5432/manager"
+
+# Names the node that issues and revokes operator credentials. Leaving it unset
+# means a revoked operator certificate keeps working, which the manager warns
+# about at startup.
+# operator_ca_node: pki-root
+
+# Each node's admin credential drives that node's management API, so this host
+# holds CA-admin authority. Treat it as a tier-0 asset.
+nodes:
+  - name: pki-root
+    endpoint: "10.0.0.20:443"
+    role: root
+    adminCertPath: /etc/cryptos/fleet/pki-root/admin.crt
+    adminKeyPath: /etc/cryptos/fleet/pki-root/admin.key
+    caCertPath: /etc/cryptos/fleet/pki-root/ca.pem
+  - name: pki-inter
+    endpoint: "10.0.0.21:443"
+    role: intermediate
+    adminCertPath: /etc/cryptos/fleet/pki-inter/admin.crt
+    adminKeyPath: /etc/cryptos/fleet/pki-inter/admin.key
+    caCertPath: /etc/cryptos/fleet/pki-inter/ca.pem

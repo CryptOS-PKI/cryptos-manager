@@ -1,0 +1,90 @@
+# Single-host Fleet Manager: the manager plus its Postgres.
+#
+# This is the supported topology for a small fleet. Everything the manager reads
+# lives under /etc/cryptos/fleet on the host and is mounted read-only; see the
+# README and docs/deploying-standalone.md.
+#
+#   docker compose -f deploy/compose.yaml up -d
+#
+# Before the first run, on the host:
+#
+#   sudo install -d -m 0755 /etc/cryptos/fleet
+#   sudo install -d -o 65532 -g 65532 -m 0750 /etc/cryptos/fleet/{tls,operator-ca}
+#   sudo install -d -m 0700 /etc/cryptos/fleet/secrets
+#   sudo install -o 65532 -g 65532 -m 0400 config.yaml /etc/cryptos/fleet/config.yaml
+#   sudo install -o 65532 -g 65532 -m 0444 fullchain.pem /etc/cryptos/fleet/tls/tls.crt
+#   sudo install -o 65532 -g 65532 -m 0400 server.key /etc/cryptos/fleet/tls/tls.key
+#   sudo install -o 65532 -g 65532 -m 0444 operator-ca.crt /etc/cryptos/fleet/operator-ca/operator-ca.pem
+#   printf 'POSTGRES_PASSWORD=%s\n' "$(openssl rand -base64 24)" \
+#     | sudo install -m 0400 /dev/stdin /etc/cryptos/fleet/secrets/postgres.env
+#
+# Two different readers, and mixing them up is the trap here:
+#
+#   * config.yaml, tls/ and operator-ca/ are read by the MANAGER, which is
+#     distroless nonroot, so they must be readable by uid 65532.
+#   * secrets/postgres.env is read by the COMPOSE CLI on the host before any
+#     container starts, so it must be readable by whoever runs `docker compose`
+#     -- root under sudo or systemd. Do NOT chown it to 65532: that only makes
+#     it unreadable to the thing that actually needs it, and `up` fails with
+#     "permission denied" on the env file.
+#
+# The parent /etc/cryptos/fleet stays root-owned and traversable so both readers
+# can reach their own subdirectory; the secrets are protected by the 0700 on
+# secrets/ rather than by the parent.
+
+name: cryptos-fleet
+
+services:
+  postgres:
+    # Pin the major version. A major upgrade needs a dump and restore, so
+    # letting this float would break a restart at an unpredictable moment.
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: manager
+      POSTGRES_USER: manager
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    # POSTGRES_PASSWORD only, kept out of this file so the compose file is not
+    # a secret. It must match the password in the manager's database_url.
+    env_file:
+      - /etc/cryptos/fleet/secrets/postgres.env
+    volumes:
+      # /var/lib/postgresql, NOT /var/lib/postgresql/data. From 18 the image
+      # stores data in major-version-specific subdirectories so pg_upgrade can
+      # work across a single mount, and a volume on the old .../data path is
+      # rejected outright: "there appears to be PostgreSQL data in
+      # /var/lib/postgresql/data (unused mount/volume)".
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U manager -d manager"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  manager:
+    # Pin a released tag in production; latest is here so the example runs
+    # before you have chosen a version.
+    image: ghcr.io/cryptos-pki/manager:${MANAGER_VERSION:-latest}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        # Honoured by `up`, but NOT by `docker compose restart`, which is why
+        # the manager waits for Postgres itself at startup rather than relying
+        # on this. Both are kept: this orders the first boot, and the wait
+        # covers every restart path.
+        condition: service_healthy
+    ports:
+      # Published 80 and 443; the container listens on 8080 and 8443 because it
+      # runs unprivileged and cannot bind a low port. Port 80 only redirects to
+      # HTTPS. If you publish HTTPS on anything other than 443, set
+      # httpsPublicPort in config.yaml to the published port.
+      - "443:8443"
+      - "80:8080"
+    volumes:
+      # config.yaml holds the Postgres DSN, so it is a secret, not config.
+      - /etc/cryptos/fleet/config.yaml:/etc/cryptos/fleet/config.yaml:ro
+      - /etc/cryptos/fleet/tls:/etc/cryptos/fleet/tls:ro
+      - /etc/cryptos/fleet/operator-ca:/etc/cryptos/fleet/operator-ca:ro
+
+volumes:
+  pgdata:

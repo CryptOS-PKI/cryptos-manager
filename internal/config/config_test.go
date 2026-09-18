@@ -21,6 +21,7 @@ limitations under the License.
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -230,5 +231,39 @@ nodes:
 	}
 	if cfg.HTTPRedirectListen != "" {
 		t.Errorf("HTTPRedirectListen = %q, want empty", cfg.HTTPRedirectListen)
+	}
+}
+
+// TestLoad_DeployExampleConfig keeps the shipped compose example honest. It is
+// the file an adopter copies to /etc/cryptos/fleet/config.yaml, so if it stops
+// parsing -- or stops matching the listener layout compose publishes -- their
+// first deployment fails and ours passes.
+func TestLoad_DeployExampleConfig(t *testing.T) {
+	cfg, err := Load("../../deploy/config.example.yaml")
+	if err != nil {
+		t.Fatalf("Load(deploy/config.example.yaml): %v", err)
+	}
+
+	// The container binds high ports; compose publishes 443 and 80.
+	if cfg.Listen != "0.0.0.0:8443" {
+		t.Errorf("Listen = %q, want 0.0.0.0:8443", cfg.Listen)
+	}
+	if cfg.HTTPRedirectListen != "0.0.0.0:8080" {
+		t.Errorf("HTTPRedirectListen = %q, want 0.0.0.0:8080", cfg.HTTPRedirectListen)
+	}
+	// An example that ships with auth off would be a trap.
+	if cfg.AuthBypass {
+		t.Error("AuthBypass = true in the shipped example, want false")
+	}
+	if cfg.DatabaseURL == "" {
+		t.Error("DatabaseURL is empty; the compose example runs against Postgres")
+	}
+	// The DSN host has to be the compose service name, or the manager cannot
+	// reach the database it is shipped with.
+	if !strings.Contains(cfg.DatabaseURL, "@postgres:5432/") {
+		t.Errorf("DatabaseURL = %q, want the compose service name as the host", cfg.DatabaseURL)
+	}
+	if len(cfg.Nodes) == 0 {
+		t.Error("no nodes in the example; the node block is what adopters edit first")
 	}
 }
