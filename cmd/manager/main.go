@@ -196,6 +196,8 @@ func main() {
 	}
 	rootHandler := newRootHandler(path, handler, web, authMW, cfg.CORSOrigins)
 
+	b := currentBuild()
+	log.Printf("manager: build %s (commit %s, built %s, web %s)", b.Version, b.Commit, b.BuildDate, b.WebRef)
 	log.Printf("manager: %d node(s) configured", len(nodes))
 
 	server := &http.Server{Addr: cfg.Listen}
@@ -315,6 +317,9 @@ func newRootHandler(
 ) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle(apiPath, authMW(apiHandler))
+	// Anonymous, like the web surface: an operator who cannot authenticate is
+	// exactly who needs to report which build they are on (#81).
+	mux.Handle(versionPath, versionHandler())
 	mux.Handle("/", webHandler)
 
 	return withRecover(withCORS(corsOrigins, mux))

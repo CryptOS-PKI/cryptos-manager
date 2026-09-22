@@ -26,7 +26,21 @@ COPY manager/go.mod manager/go.sum ./
 RUN go mod download
 COPY manager/ ./
 COPY --from=web /web/dist ./internal/webui/dist
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/manager ./cmd/manager
+# Build identity, stamped at link time (#81). A running manager has to be able
+# to say which build it is: the image copies the repo without a usable .git, so
+# nothing can derive this at runtime. Defaults keep a bare `docker build`
+# working and honest -- it reports "dev", not a version it does not have.
+ARG VERSION=dev
+ARG COMMIT=unknown
+ARG BUILD_DATE=unknown
+ARG WEB_REF=unknown
+RUN CGO_ENABLED=0 go build -trimpath \
+      -ldflags="-s -w \
+        -X main.version=${VERSION} \
+        -X main.commit=${COMMIT} \
+        -X main.buildDate=${BUILD_DATE} \
+        -X main.webRef=${WEB_REF}" \
+      -o /out/manager ./cmd/manager
 
 # Stage 3: minimal runtime.
 FROM gcr.io/distroless/static-debian12:nonroot

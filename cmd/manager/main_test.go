@@ -25,12 +25,14 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/json"
 	"encoding/pem"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -326,5 +328,79 @@ func TestBuildTLSConfig_BrokenPathStillFails(t *testing.T) {
 	cfg := config.Config{TLSCert: "/nonexistent/tls.crt", TLSKey: "/nonexistent/tls.key"}
 	if _, err := buildTLSConfig(cfg); err == nil {
 		t.Fatal("buildTLSConfig with an unreadable cert path = nil error, want error")
+	}
+}
+
+// TestVersionHandler_ServesBuildInfo covers the endpoint alpha reports depend
+// on (#81). Nothing in a running manager said which build it was, so every
+// report cost a round trip establishing it.
+func TestVersionHandler_ServesBuildInfo(t *testing.T) {
+	rec := httptest.NewRecorder()
+	versionHandler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, versionPath, nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json", ct)
+	}
+
+	var got buildInfo
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v (body %q)", err, rec.Body.String())
+	}
+	// An unstamped build must report something honest rather than a version it
+	// does not have.
+	if got.Version == "" || got.Commit == "" || got.BuildDate == "" || got.WebRef == "" {
+		t.Errorf("buildInfo has empty fields: %+v", got)
+	}
+	if got.Version != version || got.Commit != commit || got.WebRef != webRef {
+		t.Errorf("buildInfo = %+v, want it to reflect the linked values", got)
+	}
+}
+
+// A HEAD is how a client checks reachability without a body, which the web
+// surface's diagnostics copy relies on.
+func TestVersionHandler_Head(t *testing.T) {
+	rec := httptest.NewRecorder()
+	versionHandler().ServeHTTP(rec, httptest.NewRequest(http.MethodHead, versionPath, nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if rec.Body.Len() != 0 {
+		t.Errorf("HEAD returned a body of %d bytes, want none", rec.Body.Len())
+	}
+}
+
+func TestVersionHandler_RejectsWrites(t *testing.T) {
+	rec := httptest.NewRecorder()
+	versionHandler().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, versionPath, nil))
+
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Errorf("status = %d, want 405", rec.Code)
+	}
+}
+
+// The point of the endpoint: it answers a caller with no client certificate,
+// because that is the caller most likely to be filing a report.
+func TestRootHandler_VersionIsAnonymous(t *testing.T) {
+	h := newRootHandler(
+		"/cryptos.fleet.v1.FleetService/",
+		stubHandler(http.StatusOK, "api"),
+		stubHandler(http.StatusOK, "spa"),
+		authz.ClientCertMiddleware,
+		nil,
+	)
+
+	rec := httptest.NewRecorder()
+	// No TLS state at all on the request.
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, versionPath, nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 without a client certificate", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), `"version"`) {
+		t.Errorf("body = %q, want the build info rather than the SPA", rec.Body.String())
 	}
 }
