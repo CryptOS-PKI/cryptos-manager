@@ -12,6 +12,11 @@ COPY web/package.json web/package-lock.json ./
 RUN npm ci
 COPY web/ ./
 ENV VITE_FLEET_MODE=live-auth
+# The SPA is served by the manager itself, so the API is same-origin. Without
+# this the fallback in web/src/lib/fleet/client.ts bakes http://localhost:8080
+# into the bundle and the shipped UI calls the operator's own machine.
+ARG VITE_FLEET_API=/
+ENV VITE_FLEET_API=${VITE_FLEET_API}
 RUN npm run build
 
 # Stage 2: build the manager with the web bundle embedded.
