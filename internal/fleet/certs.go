@@ -31,6 +31,7 @@ import (
 
 	connect "connectrpc.com/connect"
 	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
+	"github.com/CryptOS-PKI/manager/internal/apperr"
 	"github.com/CryptOS-PKI/manager/internal/authz"
 	"github.com/CryptOS-PKI/manager/internal/store"
 )
@@ -63,7 +64,8 @@ func (s *Service) ListCertificates(ctx context.Context, req *connect.Request[fle
 	if name != "" {
 		n, ok := s.store.Node(name)
 		if !ok {
-			return nil, connect.NewError(connect.CodeNotFound, errors.New("fleet: node not found: "+name))
+			return nil, apperr.Coded(apperr.CodeNodeNotFound,
+				connect.NewError(connect.CodeNotFound, errors.New("fleet: node not found: "+name)))
 		}
 		nodes = []store.Node{n}
 	} else {

@@ -1,5 +1,7 @@
 connectrpc.com/connect v1.20.0 h1:6TNDAB+WeNd2uolWNlYczB5E0KNNaVMNUEx8JEUsPmQ=
 connectrpc.com/connect v1.20.0/go.mod h1:A2ygJrukXwWy32vkCAAHNVguZrqZ+jeZ9rGRnGR4dN4=
+github.com/Bugs5382/go-apperr v1.0.0 h1:YfepdvZm+ctIt5DDJ9XVbwPRk+lo9aE95btYqaSf084=
+github.com/Bugs5382/go-apperr v1.0.0/go.mod h1:4kzGmhaC5tcPDskwAi8HIRDKSkMrJdvOUxik9Uuij1k=
 github.com/CryptOS-PKI/api v0.0.0-20260721122313-6f1935012f09 h1:i43Tld4lvB359LNbWgSZv7Q7RAcz9/2d0sBZnkEbWD8=
 github.com/CryptOS-PKI/api v0.0.0-20260721122313-6f1935012f09/go.mod h1:tmeaYhNoUblqPYYNtTbGBGIUsZ7xLATgLdKq4S33rmE=
 github.com/CryptOS-PKI/api v0.0.0-20260729133451-abee856f4ca5 h1:wWSmcBgCUQXTc/ltrqBO9vzJWtwSW4RPfbrsyT/ozNU=

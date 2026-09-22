@@ -22,6 +22,7 @@ limitations under the License.
 */
 
 import (
+	connect "connectrpc.com/connect"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -35,6 +36,7 @@ import (
 	"time"
 
 	fleetv1connect "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1/fleetv1connect"
+	"github.com/CryptOS-PKI/manager/internal/apperr"
 	"github.com/CryptOS-PKI/manager/internal/authz"
 	"github.com/CryptOS-PKI/manager/internal/config"
 	"github.com/CryptOS-PKI/manager/internal/fleet"
@@ -148,7 +150,12 @@ func main() {
 		},
 	)
 
-	path, handler := fleetv1connect.NewFleetServiceHandler(svc)
+	// Every error leaving the web-facing API carries a stable numeric code, so
+	// the UI branches on a number rather than on message text and an operator
+	// has something to quote in a report (#64).
+	path, handler := fleetv1connect.NewFleetServiceHandler(svc,
+		connect.WithInterceptors(apperr.Interceptor()),
+	)
 
 	web, err := webui.Handler()
 	if err != nil {

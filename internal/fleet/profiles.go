@@ -27,6 +27,7 @@ import (
 	connect "connectrpc.com/connect"
 	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
 	cryptosv1 "github.com/CryptOS-PKI/api/go/cryptos/v1"
+	"github.com/CryptOS-PKI/manager/internal/apperr"
 	"github.com/CryptOS-PKI/manager/internal/authz"
 	"github.com/CryptOS-PKI/manager/internal/store"
 	"google.golang.org/protobuf/proto"
@@ -133,7 +134,8 @@ func (s *Service) ApplyProfileToNode(ctx context.Context, req *connect.Request[f
 	profileName := req.Msg.GetProfileName()
 	stored, ok := s.store.Profile(profileName)
 	if !ok {
-		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("fleet: profile %q not found", profileName))
+		return nil, apperr.Coded(apperr.CodeProfileNotFound,
+			connect.NewError(connect.CodeNotFound, fmt.Errorf("fleet: profile %q not found", profileName)))
 	}
 	profile, err := unmarshalProfile(stored)
 	if err != nil {

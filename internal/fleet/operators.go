@@ -28,6 +28,7 @@ import (
 	connect "connectrpc.com/connect"
 	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
 	cryptosv1 "github.com/CryptOS-PKI/api/go/cryptos/v1"
+	"github.com/CryptOS-PKI/manager/internal/apperr"
 	"github.com/CryptOS-PKI/manager/internal/authz"
 	"github.com/CryptOS-PKI/manager/internal/store"
 	"google.golang.org/protobuf/proto"
@@ -203,8 +204,9 @@ func (s *Service) ListOperatorCredentials(ctx context.Context, _ *connect.Reques
 // must set operator_ca_node) and an unknown node name to NotFound.
 func (s *Service) operatorCANode() (store.Node, error) {
 	if s.operatorCANodeName == "" {
-		return store.Node{}, connect.NewError(connect.CodeFailedPrecondition,
-			errors.New("fleet: no operator CA node configured (set operator_ca_node)"))
+		return store.Node{}, apperr.Coded(apperr.CodeOperatorCAUnconfigured,
+			connect.NewError(connect.CodeFailedPrecondition,
+				errors.New("fleet: no operator CA node configured (set operator_ca_node)")))
 	}
 	node, ok := s.store.Node(s.operatorCANodeName)
 	if !ok {
