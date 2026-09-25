@@ -86,6 +86,37 @@ func TestClientCertMiddleware_NoCert401(t *testing.T) {
 	}
 }
 
+// TestClientCertMiddleware_NoCertClosesConnection pins #77. A connection whose
+// handshake carried no client certificate can never authenticate, and HTTP/2
+// would otherwise keep reusing it for every later API call. Refusing with
+// Connection: close makes the server tear it down (GOAWAY on h2) so the client's
+// next attempt performs a fresh handshake, where a certificate can be offered.
+func TestClientCertMiddleware_NoCertClosesConnection(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		tls  *tls.ConnectionState
+	}{
+		{"no TLS", nil},
+		{"TLS without a peer certificate", &tls.ConnectionState{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, "/rpc", nil)
+			req.TLS = tc.tls
+			ClientCertMiddleware(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+				t.Error("next must not be called without a client certificate")
+			})).ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusUnauthorized {
+				t.Fatalf("status = %d, want 401", rec.Code)
+			}
+			if got := rec.Header().Get("Connection"); got != "close" {
+				t.Errorf("Connection = %q, want close", got)
+			}
+		})
+	}
+}
+
 func TestClientCertMiddleware_MissingExtension403(t *testing.T) {
 	// A verified peer cert that carries no access-level extension must be
 	// rejected (403), never passed through or defaulted to a privileged level.

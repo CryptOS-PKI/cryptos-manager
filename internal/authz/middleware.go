@@ -19,6 +19,7 @@ limitations under the License.
 */
 
 import (
+	"log"
 	"math/big"
 	"net/http"
 	"strings"
@@ -50,6 +51,15 @@ func ClientCertMiddleware(next http.Handler) http.Handler {
 func ClientCertMiddlewareWithRevocation(revoker serialRevoker, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.TLS == nil || len(r.TLS.PeerCertificates) == 0 {
+			// A connection whose handshake carried no certificate can never
+			// authenticate, yet HTTP/2 would keep reusing it for every later
+			// API call -- typically because it was opened for the anonymous web
+			// surface (#77). Close it (GOAWAY on h2) so the client's next
+			// attempt makes a fresh handshake where a certificate can be
+			// offered. The request is refused either way.
+			w.Header().Set("Connection", "close")
+			log.Printf("authz: refused %s %q from %s: the TLS connection carries no client certificate; closing it so the client re-handshakes",
+				r.Method, r.URL.Path, r.RemoteAddr)
 			http.Error(w, "client certificate required", http.StatusUnauthorized)
 			return
 		}

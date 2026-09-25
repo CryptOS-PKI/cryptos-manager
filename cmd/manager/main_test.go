@@ -25,13 +25,17 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/asn1"
 	"encoding/json"
 	"encoding/pem"
+	"io"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httptrace"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -403,4 +407,180 @@ func TestRootHandler_VersionIsAnonymous(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), `"version"`) {
 		t.Errorf("body = %q, want the build info rather than the SPA", rec.Body.String())
 	}
+}
+
+// writeOperatorCA writes a self-signed operator CA to dir and returns its path
+// with the parsed certificate and key, so a test can issue operator leaves.
+func writeOperatorCA(t *testing.T, dir string) (string, *x509.Certificate, *ecdsa.PrivateKey) {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "operator CA"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(time.Hour),
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+		KeyUsage:              x509.KeyUsageCertSign,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ca, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "operator-ca.pem")
+	if err := os.WriteFile(path, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path, ca, key
+}
+
+// operatorLeaf issues a client certificate carrying the admin access level.
+func operatorLeaf(t *testing.T, ca *x509.Certificate, caKey *ecdsa.PrivateKey) tls.Certificate {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	value, err := authz.MarshalLevelValue(authz.LevelAdmin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oid, err := asn1ObjectIdentifier(authz.AccessLevelOID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber:    big.NewInt(2),
+		Subject:         pkix.Name{CommonName: "op@acme.example"},
+		NotBefore:       time.Now().Add(-time.Hour),
+		NotAfter:        time.Now().Add(time.Hour),
+		KeyUsage:        x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:     []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		ExtraExtensions: []pkix.Extension{{Id: oid, Value: value}},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, ca, &key.PublicKey, caKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}
+}
+
+// asn1ObjectIdentifier parses a dotted OID.
+func asn1ObjectIdentifier(dotted string) (asn1.ObjectIdentifier, error) {
+	var oid asn1.ObjectIdentifier
+	for _, part := range strings.Split(dotted, ".") {
+		n, err := strconv.Atoi(part)
+		if err != nil {
+			return nil, err
+		}
+		oid = append(oid, n)
+	}
+	return oid, nil
+}
+
+// connTracker records whether each request went out on a reused connection.
+func connTracker(req *http.Request, reused *bool) *http.Request {
+	trace := &httptrace.ClientTrace{GotConn: func(info httptrace.GotConnInfo) { *reused = info.Reused }}
+	return req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
+}
+
+// TestServe_CertlessConnectionIsNotReusedForTheAPI reproduces #77 over a real
+// TLS listener speaking HTTP/2 with the production TLS posture. The browser's
+// first request is for the anonymous web surface, so that handshake completes
+// with no client certificate. HTTP/2 then reuses the connection for the API,
+// which refuses it -- correctly, and it must keep doing so -- but a connection
+// with no certificate can never authenticate, so it must not stay open for the
+// next API call either. The server closes it, and the client's next request
+// performs a fresh handshake where the certificate can be offered.
+func TestServe_CertlessConnectionIsNotReusedForTheAPI(t *testing.T) {
+	caPath, ca, caKey := writeOperatorCA(t, t.TempDir())
+	tlsCfg, err := buildTLSConfig(config.Config{OperatorCAPath: caPath})
+	if err != nil {
+		t.Fatalf("buildTLSConfig: %v", err)
+	}
+
+	const apiPath = "/cryptos.fleet.v1.FleetService/"
+	srv := httptest.NewUnstartedServer(newRootHandler(
+		apiPath,
+		stubHandler(http.StatusOK, "api"),
+		stubHandler(http.StatusOK, "spa"),
+		authz.ClientCertMiddleware,
+		nil,
+	))
+	srv.EnableHTTP2 = true
+	srv.TLS = tlsCfg
+	srv.StartTLS()
+	t.Cleanup(srv.Close)
+
+	do := func(t *testing.T, c *http.Client, method, path string) (int, bool) {
+		t.Helper()
+		var reused bool
+		req, err := http.NewRequest(method, srv.URL+path, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp, err := c.Do(connTracker(req, &reused))
+		if err != nil {
+			t.Fatalf("%s %s: %v", method, path, err)
+		}
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+		if resp.ProtoMajor != 2 {
+			t.Fatalf("%s %s: proto = %s, want HTTP/2", method, path, resp.Proto)
+		}
+		return resp.StatusCode, reused
+	}
+
+	t.Run("no certificate", func(t *testing.T) {
+		c := srv.Client()
+		t.Cleanup(c.CloseIdleConnections)
+
+		if code, _ := do(t, c, http.MethodGet, "/"); code != http.StatusOK {
+			t.Fatalf("GET / = %d, want 200", code)
+		}
+		code, reused := do(t, c, http.MethodPost, apiPath+"WhoAmI")
+		if code != http.StatusUnauthorized {
+			t.Fatalf("API = %d, want 401", code)
+		}
+		if !reused {
+			t.Fatal("API call did not reuse the web connection; the test is not exercising #77")
+		}
+		// The refused connection is gone: the next request handshakes again.
+		code, reused = do(t, c, http.MethodPost, apiPath+"WhoAmI")
+		if code != http.StatusUnauthorized {
+			t.Fatalf("API retry = %d, want 401", code)
+		}
+		if reused {
+			t.Error("API retry reused the certless connection, want a fresh handshake")
+		}
+	})
+
+	t.Run("with certificate", func(t *testing.T) {
+		c := srv.Client()
+		tr := c.Transport.(*http.Transport).Clone()
+		tr.TLSClientConfig.Certificates = []tls.Certificate{operatorLeaf(t, ca, caKey)}
+		c = &http.Client{Transport: tr}
+		t.Cleanup(c.CloseIdleConnections)
+
+		if code, _ := do(t, c, http.MethodGet, "/"); code != http.StatusOK {
+			t.Fatalf("GET / = %d, want 200", code)
+		}
+		// An authenticated connection is left alone and keeps being reused.
+		for range 2 {
+			code, reused := do(t, c, http.MethodPost, apiPath+"WhoAmI")
+			if code != http.StatusOK {
+				t.Fatalf("API = %d, want 200", code)
+			}
+			if !reused {
+				t.Error("authenticated API call did not reuse its connection")
+			}
+		}
+	})
 }

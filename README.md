@@ -51,7 +51,10 @@ redirect will send browsers to a port nothing is listening on.
 
 The web surface itself is reachable without an operator certificate: it serves a landing
 page with a Log in action, and every API call still requires a certificate that verifies
-against the operator CA.
+against the operator CA. Because both share one listener, a browser may open its
+connection for the page before it offers a certificate; an API call that arrives on such a
+connection is refused and the connection is closed, so the next attempt makes a fresh TLS
+handshake. The refusal is logged (`authz: refused ...`) with the caller's address.
 
 **Everything under the mount must be readable by uid 65532.** The final image stage is
 `gcr.io/distroless/static-debian12:nonroot`, so the process runs as that uid, and that
