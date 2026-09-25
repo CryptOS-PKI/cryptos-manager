@@ -28,6 +28,10 @@ tasks:
       - task: vet
       - task: lint
       - task: test
+  image:
+    desc: Build the container image with version, commit, build date and web ref stamped in (needs a sibling web checkout; pass docker build flags after --).
+    cmds:
+      - deploy/build-image.sh {{.CLI_ARGS}}
   run:
     desc: Run the manager server against config.yaml.
     cmds:

@@ -118,8 +118,18 @@ Running `docker build .` from inside this repo fails on the `COPY` paths:
 mkdir -p src && cd src
 git clone https://github.com/CryptOS-PKI/manager.git manager
 git clone https://github.com/CryptOS-PKI/web.git web
-docker build -f manager/Dockerfile -t manager:local .
+manager/deploy/build-image.sh            # tags manager:local; IMAGE=... to change
 ```
+
+Use the script rather than a bare `docker build`. The image copies the checkouts without
+their `.git`, so it can only report the build identity it is handed: the script resolves
+the manager version (`git describe`), the manager and web commits (suffixed `-dirty` for
+uncommitted changes) and the build date, and passes them as the `VERSION`, `COMMIT`,
+`WEB_REF` and `BUILD_DATE` build args. They are served at `/version` and set as the
+`org.opencontainers.image.{version,revision,created}` labels. A bare `docker build` still
+works but reports `dev` / `unknown`. Extra arguments go straight to `docker build`, and
+`task image` runs the same script. To run the result with the compose file, set
+`MANAGER_IMAGE=manager:local`.
 
 **Helm (OCI):**
 

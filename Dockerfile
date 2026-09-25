@@ -3,6 +3,10 @@
 # Build context is the workspace ROOT holding sibling checkouts of manager/ and
 # web/ (the release workflow arranges this). A bare `docker build .` from inside
 # the manager repo will not resolve the manager/ and web/ COPY paths.
+#
+# Build with deploy/build-image.sh rather than a bare `docker build`: it passes
+# the VERSION, COMMIT, BUILD_DATE and WEB_REF args below, without which the
+# image reports placeholders at /version and in its labels.
 
 # Stage 1: build the web bundle. The build context holds sibling checkouts of
 # the manager and web repos; the resulting dist is embedded by the Go stage.
@@ -44,6 +48,20 @@ RUN CGO_ENABLED=0 go build -trimpath \
 
 # Stage 3: minimal runtime.
 FROM gcr.io/distroless/static-debian12:nonroot
+# The same identity as /version, on the image itself, so `docker inspect` can
+# answer "which build is this" without starting it (#89). ARGs do not cross
+# stages, so they are declared again here with the same defaults.
+ARG VERSION=dev
+ARG COMMIT=unknown
+ARG BUILD_DATE=unknown
+ARG WEB_REF=unknown
+LABEL org.opencontainers.image.title="CryptOS Fleet Manager" \
+      org.opencontainers.image.source="https://github.com/CryptOS-PKI/manager" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${COMMIT}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      io.github.cryptos-pki.web.revision="${WEB_REF}"
 COPY --from=build /out/manager /manager
 USER nonroot:nonroot
 ENTRYPOINT ["/manager"]

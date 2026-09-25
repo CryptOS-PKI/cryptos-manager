@@ -63,8 +63,10 @@ services:
 
   manager:
     # Pin a released tag in production; latest is here so the example runs
-    # before you have chosen a version.
-    image: ghcr.io/cryptos-pki/manager:${MANAGER_VERSION:-latest}
+    # before you have chosen a version. To run an image you built yourself,
+    # build it with deploy/build-image.sh (so /version reports it) and set
+    # MANAGER_IMAGE to its tag.
+    image: ${MANAGER_IMAGE:-ghcr.io/cryptos-pki/manager:${MANAGER_VERSION:-latest}}
     restart: unless-stopped
     depends_on:
       postgres:
