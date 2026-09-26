@@ -1,6 +1,6 @@
-# 🛰️ manager
+# manager 🛰️
 
-The Fleet Manager backend for [CryptOS-PKI](https://github.com/CryptOS-PKI). Optional control plane that talks to many CryptOS CA nodes over mTLS gRPC and serves the [`web`](https://github.com/CryptOS-PKI/web) frontend at the same TLS listener.
+> 🎛️ The Fleet Manager backend for [CryptOS-PKI](https://github.com/CryptOS-PKI). Optional control plane that talks to many CryptOS CA nodes over mTLS gRPC and serves the [`web`](https://github.com/CryptOS-PKI/web) frontend at the same TLS listener.
 
 ## ✨ What it does
 
@@ -17,10 +17,10 @@ Once linked, the node's embedded operator surface becomes read-only and FM owns 
 
 ## 🧱 Stack
 
-- Go backend, served behind mTLS TLS 1.3.
-- Postgres for cross-node inventory.
-- Serves the [`web`](https://github.com/CryptOS-PKI/web) bundle (pinned version, embedded via `embed.FS`) on the same listener as the FM gRPC API.
-- Designed to run on Kubernetes (Deployment + Service + Ingress, Helm chart shipped alongside the container image). Single-node Docker / `docker compose` is supported for small deployments; K8s is the primary target.
+- 🐹 **Go backend**, served behind mTLS TLS 1.3.
+- 🐘 **Postgres** for cross-node inventory.
+- 📦 **Serves the [`web`](https://github.com/CryptOS-PKI/web) bundle** (pinned version, embedded via `embed.FS`) on the same listener as the FM gRPC API.
+- ☸️ **Designed to run on Kubernetes** (Deployment + Service + Ingress, Helm chart shipped alongside the container image). Single-node Docker / `docker compose` is supported for small deployments; K8s is the primary target.
 
 ## 🚀 Deploying
 
