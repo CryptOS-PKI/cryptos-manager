@@ -12,8 +12,9 @@ permissions:
   issues: write
 jobs:
   labeler:
-    name: Sync labels
+    name: 🏷️ Sync labels
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: crazy-max/ghaction-github-labeler@v5

@@ -13,6 +13,9 @@ jobs:
   image:
     name: "Build and push the manager image"
     runs-on: ubuntu-latest
+    # The image build compiles the web UI and the Go binary; the gha layer
+    # cache keeps repeat builds well under this.
+    timeout-minutes: 45
     steps:
       - name: Checkout manager
         uses: actions/checkout@v4
@@ -73,6 +76,7 @@ jobs:
   chart:
     name: "Package and push the Helm chart"
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
       packages: write
