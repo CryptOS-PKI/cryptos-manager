@@ -9,10 +9,13 @@ This repository follows the Bugs5382 standard workflow.
 2. Branch from `main` as `<type>/<issue#>-<slug>` (for example `feat/12-add-listener`).
 3. Commit using Conventional Commits (`type(scope): description`). No attribution
    trailers, no emoji in source or commit messages (emoji are fine in Markdown).
-4. Open a PR with a Conventional Commit title. The autolabeler sets the category label
+4. Open the PR as a draft. CI skips drafts, so run the checks locally first and mark the
+   PR ready for review when it is finished; that starts CI. PRs from forks run the same
+   checks.
+5. Give the PR a Conventional Commit title. The autolabeler sets the category label
    from the title; fill the PR template, reference the issue (`Closes #N`), and add a
    closing summary before merge.
-5. PRs merge by squash. On merge, release-drafter drafts the next notes and the changelog
+6. PRs merge by squash. On merge, release-drafter drafts the next notes and the changelog
    updates on `main`; the maintainer publishes releases manually.
 
 Keep one concern per PR, even small ones. When editing GitHub Actions workflows, a job id must be a

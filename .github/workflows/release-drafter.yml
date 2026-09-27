@@ -1,7 +1,7 @@
 name: Release Drafter
 
 # Drafts the next release on push to main and updates CHANGELOG.md before the
-# release is cut; autolabels PRs so the draft is categorized.
+# release is cut.
 #
 # DISABLED until the org GitHub App is configured: every job is gated on
 # `vars.APP_CLIENT_ID`, so until that variable is set the job is skipped (no
@@ -11,35 +11,36 @@ name: Release Drafter
 # The App token is used to push the CHANGELOG commit back to main. That commit
 # touches only CHANGELOG.md (path-ignored by ci-go/ci-image) and carries
 # [skip ci], so it never triggers the image build or re-triggers this workflow.
+#
+# Push to main only. It used to run on pull requests too, where it only ran the
+# autolabeler; the Label Checker workflow applies and checks the label on every
+# PR, so that run cost a job per PR event for nothing. Dropping it also keeps
+# fork PRs clean: they get no secrets, so the App token step could never run
+# for them.
 
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
-    # edited is here so retargeting a stacked PR onto main starts CI. Jobs
-    # skip edited events that did not change the base (title/body edits).
-    types: [opened, synchronize, reopened, edited]
   workflow_dispatch:
 
 permissions:
   contents: read
 
-# Release runs queue and are never cancelled mid-flight. A title or body
-# edit gets its own group, so its no-op run cannot displace a queued real run.
+# Release runs queue and are never cancelled mid-flight.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}${{ github.event.action == 'edited' && github.event.changes.base == null && format('-edit-{0}', github.run_id) || '' }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   draft:
-    name: Draft release and update changelog${{ github.event.action == 'edited' && github.event.changes.base == null && ' (edit, not run)' || '' }}
+    name: Draft release and update changelog
     # Inert until the GitHub App is configured (see header).
-    if: ${{ vars.APP_CLIENT_ID != '' && (github.event.action != 'edited' || github.event.changes.base != null) }}
+    if: ${{ vars.APP_CLIENT_ID != '' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: write # update releases + push the changelog commit
-      pull-requests: write # autolabeler
+      pull-requests: read # release-drafter reads the merged PRs
     steps:
       - name: Create GitHub App token
         id: app-token
@@ -61,7 +62,6 @@ jobs:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
 
       - name: Update CHANGELOG
-        if: github.event_name != 'pull_request'
         uses: Bugs5382/changelog-updater-action@v0.3.2
         env:
           LOG_LEVEL: debug
@@ -75,7 +75,6 @@ jobs:
           diff: "true"
 
       - name: Commit changelog
-        if: github.event_name != 'pull_request'
         uses: stefanzweifel/git-auto-commit-action@v4
         with:
           commit_message: "chore(pre-release): v${{ steps.drafter.outputs.resolved_version }} [skip ci]"

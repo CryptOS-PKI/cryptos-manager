@@ -4,36 +4,48 @@ name: Actionlint
 # id) can merge green and only fail at startup on main. actionlint catches that
 # class at PR time. shellcheck integration is disabled (-shellcheck=) to keep
 # the gate focused on workflow validity; drop that flag to also lint run: shell.
+#
+# Pull requests only, and not while the PR is a draft; the PR run covers what
+# merges, so nothing reruns on push to main.
 on:
   pull_request:
     branches: [main]
     # edited is here so retargeting a stacked PR onto main starts CI. Jobs
-    # skip edited events that did not change the base (title/body edits).
-    types: [opened, synchronize, reopened, edited]
-  push:
-    branches: [main]
-    paths: ['.github/workflows/**']
-# One run per PR per workflow: a new push cancels the older PR run. Pushes to
-# main are never cancelled, so every main commit keeps a result. A title or
+    # skip edited events that did not change the base (title/body edits), and
+    # a skipped job is not billed.
+    types: [opened, synchronize, reopened, ready_for_review, edited]
+# One run per PR per workflow: a new push cancels the older PR run. A title or
 # body edit gets its own group, so its run never cancels real CI.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}${{ github.event.action == 'edited' && github.event.changes.base == null && format('-edit-{0}', github.run_id) || '' }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}${{ github.event.action == 'edited' && github.event.changes.base == null && format('-edit-{0}', github.run_id) || '' }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
   actionlint:
     name: 🧹 Actionlint${{ github.event.action == 'edited' && github.event.changes.base == null && ' (edit, not run)' || '' }}
-    if: github.event.action != 'edited' || github.event.changes.base != null
+    if: github.event.pull_request.draft == false && (github.event.action != 'edited' || github.event.changes.base != null)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: 📥 Checkout
         uses: actions/checkout@v4
-      - name: 🐹 Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: "stable"
-      - name: 🧹 Run actionlint
+      # The pinned release binary, checked against the SHA-256 the release
+      # publishes, instead of compiling actionlint@latest with Go on every run.
+      # Update ACTIONLINT_SHA256 together with ACTIONLINT_VERSION (from the
+      # release's actionlint_<version>_checksums.txt).
+      - name: 📦 Install actionlint
+        env:
+          ACTIONLINT_VERSION: 1.7.12
+          ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
         run: |
-          go install github.com/rhysd/actionlint/cmd/actionlint@latest
-          "$(go env GOPATH)/bin/actionlint" -color -shellcheck=
+          set -euo pipefail
+          tarball="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          curl -sSfL -o "$RUNNER_TEMP/$tarball" \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${tarball}"
+          echo "${ACTIONLINT_SHA256}  $RUNNER_TEMP/$tarball" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/actionlint"
+          tar -xzf "$RUNNER_TEMP/$tarball" -C "$RUNNER_TEMP/actionlint" actionlint
+          echo "$RUNNER_TEMP/actionlint" >> "$GITHUB_PATH"
+      - name: 🧹 Run actionlint
+        run: actionlint -color -shellcheck=
