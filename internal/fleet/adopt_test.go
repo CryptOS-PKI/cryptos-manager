@@ -329,7 +329,7 @@ func TestMarshalConfigYAML_MatchesNodeStrictSchema(t *testing.T) {
 		Kind:       "MachineConfig",
 		Metadata:   &cryptosv1.Metadata{Name: "cryptos-lab-a"},
 		Role:       &cryptosv1.Role{Kind: "root"},
-		Network:    &cryptosv1.Network{Interface: "eth0", Address: "192.168.18.40/24", Gateway: "192.168.18.1"},
+		Network:    &cryptosv1.Network{Interface: "eth0", Address: "203.0.113.40/24", Gateway: "203.0.113.1"},
 		Bootstrap:  &cryptosv1.Bootstrap{AdminCertPem: "-----BEGIN CERTIFICATE-----\nMII...\n-----END CERTIFICATE-----\n"},
 		Install:    &cryptosv1.Install{Disk: "/dev/nvme0n1"},
 		StateKey:   &cryptosv1.StateKey{Mode: "nodeid"},
