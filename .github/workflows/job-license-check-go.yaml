@@ -26,7 +26,7 @@ jobs:
   go:
     name: ⚖️ Dependency licenses (Go)${{ github.event.action == 'edited' && github.event.changes.base == null && ' (edit, not run)' || '' }}
     if: github.event.pull_request.draft == false && (github.event.action != 'edited' || github.event.changes.base != null)
-    runs-on: ubuntu-latest
+    runs-on: { group: self-hosted-private }
     timeout-minutes: 15
     steps:
       - name: Checkout

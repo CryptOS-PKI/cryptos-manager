@@ -13,7 +13,7 @@ permissions:
 jobs:
   labeler:
     name: 🏷️ Sync labels
-    runs-on: ubuntu-latest
+    runs-on: { group: self-hosted-private }
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
