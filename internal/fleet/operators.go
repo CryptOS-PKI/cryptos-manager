@@ -23,6 +23,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	connect "connectrpc.com/connect"
@@ -174,7 +175,8 @@ func (s *Service) RevokeOperatorCredential(ctx context.Context, req *connect.Req
 
 // ListOperatorCredentials returns the operator credentials the manager has
 // issued. It is operator-readable and a pure store read, so it dials no node
-// and writes no audit event.
+// and writes no audit event. With no operator-CA node configured it fails with
+// the operator-CA-unconfigured code instead of listing.
 func (s *Service) ListOperatorCredentials(ctx context.Context, _ *connect.Request[fleetv1.ListOperatorCredentialsRequest]) (*connect.Response[fleetv1.ListOperatorCredentialsResponse], error) {
 	id, err := operatorLevel(ctx)
 	if err != nil {
@@ -182,6 +184,15 @@ func (s *Service) ListOperatorCredentials(ctx context.Context, _ *connect.Reques
 	}
 	if id.Level < authz.LevelOperator {
 		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("fleet: operator level required"))
+	}
+
+	// An empty list here read as "this fleet has no operators" while an
+	// operator was signed in with a credential minted outside the manager.
+	// Without an operator CA the manager can neither issue nor revoke, and
+	// enforces no operator-cert revocation, so any stored rows are not a
+	// management surface either; say that rather than list.
+	if s.operatorCANodeName == "" {
+		return nil, errOperatorCAUnconfigured("ListOperatorCredentials")
 	}
 
 	creds := s.store.OperatorCredentials()
@@ -204,9 +215,7 @@ func (s *Service) ListOperatorCredentials(ctx context.Context, _ *connect.Reques
 // must set operator_ca_node) and an unknown node name to NotFound.
 func (s *Service) operatorCANode() (store.Node, error) {
 	if s.operatorCANodeName == "" {
-		return store.Node{}, apperr.Coded(apperr.CodeOperatorCAUnconfigured,
-			connect.NewError(connect.CodeFailedPrecondition,
-				errors.New("fleet: no operator CA node configured (set operator_ca_node)")))
+		return store.Node{}, errOperatorCAUnconfigured("operator CA lookup")
 	}
 	node, ok := s.store.Node(s.operatorCANodeName)
 	if !ok {
@@ -214,6 +223,15 @@ func (s *Service) operatorCANode() (store.Node, error) {
 			fmt.Errorf("fleet: operator CA node %q not in inventory", s.operatorCANodeName))
 	}
 	return node, nil
+}
+
+// errOperatorCAUnconfigured is the one error every operator-credential path
+// returns when no operator_ca_node is set, so the UI can branch on its code.
+func errOperatorCAUnconfigured(op string) error {
+	log.Printf("fleet: %s: no operator_ca_node configured, refusing with code %d", op, apperr.CodeOperatorCAUnconfigured)
+	return apperr.Coded(apperr.CodeOperatorCAUnconfigured,
+		connect.NewError(connect.CodeFailedPrecondition,
+			errors.New("fleet: no operator CA node configured (set operator_ca_node)")))
 }
 
 // OperatorProfiles builds the three operator-<level> issuing profiles the

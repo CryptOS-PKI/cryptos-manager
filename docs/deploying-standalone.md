@@ -191,6 +191,22 @@ manager: no operator_ca_node configured, operator-cert revocation not enforced
 That is a real gap, not a cosmetic warning: a revoked operator certificate keeps
 working until you set it.
 
+The API reports the same gap. Without `operator_ca_node`,
+`ListOperatorCredentials` fails with error [1400](error-codes.md) instead of
+returning an empty list, because the manager can neither list, issue nor revoke
+operator credentials. An empty list would have read as "this fleet has no
+operators" while someone was signed in with a credential minted by hand as in §3.
+Rows the manager recorded earlier stay in the store and list again once the key
+is set.
+
+Setting it is a two-part change. The manager issues operator credentials from
+the named node's CA, but its client-auth anchor is `operatorCAPath`. If the two
+differ, the manager issues credentials that its own handshake then refuses.
+Set `operator_ca_node` first and issue replacement credentials from the
+operators page while your hand-minted one still gets you in. Then point
+`operatorCAPath` at that node's CA. From that restart on, every credential
+minted against the old anchor is refused.
+
 ## 5. A worked `config.yaml`
 
 ```yaml
