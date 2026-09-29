@@ -126,3 +126,14 @@ func (f *failureLimiter) blocked(ip string) bool {
 	l, ok := f.clients[ip]
 	return ok && l.Tokens() < 1
 }
+
+// IdentityFromTokenInfo returns the identity Middleware resolved for the
+// request that carried ti. MCP tool handlers read it from the request's
+// TokenInfo.
+func IdentityFromTokenInfo(ti *auth.TokenInfo) (authz.Identity, bool) {
+	if ti == nil {
+		return authz.Identity{}, false
+	}
+	id, ok := ti.Extra[identityExtra].(authz.Identity)
+	return id, ok
+}
