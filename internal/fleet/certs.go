@@ -32,6 +32,7 @@ import (
 	connect "connectrpc.com/connect"
 	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
 	"github.com/CryptOS-PKI/manager/internal/apperr"
+	"github.com/CryptOS-PKI/manager/internal/auditlog"
 	"github.com/CryptOS-PKI/manager/internal/authz"
 	"github.com/CryptOS-PKI/manager/internal/store"
 )
@@ -141,7 +142,7 @@ func (s *Service) RevokeCertificate(ctx context.Context, req *connect.Request[fl
 		revokedAt = r.GetRevokedAt().AsTime().UTC().Format(time.RFC3339)
 	}
 
-	s.store.AddAuditEvent(store.AuditEvent{
+	auditlog.Record(ctx, s.store, store.AuditEvent{
 		ID:         newAuditID(),
 		At:         time.Now().UTC().Format(time.RFC3339),
 		Kind:       "revoked",
@@ -196,7 +197,7 @@ func (s *Service) IssueLeaf(ctx context.Context, req *connect.Request[fleetv1.Is
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("fleet: issue leaf: %w", err))
 	}
 
-	s.store.AddAuditEvent(store.AuditEvent{
+	auditlog.Record(ctx, s.store, store.AuditEvent{
 		ID:         newAuditID(),
 		At:         time.Now().UTC().Format(time.RFC3339),
 		Kind:       "issued",

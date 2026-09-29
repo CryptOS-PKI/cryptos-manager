@@ -26,6 +26,7 @@ import (
 
 	connect "connectrpc.com/connect"
 	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
+	"github.com/CryptOS-PKI/manager/internal/auditlog"
 	"github.com/CryptOS-PKI/manager/internal/store"
 )
 
@@ -60,7 +61,7 @@ func (s *Service) SetAdapterEnabled(ctx context.Context, req *connect.Request[fl
 		kind = "adapter-enabled"
 		summary = "Enabled adapter " + name
 	}
-	s.store.AddAuditEvent(store.AuditEvent{
+	auditlog.Record(ctx, s.store, store.AuditEvent{
 		ID:         newAuditID(),
 		At:         time.Now().UTC().Format(time.RFC3339),
 		Kind:       kind,

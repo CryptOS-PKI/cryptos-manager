@@ -30,6 +30,7 @@ import (
 	connect "connectrpc.com/connect"
 	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
 	cryptosv1 "github.com/CryptOS-PKI/api/go/cryptos/v1"
+	"github.com/CryptOS-PKI/manager/internal/auditlog"
 	"github.com/CryptOS-PKI/manager/internal/store"
 	"google.golang.org/protobuf/encoding/protojson"
 )
@@ -241,7 +242,7 @@ func (s *Service) runAdoption(ctx context.Context, msg *fleetv1.AdoptNodeRequest
 	// manager minted and kept this node's admin key).
 	s.registerAdoptedNode(cfg, endpoint, adminCertPath, adminKeyPath)
 
-	s.store.AddAuditEvent(store.AuditEvent{
+	auditlog.Record(ctx, s.store, store.AuditEvent{
 		ID:         newAuditID(),
 		At:         time.Now().UTC().Format(time.RFC3339),
 		Kind:       "node-adopted",

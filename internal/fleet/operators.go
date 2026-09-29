@@ -30,6 +30,7 @@ import (
 	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
 	cryptosv1 "github.com/CryptOS-PKI/api/go/cryptos/v1"
 	"github.com/CryptOS-PKI/manager/internal/apperr"
+	"github.com/CryptOS-PKI/manager/internal/auditlog"
 	"github.com/CryptOS-PKI/manager/internal/authz"
 	"github.com/CryptOS-PKI/manager/internal/store"
 	"google.golang.org/protobuf/proto"
@@ -100,7 +101,7 @@ func (s *Service) IssueOperatorCredential(ctx context.Context, req *connect.Requ
 		NotAfter:   notAfter,
 	})
 
-	s.store.AddAuditEvent(store.AuditEvent{
+	auditlog.Record(ctx, s.store, store.AuditEvent{
 		ID:         newAuditID(),
 		At:         time.Now().UTC().Format(time.RFC3339),
 		Kind:       "operator-issued",
@@ -158,7 +159,7 @@ func (s *Service) RevokeOperatorCredential(ctx context.Context, req *connect.Req
 		revokedAt = r.GetRevokedAt().AsTime().UTC().Format(time.RFC3339)
 	}
 
-	s.store.AddAuditEvent(store.AuditEvent{
+	auditlog.Record(ctx, s.store, store.AuditEvent{
 		ID:         newAuditID(),
 		At:         time.Now().UTC().Format(time.RFC3339),
 		Kind:       "operator-revoked",

@@ -57,15 +57,20 @@ const (
 	// CodeUnknown is the default for a failure nobody has classified yet.
 	CodeUnknown = 1900
 
-	CodeUnauthenticated = 1001
-	CodeForbidden       = 1002
+	CodeUnauthenticated   = 1001
+	CodeForbidden         = 1002
+	CodeMcpKeyNeedsCert   = 1003
+	CodeMcpDisabled       = 1004
+	CodeMcpKeyNotFound    = 1005
+	CodeMcpCeilingTooHigh = 1006
 
 	CodeNodeUnreachable = 1100
 	CodeNodeNotFound    = 1101
 
 	CodeProfileNotFound = 1200
 
-	CodeIssuanceRefused = 1300
+	CodeIssuanceRefused       = 1300
+	CodeIssuanceNeedsApproval = 1301
 
 	CodeOperatorCAUnconfigured = 1400
 	CodeOperatorNotFound       = 1401
@@ -80,10 +85,15 @@ var entries = []apperr.Entry{
 	{Code: CodeUnknown, Title: "Unclassified", Cause: "a failure with no registered code"},
 	{Code: CodeUnauthenticated, Title: "Authorization", Cause: "no verified client certificate was presented"},
 	{Code: CodeForbidden, Title: "Authorization", Cause: "the certificate lacks the access level the call needs"},
+	{Code: CodeMcpKeyNeedsCert, Title: "Authorization", Cause: "MCP keys are managed only with an operator client certificate, never with an MCP key"},
+	{Code: CodeMcpDisabled, Title: "Authorization", Cause: "the MCP endpoint is disabled (mcp.enabled is false), so no MCP key can be created"},
+	{Code: CodeMcpKeyNotFound, Title: "Authorization", Cause: "no MCP key with that id exists"},
+	{Code: CodeMcpCeilingTooHigh, Title: "Authorization", Cause: "the requested level ceiling is not viewer, operator or admin, or is above the operator's own level"},
 	{Code: CodeNodeUnreachable, Title: "Fleet", Cause: "the node could not be dialled or did not answer"},
 	{Code: CodeNodeNotFound, Title: "Fleet", Cause: "no node of that name is in the inventory"},
 	{Code: CodeProfileNotFound, Title: "Catalog", Cause: "no certificate profile of that name is known"},
 	{Code: CodeIssuanceRefused, Title: "Certificates", Cause: "the issuing node refused to sign the request"},
+	{Code: CodeIssuanceNeedsApproval, Title: "Certificates", Cause: "over MCP the request needs human step-up approval (a CA profile or the root node), which is not available yet; use the web UI"},
 	{Code: CodeOperatorCAUnconfigured, Title: "Operators", Cause: "no operator_ca_node is configured, so operator credentials cannot be listed, issued or revoked, and operator-cert revocation is not enforced"},
 	{Code: CodeOperatorNotFound, Title: "Operators", Cause: "no operator credential with that serial is recorded"},
 	{Code: CodeConfigRejected, Title: "Configuration", Cause: "the node rejected the configuration as invalid"},

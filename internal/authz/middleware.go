@@ -19,6 +19,7 @@ limitations under the License.
 */
 
 import (
+	"context"
 	"log"
 	"math/big"
 	"net/http"
@@ -64,18 +65,18 @@ func ClientCertMiddlewareWithRevocation(revoker serialRevoker, next http.Handler
 			return
 		}
 		cert := r.TLS.PeerCertificates[0]
-		level, err := LevelFromCertificate(cert)
+		id, err := IdentityFromCertificate(cert)
 		if err != nil {
 			http.Error(w, "operator certificate missing access level", http.StatusForbidden)
 			return
 		}
-		serial := formatSerial(cert.SerialNumber)
-		if revoker != nil && revoker.IsRevoked(serial) {
+		if revoker != nil && revoker.IsRevoked(id.Serial) {
 			http.Error(w, "operator certificate revoked", http.StatusForbidden)
 			return
 		}
-		id := Identity{CN: cert.Subject.CommonName, Serial: serial, Level: level}
-		next.ServeHTTP(w, r.WithContext(NewContext(r.Context(), id)))
+		id.Via = ViaWeb
+		ctx := context.WithValue(NewContext(r.Context(), id), peerCertCtxKey{}, cert)
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 

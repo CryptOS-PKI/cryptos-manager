@@ -26,6 +26,7 @@ import (
 
 	connect "connectrpc.com/connect"
 	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
+	"github.com/CryptOS-PKI/manager/internal/auditlog"
 	"github.com/CryptOS-PKI/manager/internal/store"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -71,7 +72,7 @@ func (s *Service) ExportCAKey(ctx context.Context, req *connect.Request[fleetv1.
 		return nil, mapNodeEscrowError(name, "export", err)
 	}
 
-	s.store.AddAuditEvent(store.AuditEvent{
+	auditlog.Record(ctx, s.store, store.AuditEvent{
 		ID:         newAuditID(),
 		At:         time.Now().UTC().Format(time.RFC3339),
 		Kind:       "ca-key-exported",
@@ -123,7 +124,7 @@ func (s *Service) ImportCAKey(ctx context.Context, req *connect.Request[fleetv1.
 
 	subjectCN, issuerCN := leafCNs(resp.GetIdentity())
 
-	s.store.AddAuditEvent(store.AuditEvent{
+	auditlog.Record(ctx, s.store, store.AuditEvent{
 		ID:         newAuditID(),
 		At:         time.Now().UTC().Format(time.RFC3339),
 		Kind:       "ca-key-imported",
