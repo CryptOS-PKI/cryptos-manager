@@ -169,17 +169,18 @@ the manager's handshake.
 
 ## 4. Config key casing is not uniform
 
-Most keys are camelCase, but two are snake_case. A camelCase spelling of either
-is not an error — it is silently ignored, which reads as "the feature doesn't
-work":
+Most keys are camelCase, but three are snake_case. A camelCase spelling of any
+of them is not an error — it is silently ignored, which reads as "the feature
+doesn't work":
 
 | snake_case (required) | Not `database_url` → `databaseUrl` |
 | --- | --- |
 | `database_url` | selects the Postgres store |
 | `operator_ca_node` | enables operator-cert revocation checking |
+| `mcp.public_url` | the origin the MCP endpoint is served at ([mcp.md](mcp.md)) |
 
 Everything else — `listen`, `corsOrigins`, `authBypass`, `tlsCert`, `tlsKey`,
-`operatorCAPath`, `httpRedirectListen`, `httpsPublicPort`, `nodes[].adminCertPath`,
+`operatorCAPath`, `httpRedirectListen`, `httpsPublicPort`, `mcp.enabled`, `nodes[].adminCertPath`,
 `nodes[].adminKeyPath`, `nodes[].caCertPath` — is camelCase.
 
 If `operator_ca_node` is unset the manager starts and logs:
@@ -223,6 +224,12 @@ tlsKey: "/etc/ssl/private/fm.acme.example.key"
 operatorCAPath: "/etc/cryptos/fleet/operator-ca.crt"
 
 database_url: "postgres://manager:CHANGEME@127.0.0.1:5432/manager"
+
+# Optional: the MCP endpoint for AI agents (docs/mcp.md). It also needs
+# operator_ca_node; the manager refuses to start with it enabled otherwise.
+# mcp:
+#   enabled: true
+#   public_url: "https://fm.acme.example"
 
 nodes:
   - name: pki-root
@@ -438,6 +445,7 @@ Two things this does not cover:
 ## Related
 
 - [`operator-pki.md`](operator-pki.md) — the dogfooded operator-CA-on-a-node path.
+- [`mcp.md`](mcp.md) — the MCP endpoint for AI agents.
 - ⚠ The level extension arc `1.3.6.1.4.1.59999.1.1` is a **placeholder**; an
   IANA Private Enterprise Number must replace it before GA, and the value has
   to change in lockstep in the cryptos profile config and

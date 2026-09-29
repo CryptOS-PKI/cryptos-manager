@@ -19,6 +19,12 @@ authBypass: true
 # offline dev. When set, the manager applies the schema, seeds the catalog into
 # an empty database on first run, and persists enrollments and the audit chain.
 # database_url: "postgres://manager:secret@localhost:5432/manager"
+# mcp serves the Model Context Protocol endpoint for AI agents at /mcp (see
+# docs/mcp.md). Off by default. Enabling it requires authBypass: false,
+# operatorCAPath and operator_ca_node, or the manager refuses to start.
+# mcp:
+#   enabled: true
+#   public_url: "https://fleetos.example.org"
 nodes:
   - name: pki-root
     endpoint: "pki-root.acme.com:4443"
