@@ -22,7 +22,9 @@ limitations under the License.
 
 import (
 	"fmt"
+	"net/url"
 	"os"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -69,7 +71,22 @@ type Config struct {
 	// and revocation enforcement.
 	OperatorCANode string `yaml:"operator_ca_node"`
 
+	// MCP serves the Model Context Protocol endpoint for AI agents at /mcp
+	// on the same listener. Off by default.
+	MCP MCPConfig `yaml:"mcp"`
+
 	Nodes []NodeCfg `yaml:"nodes"`
+}
+
+// MCPConfig switches the MCP endpoint on and names the origin agents and
+// browsers reach the manager at.
+type MCPConfig struct {
+	Enabled bool `yaml:"enabled"`
+	// PublicURL is the external https origin, for example
+	// https://fleetos.example.org. It is the OAuth issuer and the base of the
+	// protected resource URL (PublicURL + "/mcp"), so it must be exactly what
+	// clients connect to.
+	PublicURL string `yaml:"public_url"`
 }
 
 // NodeCfg describes one fleet node: where to dial it, its role, and the
@@ -99,6 +116,8 @@ func Load(path string) (Config, error) {
 		return Config{}, fmt.Errorf("config: parse %s: %w", path, err)
 	}
 
+	cfg.MCP.PublicURL = strings.TrimRight(cfg.MCP.PublicURL, "/")
+
 	if err := cfg.validate(); err != nil {
 		return Config{}, fmt.Errorf("config: %s: %w", path, err)
 	}
@@ -118,6 +137,12 @@ func (c Config) validate() error {
 	// is caught here rather than at TLS load.
 	if !c.AuthBypass && (c.TLSCert == "") != (c.TLSKey == "") {
 		return fmt.Errorf("tlsCert and tlsKey must be set together, or both left unset to generate a bootstrap certificate")
+	}
+
+	if c.MCP.Enabled {
+		if err := c.validateMCP(); err != nil {
+			return err
+		}
 	}
 
 	for i, n := range c.Nodes {
@@ -141,5 +166,27 @@ func (c Config) validate() error {
 		}
 	}
 
+	return nil
+}
+
+// validateMCP refuses any configuration in which an MCP key could not be
+// re-validated live on every request. Each key stands for an operator
+// certificate, so without the operator CA and its revocation source there is
+// nothing to check it against, and under authBypass there is no certificate
+// at all.
+func (c Config) validateMCP() error {
+	if c.AuthBypass {
+		return fmt.Errorf("mcp.enabled requires authBypass to be false: MCP keys are bound to operator certificates")
+	}
+	if c.OperatorCANode == "" {
+		return fmt.Errorf("mcp.enabled requires operator_ca_node: without an operator revocation source a revoked operator's keys would keep working")
+	}
+	if c.OperatorCAPath == "" {
+		return fmt.Errorf("mcp.enabled requires operatorCAPath: MCP keys are re-validated against the operator CA on every request")
+	}
+	u, err := url.Parse(c.MCP.PublicURL)
+	if err != nil || u.Scheme != "https" || u.Host == "" || u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
+		return fmt.Errorf("mcp.public_url must be the manager's https origin with no path, for example https://fleetos.example.org")
+	}
 	return nil
 }

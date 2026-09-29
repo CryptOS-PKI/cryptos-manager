@@ -306,11 +306,15 @@ func validPKCE(s string) bool {
 		return false
 	}
 	for _, c := range s {
-		if !(c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || strings.ContainsRune("-._~", c)) {
+		if !unreserved(c) {
 			return false
 		}
 	}
 	return true
+}
+
+func unreserved(c rune) bool {
+	return c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || strings.ContainsRune("-._~", c)
 }
 
 type consentOperator struct {

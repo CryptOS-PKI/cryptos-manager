@@ -40,6 +40,7 @@ import (
 	"github.com/CryptOS-PKI/manager/internal/authz"
 	"github.com/CryptOS-PKI/manager/internal/config"
 	"github.com/CryptOS-PKI/manager/internal/fleet"
+	"github.com/CryptOS-PKI/manager/internal/mcpauth"
 	"github.com/CryptOS-PKI/manager/internal/nodeclient"
 	"github.com/CryptOS-PKI/manager/internal/store"
 	"github.com/CryptOS-PKI/manager/internal/store/memory"
@@ -143,6 +144,8 @@ func main() {
 	// operator-CA node. S10: supply the TOFU preview + pinned maintenance dial
 	// seams for node adoption.
 	svc = svc.WithOperatorCA(cfg.OperatorCANode)
+	mcpKeys := &mcpauth.Keys{Store: st}
+	svc = svc.WithMCP(mcpKeys, cfg.MCP.Enabled)
 	svc = svc.WithAdoption(
 		nodeclient.FetchMaintenanceCert,
 		func(endpoint, pinnedSHA256, clientCertPEM, clientKeyPEM string) (fleet.NodeConn, error) {
@@ -201,9 +204,29 @@ func main() {
 	if cfg.AuthBypass {
 		authMW = authz.BypassMiddleware
 	}
-	rootHandler := newRootHandler(path, handler, web, authMW, cfg.CORSOrigins)
-
 	b := currentBuild()
+
+	// The TLS config is built before the routes because the MCP endpoint
+	// re-validates keys against the same operator CA pool the handshake uses.
+	var tlsCfg *tls.Config
+	if !cfg.AuthBypass {
+		tlsCfg, err = buildTLSConfig(cfg)
+		if err != nil {
+			log.Fatalf("manager: tls: %v", err)
+		}
+	}
+
+	var mounts []func(*http.ServeMux)
+	if cfg.MCP.Enabled {
+		mount, err := mcpMount(cfg.MCP.PublicURL, svc, st, mcpKeys, tlsCfg.ClientCAs, revocationCache, authMW, b.Version)
+		if err != nil {
+			log.Fatalf("manager: %v", err)
+		}
+		mounts = append(mounts, mount)
+		log.Printf("manager: MCP endpoint enabled at %s/mcp", cfg.MCP.PublicURL)
+	}
+	rootHandler := newRootHandler(path, handler, web, authMW, cfg.CORSOrigins, mounts...)
+
 	log.Printf("manager: build %s (commit %s, built %s, web %s)", b.Version, b.Commit, b.BuildDate, b.WebRef)
 	log.Printf("manager: %d node(s) configured", len(nodes))
 
@@ -216,11 +239,6 @@ func main() {
 			log.Fatalf("manager: serve: %v", err)
 		}
 		return
-	}
-
-	tlsCfg, err := buildTLSConfig(cfg)
-	if err != nil {
-		log.Fatalf("manager: tls: %v", err)
 	}
 
 	// Port 80 exists only to send browsers to HTTPS. An operator types a
@@ -306,8 +324,9 @@ func buildTLSConfig(cfg config.Config) (*tls.Config, error) {
 	}, nil
 }
 
-// newRootHandler assembles the serving chain. The auth middleware wraps the API
-// handler only, so the SPA is reachable without a client certificate while
+// newRootHandler assembles the serving chain. mounts add optional route sets,
+// such as the MCP endpoint and its login, which bring their own auth. The auth
+// middleware wraps the API handler only, so the SPA is reachable without a client certificate while
 // every API call still needs one (#68). Wrapping the whole mux -- which is what
 // this used to do -- would have meant softening the TLS mode also exposed the
 // API to anonymous callers.
@@ -321,6 +340,7 @@ func newRootHandler(
 	apiHandler, webHandler http.Handler,
 	authMW func(http.Handler) http.Handler,
 	corsOrigins []string,
+	mounts ...func(*http.ServeMux),
 ) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle(apiPath, authMW(apiHandler))
@@ -328,6 +348,9 @@ func newRootHandler(
 	// exactly who needs to report which build they are on (#81).
 	mux.Handle(versionPath, versionHandler())
 	mux.Handle("/", webHandler)
+	for _, mount := range mounts {
+		mount(mux)
+	}
 
 	return withRecover(withCORS(corsOrigins, mux))
 }
