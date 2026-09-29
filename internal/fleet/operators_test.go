@@ -33,6 +33,7 @@ import (
 	connect "connectrpc.com/connect"
 	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
 	cryptosv1 "github.com/CryptOS-PKI/api/go/cryptos/v1"
+	"github.com/CryptOS-PKI/manager/internal/apperr"
 	"github.com/CryptOS-PKI/manager/internal/authz"
 	"github.com/CryptOS-PKI/manager/internal/store"
 	"github.com/CryptOS-PKI/manager/internal/store/memory"
@@ -202,7 +203,7 @@ func TestListOperatorCredentials_OperatorReadable(t *testing.T) {
 	st := operatorsStore()
 	st.AddOperatorCredential(store.OperatorCredential{CommonName: "a", SerialHex: "01", Level: "viewer", NotAfter: "t"})
 	st.AddOperatorCredential(store.OperatorCredential{CommonName: "b", SerialHex: "02", Level: "admin", NotAfter: "t", Revoked: true})
-	svc := New(st, dialFor(map[string]*fakeConn{}))
+	svc := New(st, dialFor(map[string]*fakeConn{})).WithOperatorCA("opca")
 
 	ctx := operatorCtx("op@acme.example", authz.LevelOperator)
 	resp, err := svc.ListOperatorCredentials(ctx, connect.NewRequest(&fleetv1.ListOperatorCredentialsRequest{}))
@@ -211,6 +212,43 @@ func TestListOperatorCredentials_OperatorReadable(t *testing.T) {
 	}
 	if len(resp.Msg.GetItems()) != 2 {
 		t.Fatalf("len(items) = %d, want 2", len(resp.Msg.GetItems()))
+	}
+}
+
+// An empty list with no operator CA read as "this fleet has no operators" while
+// an operator was signed in: the manager can neither list, issue nor revoke
+// without one, so it must say so with the stable code the UI branches on,
+// even when the store still holds rows from an earlier configuration.
+func TestListOperatorCredentials_NoOperatorCA_FailedPreconditionCoded(t *testing.T) {
+	st := operatorsStore()
+	st.AddOperatorCredential(store.OperatorCredential{CommonName: "a", SerialHex: "01", Level: "viewer", NotAfter: "t"})
+	svc := New(st, dialFor(map[string]*fakeConn{}))
+
+	ctx := operatorCtx("op@acme.example", authz.LevelOperator)
+	resp, err := svc.ListOperatorCredentials(ctx, connect.NewRequest(&fleetv1.ListOperatorCredentialsRequest{}))
+	requireConnectCode(t, err, connect.CodeFailedPrecondition)
+	if resp != nil {
+		t.Errorf("resp = %v, want nil alongside the error", resp)
+	}
+	if code, ok := apperr.Code(err); !ok || code != apperr.CodeOperatorCAUnconfigured {
+		t.Errorf("apperr code = %d (ok=%v), want %d", code, ok, apperr.CodeOperatorCAUnconfigured)
+	}
+}
+
+// A configured operator-CA name that is missing from the inventory still
+// lists: the rows are the manager's own, and reading them dials nothing.
+func TestListOperatorCredentials_OperatorCANotInInventory_StillLists(t *testing.T) {
+	st := operatorsStore()
+	st.AddOperatorCredential(store.OperatorCredential{CommonName: "a", SerialHex: "01", Level: "viewer", NotAfter: "t"})
+	svc := New(st, dialFor(map[string]*fakeConn{})).WithOperatorCA("gone")
+
+	ctx := operatorCtx("op@acme.example", authz.LevelOperator)
+	resp, err := svc.ListOperatorCredentials(ctx, connect.NewRequest(&fleetv1.ListOperatorCredentialsRequest{}))
+	if err != nil {
+		t.Fatalf("ListOperatorCredentials error = %v", err)
+	}
+	if len(resp.Msg.GetItems()) != 1 {
+		t.Fatalf("len(items) = %d, want 1", len(resp.Msg.GetItems()))
 	}
 }
 
