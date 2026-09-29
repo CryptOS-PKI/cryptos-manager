@@ -39,4 +39,10 @@ pyproject (Python) so they stay accurate. -->
   `.claude/hooks` (run `bash .claude/hooks/install.sh` once per clone).
 - Open every PR as a draft. CI skips drafts, so run the full checks locally, push once they pass,
   and mark the PR ready when the work is finished; see CLAUDE.md "CI and Actions minutes".
+- **Keep the `github.com/CryptOS-PKI/api` pin current.** The web talks to the manager in
+  Connect JSON, and connect-go decodes JSON with unknown fields discarded, so any field the
+  pinned api types don't know is silently dropped from node configs and profiles on read,
+  apply and adopt. Bump the pin whenever the api adds a field the web or the nodes send.
+  `internal/fleet/wire_roundtrip_test.go` drives those paths over JSON; add each new field to
+  its fixtures.
 - <project-specific conventions, non-obvious constraints, and traps an agent should know>

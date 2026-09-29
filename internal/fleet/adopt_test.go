@@ -301,9 +301,11 @@ type nodeConfigMirror struct {
 		Kind string `yaml:"kind"`
 	} `yaml:"role"`
 	Network struct {
-		Interface string `yaml:"interface"`
-		Address   string `yaml:"address"`
-		Gateway   string `yaml:"gateway"`
+		Interface   string   `yaml:"interface"`
+		Address     string   `yaml:"address"`
+		Gateway     string   `yaml:"gateway"`
+		Nameservers []string `yaml:"nameservers"`
+		Search      []string `yaml:"search"`
 	} `yaml:"network"`
 	Bootstrap struct {
 		AdminCertPem string `yaml:"admin_cert_pem"`
@@ -312,6 +314,8 @@ type nodeConfigMirror struct {
 		RootKeyAlg  string `yaml:"root_key_alg"`
 		RootSubject struct {
 			CommonName string `yaml:"common_name"`
+			Province   string `yaml:"province"`
+			Locality   string `yaml:"locality"`
 		} `yaml:"root_subject"`
 		RootValidityYears int `yaml:"root_validity_years"`
 	} `yaml:"pki"`
