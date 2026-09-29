@@ -107,7 +107,7 @@ var registry = func() *apperr.Registry {
 		apperr.WithService(1),
 		// The client sees the code and this sentence, never the internal cause.
 		// It says where to look rather than apologising.
-		apperr.WithMessageTemplate("The Fleet Manager refused this request (error {{.Code}}). Quote that code when reporting it."),
+		apperr.WithMessageTemplate("The Fleet Manager refused this request (error %d). Quote that code when reporting it."),
 	)
 	if err != nil {
 		panic(fmt.Sprintf("apperr: building the code registry: %v", err))

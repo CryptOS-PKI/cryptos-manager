@@ -168,3 +168,19 @@ func TestErrorCodesDocIsCurrent(t *testing.T) {
 		t.Error("docs/error-codes.md is out of date; regenerate with: go run ./tools/errorcodes > docs/error-codes.md")
 	}
 }
+
+// The message an operator reads quotes the code itself, so a screenshot or a
+// pasted error is enough to look it up.
+func TestInterceptor_MessageQuotesTheCode(t *testing.T) {
+	err := run(t, Coded(CodeOperatorCAUnconfigured,
+		connect.NewError(connect.CodeFailedPrecondition, errors.New("no operator CA node configured"))))
+
+	var ce *connect.Error
+	if !errors.As(err, &ce) {
+		t.Fatalf("not a connect error: %v", err)
+	}
+	want := "The Fleet Manager refused this request (error 1400). Quote that code when reporting it."
+	if ce.Message() != want {
+		t.Fatalf("message = %q, want %q", ce.Message(), want)
+	}
+}
