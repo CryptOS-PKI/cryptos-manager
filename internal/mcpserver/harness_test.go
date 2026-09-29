@@ -36,12 +36,14 @@ import (
 	"time"
 
 	cryptosv1 "github.com/CryptOS-PKI/api/go/cryptos/v1"
+	"github.com/CryptOS-PKI/manager/internal/approval"
 	"github.com/CryptOS-PKI/manager/internal/authz"
 	"github.com/CryptOS-PKI/manager/internal/fleet"
 	"github.com/CryptOS-PKI/manager/internal/mcpauth"
 	"github.com/CryptOS-PKI/manager/internal/store"
 	"github.com/CryptOS-PKI/manager/internal/store/memory"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"google.golang.org/protobuf/proto"
 )
 
 // fakeNode is a CA node that answers the calls the phase-one tools make.
@@ -53,8 +55,10 @@ type fakeNode struct {
 	role     string
 	profiles []*cryptosv1.CertificateProfile
 
-	mu     sync.Mutex
-	issued int
+	mu      sync.Mutex
+	issued  int
+	revoked int
+	applied int
 }
 
 func (f *fakeNode) GetConfig(context.Context) (*cryptosv1.GetConfigResponse, error) {
@@ -79,6 +83,28 @@ func (f *fakeNode) IssueLeaf(_ context.Context, csrDER []byte, _ string) (*crypt
 		return nil, err
 	}
 	return &cryptosv1.IssueLeafResponse{CertDer: der}, nil
+}
+
+func (f *fakeNode) RevokeCertificate(context.Context, string, int32) (*cryptosv1.RevokeCertificateResponse, error) {
+	f.mu.Lock()
+	f.revoked++
+	f.mu.Unlock()
+	return &cryptosv1.RevokeCertificateResponse{}, nil
+}
+
+func (f *fakeNode) ApplyConfig(context.Context, *cryptosv1.MachineConfig) (*cryptosv1.ApplyConfigResponse, error) {
+	f.mu.Lock()
+	f.applied++
+	f.mu.Unlock()
+	return &cryptosv1.ApplyConfigResponse{Generation: 2}, nil
+}
+
+// changes counts every signing or configuration change the node was asked
+// to make.
+func (f *fakeNode) changes() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.issued + f.revoked + f.applied
 }
 
 func (f *fakeNode) issuedCount() int {
@@ -114,12 +140,31 @@ var (
 // middleware on a real HTTP server, plus the operator CA that signs the
 // operator certificates keys are bound to.
 type harness struct {
-	t     *testing.T
-	st    *memory.Store
-	nodes map[string]*fakeNode
-	caKey *ecdsa.PrivateKey
-	ca    *x509.Certificate
-	srv   *httptest.Server
+	t         *testing.T
+	st        *memory.Store
+	nodes     map[string]*fakeNode
+	caKey     *ecdsa.PrivateKey
+	ca        *x509.Certificate
+	srv       *httptest.Server
+	approvals *approval.Service
+
+	clockMu sync.Mutex
+	now     time.Time
+}
+
+const testPublicURL = "https://fleetos.example.org"
+
+// advance moves the approvals' clock forward.
+func (h *harness) advance(d time.Duration) {
+	h.clockMu.Lock()
+	defer h.clockMu.Unlock()
+	h.now = h.now.Add(d)
+}
+
+func (h *harness) clock() time.Time {
+	h.clockMu.Lock()
+	defer h.clockMu.Unlock()
+	return h.now
 }
 
 func newHarness(t *testing.T) *harness {
@@ -132,11 +177,14 @@ func newHarness(t *testing.T) *harness {
 		// node's own config wins.
 		"pki-liar": {role: "root", profiles: []*cryptosv1.CertificateProfile{leafProfile}},
 	}
-	h.st = memory.New([]store.Node{
+	catalogProfile, _ := proto.Marshal(leafProfile)
+	h.st = memory.NewWithCatalog([]store.Node{
 		{Name: "pki-root", Role: "root"},
 		{Name: "pki-issuing", Role: "issuing"},
 		{Name: "pki-liar", Role: "issuing"},
-	})
+	}, []store.Profile{{Name: leafProfile.GetName(), Spec: catalogProfile}},
+		[]store.Adapter{{Kind: "ACME", Name: "acme-web", Endpoint: "https://192.0.2.10/acme", Profile: "tls-server", Enabled: false}},
+		nil, nil)
 	svc := fleet.New(h.st, func(n store.Node) (fleet.NodeConn, error) { return h.nodes[n.Name], nil })
 
 	h.caKey, _ = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -152,7 +200,9 @@ func newHarness(t *testing.T) *harness {
 
 	resolver := &mcpauth.Resolver{Store: h.st, Roots: pool, Revoked: noneRevoked{}}
 	mux := http.NewServeMux()
-	mux.Handle("/mcp", mcpauth.Middleware(resolver, "")(Handler(svc, h.st, "test")))
+	h.now = time.Now().UTC()
+	h.approvals = &approval.Service{Store: h.st, Now: h.clock}
+	mux.Handle("/mcp", mcpauth.Middleware(resolver, "")(Handler(svc, h.st, h.approvals, testPublicURL, "test")))
 	h.srv = httptest.NewServer(mux)
 	t.Cleanup(h.srv.Close)
 	return h

@@ -88,6 +88,18 @@ CREATE TABLE IF NOT EXISTS oauth_codes (
   level_ceiling text NOT NULL, label text NOT NULL, expires_at timestamptz NOT NULL
 );`
 
+// v5ApprovalsSQL adds the step-up approvals raised by MCP tool calls. They
+// are in the database so an agent's request, the operator's decision in the
+// browser and the agent's re-call can each land on a different replica.
+const v5ApprovalsSQL = `CREATE TABLE IF NOT EXISTS approvals (
+  id text PRIMARY KEY, tool text NOT NULL, summary text NOT NULL, request_digest text NOT NULL,
+  requested_by_cn text NOT NULL, requested_by_serial text NOT NULL, key_id text NOT NULL,
+  required_level text NOT NULL, created_at timestamptz NOT NULL, expires_at timestamptz NOT NULL,
+  status text NOT NULL, decided_by_cn text NOT NULL DEFAULT '', decided_by_serial text NOT NULL DEFAULT '',
+  decided_by_level text NOT NULL DEFAULT '', decided_at timestamptz, used_at timestamptz
+);
+CREATE INDEX IF NOT EXISTS approvals_created_at ON approvals (created_at DESC);`
+
 // migration is one ordered, idempotently-tracked schema step.
 type migration struct {
 	version string
@@ -101,6 +113,7 @@ var migrations = []migration{
 	{version: "v2", sql: v2ProfilesSQL},
 	{version: "v3", sql: v3OperatorCredentialsSQL},
 	{version: "v4", sql: v4McpSQL},
+	{version: "v5", sql: v5ApprovalsSQL},
 }
 
 // migrate applies every not-yet-applied migration in order, each tracked in a

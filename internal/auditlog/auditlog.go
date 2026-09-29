@@ -34,13 +34,19 @@ const (
 	OutcomeOK     = "ok"
 	OutcomeDenied = "denied"
 	OutcomeError  = "error"
+	// OutcomePending marks a step-up call that raised an approval instead of
+	// running.
+	OutcomePending = "pending"
 )
 
 // Call describes the MCP tool call in flight. Rows written by the handlers
-// the call dispatches to carry its tool name and request digest.
+// the call dispatches to carry its tool name and request digest, and, for a
+// step-up call running under an approval, the approval and its approver.
 type Call struct {
-	Tool          string
-	RequestDigest string
+	Tool           string
+	RequestDigest  string
+	ApprovalID     string
+	ApproverSerial string
 }
 
 type callCtxKey struct{}
@@ -73,6 +79,12 @@ func Record(ctx context.Context, st store.Store, e store.AuditEvent) store.Audit
 	if c, ok := ctx.Value(callCtxKey{}).(Call); ok {
 		e.Tool = c.Tool
 		e.RequestDigest = c.RequestDigest
+		if e.ApprovalID == "" {
+			e.ApprovalID = c.ApprovalID
+		}
+		if e.ApproverSerial == "" {
+			e.ApproverSerial = c.ApproverSerial
+		}
 	}
 
 	return st.AddAuditEvent(e)

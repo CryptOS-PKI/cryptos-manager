@@ -779,3 +779,94 @@ func (s *Store) TakeOAuthCode(hash string) (store.OAuthCode, bool) {
 	c.ExpiresAt = c.ExpiresAt.UTC()
 	return c, true
 }
+
+const approvalCols = `id, tool, summary, request_digest, requested_by_cn, requested_by_serial, key_id,
+  required_level, created_at, expires_at, status, decided_by_cn, decided_by_serial, decided_by_level,
+  decided_at, used_at`
+
+func scanApproval(row pgx.Row) (store.Approval, error) {
+	var (
+		a            store.Approval
+		decided, use *time.Time
+	)
+	if err := row.Scan(&a.ID, &a.Tool, &a.Summary, &a.RequestDigest, &a.RequestedByCN, &a.RequestedBySerial,
+		&a.KeyID, &a.RequiredLevel, &a.CreatedAt, &a.ExpiresAt, &a.Status, &a.DecidedByCN, &a.DecidedBySerial,
+		&a.DecidedByLevel, &decided, &use); err != nil {
+		return store.Approval{}, err
+	}
+	a.CreatedAt = a.CreatedAt.UTC()
+	a.ExpiresAt = a.ExpiresAt.UTC()
+	a.DecidedAt = timeOrZero(decided)
+	a.UsedAt = timeOrZero(use)
+	return a, nil
+}
+
+// AddApproval records a newly raised approval.
+func (s *Store) AddApproval(a store.Approval) {
+	if _, err := s.pool.Exec(bg(),
+		`INSERT INTO approvals (`+approvalCols+`)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
+		a.ID, a.Tool, a.Summary, a.RequestDigest, a.RequestedByCN, a.RequestedBySerial, a.KeyID, a.RequiredLevel,
+		a.CreatedAt, a.ExpiresAt, a.Status, a.DecidedByCN, a.DecidedBySerial, a.DecidedByLevel,
+		nullTime(a.DecidedAt), nullTime(a.UsedAt)); err != nil {
+		panic(fmt.Sprintf("postgres: insert approval %q: %v", a.ID, err))
+	}
+}
+
+// oneApproval runs a query returning at most one approval row. No row means
+// the approval is missing or the statement's condition did not hold.
+func (s *Store) oneApproval(query string, args ...any) (store.Approval, bool) {
+	a, err := scanApproval(s.pool.QueryRow(bg(), query, args...))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return store.Approval{}, false
+	}
+	if err != nil {
+		panic(fmt.Sprintf("postgres: approval: %v", err))
+	}
+	return a, true
+}
+
+// Approval returns the approval with the given ID, and whether it was found.
+func (s *Store) Approval(id string) (store.Approval, bool) {
+	return s.oneApproval(`SELECT `+approvalCols+` FROM approvals WHERE id = $1`, id)
+}
+
+// Approvals returns every approval, newest first.
+func (s *Store) Approvals() []store.Approval {
+	rows, err := s.pool.Query(bg(), `SELECT `+approvalCols+` FROM approvals ORDER BY created_at DESC, id`)
+	if err != nil {
+		panic(fmt.Sprintf("postgres: query approvals: %v", err))
+	}
+	defer rows.Close()
+
+	out := make([]store.Approval, 0)
+	for rows.Next() {
+		a, err := scanApproval(rows)
+		if err != nil {
+			panic(fmt.Sprintf("postgres: scan approval: %v", err))
+		}
+		out = append(out, a)
+	}
+	if err := rows.Err(); err != nil {
+		panic(fmt.Sprintf("postgres: iterate approvals: %v", err))
+	}
+	return out
+}
+
+// DecideApproval records the decision on a pending, unexpired approval in a
+// single conditional UPDATE.
+func (s *Store) DecideApproval(id, status, deciderCN, deciderSerial, deciderLevel string, at time.Time) (store.Approval, bool) {
+	return s.oneApproval(
+		`UPDATE approvals SET status = $2, decided_by_cn = $3, decided_by_serial = $4, decided_by_level = $5, decided_at = $6
+		 WHERE id = $1 AND status = 'pending' AND expires_at > $6 RETURNING `+approvalCols,
+		id, status, deciderCN, deciderSerial, deciderLevel, at)
+}
+
+// UseApproval marks an approved, unexpired approval used in a single
+// conditional UPDATE.
+func (s *Store) UseApproval(id string, at time.Time) (store.Approval, bool) {
+	return s.oneApproval(
+		`UPDATE approvals SET status = 'used', used_at = $2
+		 WHERE id = $1 AND status = 'approved' AND expires_at > $2 RETURNING `+approvalCols,
+		id, at)
+}

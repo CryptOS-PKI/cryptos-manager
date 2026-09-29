@@ -29,8 +29,9 @@ type Policy int
 const (
 	// Direct tools run immediately for a key at or above the minimum level.
 	Direct Policy = iota
-	// StepUp operations need a human approval outside the agent's reach.
-	// Approvals are not built yet, so they are not registered.
+	// StepUp operations need a human approval outside the agent's reach: a
+	// call raises the approval, and the operation runs only when the agent
+	// calls again with the approved approval_id.
 	StepUp
 	// Excluded operations are never exposed over MCP.
 	Excluded
@@ -58,8 +59,10 @@ type Spec struct {
 }
 
 // Catalog is the complete policy table: every FleetService operation and how
-// MCP treats it. Only Direct rows are registered as tools. It is enforced
-// before dispatch, on top of each handler's own level check.
+// MCP treats it. Direct and StepUp rows are registered as tools; Excluded
+// rows never are. It is enforced before dispatch, on top of each handler's
+// own level check. cert_issue_from_csr is Direct but needs an approval for a
+// CA certificate or the root node.
 var Catalog = []Spec{
 	{Name: "fleet_whoami", RPC: "WhoAmI", MinLevel: authz.LevelViewer, Policy: Direct},
 	{Name: "fleet_list_nodes", RPC: "ListNodes", MinLevel: authz.LevelViewer, Policy: Direct},
@@ -73,6 +76,7 @@ var Catalog = []Spec{
 	{Name: "enrollment_list", RPC: "ListEnrollments", MinLevel: authz.LevelViewer, Policy: Direct},
 	{Name: "enrollment_reject", RPC: "RejectEnrollment", MinLevel: authz.LevelOperator, Policy: Direct},
 	{Name: "operator_credential_list", RPC: "ListOperatorCredentials", MinLevel: authz.LevelOperator, Policy: Direct},
+	{Name: "approval_status", MinLevel: authz.LevelViewer, Policy: Direct},
 
 	{Name: "cert_revoke", RPC: "RevokeCertificate", MinLevel: authz.LevelOperator, Policy: StepUp, Reason: "revocation is irreversible"},
 	{Name: "profile_create", RPC: "CreateProfile", MinLevel: authz.LevelAdmin, Policy: StepUp, Reason: "changes what every node may issue"},
@@ -96,6 +100,8 @@ var Catalog = []Spec{
 	{Name: "mcp_key_create", RPC: "CreateMcpKey", Policy: Excluded, Reason: "keys are never managed with a key"},
 	{Name: "mcp_key_list", RPC: "ListMcpKeys", Policy: Excluded, Reason: "keys are never managed with a key"},
 	{Name: "mcp_key_revoke", RPC: "RevokeMcpKey", Policy: Excluded, Reason: "keys are never managed with a key"},
+	{Name: "approval_list", RPC: "ListApprovals", Policy: Excluded, Reason: "approvals are decided by people, outside the agent's reach"},
+	{Name: "approval_decide", RPC: "DecideApproval", Policy: Excluded, Reason: "an agent must never approve its own requests"},
 }
 
 func spec(name string) Spec {

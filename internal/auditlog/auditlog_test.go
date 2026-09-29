@@ -58,3 +58,15 @@ func TestRecord_StampsMCPActorAndTool(t *testing.T) {
 		t.Fatalf("row = %+v", got)
 	}
 }
+
+func TestRecord_StampsTheApprovalACallRunsUnder(t *testing.T) {
+	st := memory.New(nil)
+	ctx := authz.NewContext(context.Background(), authz.Identity{CN: "operator@example.org", Serial: "0A:BC", Level: authz.LevelOperator, Via: authz.ViaMCP, KeyID: "key-1"})
+	ctx = WithCall(ctx, Call{Tool: "cert_revoke", RequestDigest: "abc", ApprovalID: "apr-1", ApproverSerial: "0D:EF"})
+
+	got := Record(ctx, st, store.AuditEvent{Kind: "revoked"})
+
+	if got.ApprovalID != "apr-1" || got.ApproverSerial != "0D:EF" || got.Tool != "cert_revoke" {
+		t.Fatalf("row = %+v", got)
+	}
+}

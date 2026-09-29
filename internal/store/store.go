@@ -147,6 +147,42 @@ type OAuthCode struct {
 	ExpiresAt       time.Time
 }
 
+// Stored approval statuses. An approval is also reported as expired once its
+// ExpiresAt passes while it is pending or approved; that status is derived on
+// read and never stored.
+const (
+	ApprovalPending  = "pending"
+	ApprovalApproved = "approved"
+	ApprovalDenied   = "denied"
+	ApprovalExpired  = "expired"
+	ApprovalUsed     = "used"
+)
+
+// Approval is a step-up request raised by an MCP tool call that needs a
+// person's decision before it runs. It covers exactly one request (the tool
+// and the digest of its arguments), made by one key, and is used at most
+// once before ExpiresAt. DecidedByLevel is the decider's level at decision
+// time, kept so the call can re-check it when the approval is used. A zero
+// time means the timestamp is unset.
+type Approval struct {
+	ID                string
+	Tool              string
+	Summary           string
+	RequestDigest     string
+	RequestedByCN     string
+	RequestedBySerial string
+	KeyID             string
+	RequiredLevel     string
+	CreatedAt         time.Time
+	ExpiresAt         time.Time
+	Status            string
+	DecidedByCN       string
+	DecidedBySerial   string
+	DecidedByLevel    string
+	DecidedAt         time.Time
+	UsedAt            time.Time
+}
+
 // Enrollment is a node's request to join the fleet under a parent CA,
 // pending admin approval. It mirrors cryptos.fleet.v1.EnrollmentRequest.
 type Enrollment struct {
@@ -266,6 +302,26 @@ type Store interface {
 	// TakeOAuthCode removes and returns the code whose CodeHash is hash, so
 	// a code can be redeemed at most once.
 	TakeOAuthCode(hash string) (OAuthCode, bool)
+	// AddApproval records a newly raised approval.
+	AddApproval(a Approval)
+	// Approval returns the approval with the given ID, and whether it was
+	// found.
+	Approval(id string) (Approval, bool)
+	// Approvals returns every approval, newest first.
+	Approvals() []Approval
+	// DecideApproval sets status (ApprovalApproved or ApprovalDenied) and the
+	// decider on the approval with the given ID, only if it is still pending
+	// and at is before its ExpiresAt. It returns the updated approval and
+	// true, or false when the approval is missing, already decided or
+	// expired. The check and the update are one step, so two deciders
+	// cannot both win.
+	DecideApproval(id, status, deciderCN, deciderSerial, deciderLevel string, at time.Time) (Approval, bool)
+	// UseApproval marks the approval with the given ID used, only if it is
+	// approved and at is before its ExpiresAt. It returns the updated
+	// approval and true, or false when it is missing, not approved, already
+	// used or expired. The check and the update are one step, so an approval
+	// runs at most one call.
+	UseApproval(id string, at time.Time) (Approval, bool)
 }
 
 // HashEvent computes the chain hash for an audit event: the SHA-256, in hex, of

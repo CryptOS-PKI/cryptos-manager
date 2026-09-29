@@ -27,6 +27,7 @@ import (
 
 	fleetv1connect "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1/fleetv1connect"
 	cryptosv1 "github.com/CryptOS-PKI/api/go/cryptos/v1"
+	"github.com/CryptOS-PKI/manager/internal/approval"
 	"github.com/CryptOS-PKI/manager/internal/mcpauth"
 	"github.com/CryptOS-PKI/manager/internal/nodeclient"
 	"github.com/CryptOS-PKI/manager/internal/store"
@@ -84,6 +85,9 @@ type Service struct {
 	// operator can still clean up.
 	mcpKeys    *mcpauth.Keys
 	mcpEnabled bool
+
+	// approvals backs the step-up approval RPCs the web UI decides with.
+	approvals *approval.Service
 }
 
 // New builds a Service backed by st, dialing nodes with dial. Callers in
@@ -127,6 +131,14 @@ func (s *Service) WithAdoption(previewCert func(endpoint string) (certSHA256, su
 func (s *Service) WithMCP(keys *mcpauth.Keys, enabled bool) *Service {
 	s.mcpKeys = keys
 	s.mcpEnabled = enabled
+
+	return s
+}
+
+// WithApprovals supplies the step-up approval service. Returns s for
+// chaining.
+func (s *Service) WithApprovals(a *approval.Service) *Service {
+	s.approvals = a
 
 	return s
 }
