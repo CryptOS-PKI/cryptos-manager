@@ -57,8 +57,10 @@ minutes per PR:
   are steps of one `✅ PR Checks` job (`job-pr-checks.yaml`). Every step runs even when an earlier
   one fails, so the log shows every failure. There is no separate Gitleaks workflow any more (it
   also ran on every push to every branch, so each PR commit was scanned twice).
-- **Pull requests only.** Actionlint, the licence-header check (GoLic) and the Go dependency licence
-  check (`job-license-check-go.yaml`) run on pull requests, not on push to `main`: the squash merge
+- **Pull requests only.** Actionlint, the licence-header check (GoLic), the Go dependency licence
+  check (`job-license-check-go.yaml`) and Go CI (`ci-go.yaml`: the `task ci` checks plus a build,
+  with a Postgres service container so the store integration tests run) run on pull requests, not
+  on push to `main`: the squash merge
   lands the tree the PR run already checked. Only Release Drafter (on push to `main`) and Label Sync
   (when `.github/labels.yml` changes) run on `main`. The image and Helm chart release
   (`job-release-image.yaml`) runs on `v*` tags only.

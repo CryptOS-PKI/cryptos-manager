@@ -1,0 +1,116 @@
+name: Go CI
+# Build, vet, lint and test the Go code on every pull request. These are the
+# same checks as `task ci` and the local pre-push hook, which are advisory (a
+# clone without the hooks installed pushes untested code); this job is the
+# gate that proves a PR builds and its tests pass.
+#
+# One job, one step per check. Every check step runs with `!cancelled()`, so a
+# gofmt miss never hides a failing test: the log shows every failure, and the
+# job fails if any step failed.
+#
+# Postgres runs as a service container so the internal/store/postgres suite
+# runs instead of skipping. With MANAGER_TEST_DATABASE_URL set, an unreachable
+# database fails those tests rather than skipping them, so the suite can never
+# pass silently without a database.
+#
+# Pull requests only, and not while the PR is a draft; the PR run covers what
+# merges, so nothing reruns on push to main. No paths-ignore: a filtered-out
+# workflow never reports, which would leave a required check pending forever
+# on a docs-only PR.
+on:
+  pull_request:
+    branches: [main]
+    # edited is here so retargeting a stacked PR onto main starts CI. Jobs
+    # skip edited events that did not change the base (title/body edits), and
+    # a skipped job is not billed.
+    types: [opened, synchronize, reopened, ready_for_review, edited]
+# One run per PR per workflow: a new push cancels the older PR run. A title or
+# body edit gets its own group, so its run never cancels real CI.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}${{ github.event.action == 'edited' && github.event.changes.base == null && format('-edit-{0}', github.run_id) || '' }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  go:
+    name: 🧪 Go CI (fmt, vet, lint, build, test)${{ github.event.action == 'edited' && github.event.changes.base == null && ' (edit, not run)' || '' }}
+    if: github.event.pull_request.draft == false && (github.event.action != 'edited' || github.event.changes.base != null)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        # The same image the README uses for a local integration-test run.
+        image: postgres:18-alpine
+        env:
+          POSTGRES_PASSWORD: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      MANAGER_TEST_DATABASE_URL: postgres://postgres:test@localhost:5432/postgres?sslmode=disable
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v6
+
+      - name: 🐹 Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      # Pinned release binaries, each checked against the SHA-256 its release
+      # publishes, instead of `go install ...@latest` on every run. Update each
+      # SHA256 together with its VERSION (from the release's checksums file).
+      # The golangci-lint binary must be built with a Go at least as new as
+      # go.mod's; v2.12.2 is built with go1.26.2.
+      - name: 📦 Install task and golangci-lint
+        id: tools
+        env:
+          TASK_VERSION: 3.53.1
+          TASK_SHA256: a54a408f6861ff921f6e87774180db31bacd8c1e7c944ca696db9fea49a82fc7
+          GOLANGCI_LINT_VERSION: 2.12.2
+          GOLANGCI_LINT_SHA256: 8df580d2670fed8fa984aac0507099af8df275e665215f5c7a2ae3943893a553
+        run: |
+          set -euo pipefail
+          bin="$RUNNER_TEMP/bin"
+          mkdir -p "$bin"
+
+          task_tgz="$RUNNER_TEMP/task_linux_amd64.tar.gz"
+          curl -sSfL -o "$task_tgz" \
+            "https://github.com/go-task/task/releases/download/v${TASK_VERSION}/task_linux_amd64.tar.gz"
+          echo "${TASK_SHA256}  $task_tgz" | sha256sum -c -
+          tar -xzf "$task_tgz" -C "$bin" task
+
+          lint_dir="golangci-lint-${GOLANGCI_LINT_VERSION}-linux-amd64"
+          lint_tgz="$RUNNER_TEMP/${lint_dir}.tar.gz"
+          curl -sSfL -o "$lint_tgz" \
+            "https://github.com/golangci/golangci-lint/releases/download/v${GOLANGCI_LINT_VERSION}/${lint_dir}.tar.gz"
+          echo "${GOLANGCI_LINT_SHA256}  $lint_tgz" | sha256sum -c -
+          tar -xzf "$lint_tgz" -C "$bin" --strip-components=1 "${lint_dir}/golangci-lint"
+
+          echo "$bin" >> "$GITHUB_PATH"
+          "$bin/task" --version
+          "$bin/golangci-lint" version
+
+      - name: 🧼 gofmt
+        run: task fmt
+
+      - name: 🔎 go vet
+        if: ${{ !cancelled() && steps.tools.outcome == 'success' }}
+        run: task vet
+
+      - name: 🧹 golangci-lint
+        if: ${{ !cancelled() && steps.tools.outcome == 'success' }}
+        run: task lint
+
+      - name: 🏗️ go build
+        if: ${{ !cancelled() && steps.tools.outcome == 'success' }}
+        run: task build
+
+      - name: 🧪 go test (with Postgres)
+        if: ${{ !cancelled() && steps.tools.outcome == 'success' }}
+        run: task test
