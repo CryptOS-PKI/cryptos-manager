@@ -61,6 +61,43 @@ Keys and login state live in the store. With the in-memory store (no `database_u
 they are lost on restart, so use Postgres for anything but a local trial. With Postgres
 every replica shares them, so a login can start on one replica and finish on another.
 
+### With the Helm chart
+
+The in-repo chart (`chart/fleet-manager`) renders the same keys from its values:
+
+| Value | Default | Renders as |
+| --- | --- | --- |
+| `mcp.enabled` | `false` | `mcp.enabled` |
+| `mcp.publicURL` | `""` | `mcp.public_url` |
+| `operatorCANode` | `""` | `operator_ca_node` (omitted when empty) |
+
+```sh
+helm install fleet oci://ghcr.io/cryptos-pki/charts/fleet-manager --version X.Y.Z \
+  --set tls.certSecret=<server-tls-secret> \
+  --set operatorCA.configMap=<operator-ca-configmap> \
+  --set operatorCANode=pki-operator \
+  --set mcp.enabled=true \
+  --set mcp.publicURL=https://fleetos.example.org \
+  --set-json 'nodes=[...]'
+```
+
+`operatorCANode` must name an entry in `nodes`. The chart applies the startup checks
+above at render time, so `helm install` and `helm template` fail with a message instead
+of deploying a manager that refuses to start:
+
+- `mcp.enabled` with `authBypass: true`;
+- `mcp.enabled` without `operatorCANode`;
+- `mcp.enabled` without `mcp.publicURL`.
+
+The chart does not check the shape of `publicURL` (https, no path); the manager does,
+at startup. `operatorCANode` is useful without MCP too: it turns on operator-credential
+management and operator-certificate revocation for the web UI and API.
+
+The chart runs two replicas and sets no `database_url`, so each replica has its own
+in-memory store. A key minted on one replica is unknown to the other, and a login can
+start on one and fail on the other. Until the chart exposes a database, run it with
+`replicaCount: 1` when MCP is enabled.
+
 ## Logging in
 
 An MCP client that supports MCP authorization (the `claude` CLI does) runs the login

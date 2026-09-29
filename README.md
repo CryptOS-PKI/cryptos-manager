@@ -144,6 +144,8 @@ helm install fleet oci://ghcr.io/cryptos-pki/charts/fleet-manager --version X.Y.
   --set-json 'nodes=[{"name":"pki-root","endpoint":"pki-root.example:443","role":"root","adminCertPath":"...","adminKeyPath":"...","caCertPath":"..."}]'
 ```
 
+The MCP endpoint is off in the chart too. `mcp.enabled`, `mcp.publicURL` and `operatorCANode` turn it on; the chart refuses to render it without `operatorCANode` or with `authBypass`. See [`docs/mcp.md`](docs/mcp.md#with-the-helm-chart).
+
 ## 🔌 MCP endpoint
 
 The manager can serve a [Model Context Protocol](https://modelcontextprotocol.io) endpoint at `/mcp` for AI agents. It is off by default.
