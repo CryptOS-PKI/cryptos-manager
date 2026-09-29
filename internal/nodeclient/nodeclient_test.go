@@ -87,6 +87,12 @@ func (fakeNodeService) ListRevocations(context.Context, *cryptosv1.ListRevocatio
 	}, nil
 }
 
+// GetIssuedCertificate echoes the requested serial back as the certificate
+// bytes, so the test can assert the Client relayed it unchanged.
+func (fakeNodeService) GetIssuedCertificate(_ context.Context, req *cryptosv1.GetIssuedCertificateRequest) (*cryptosv1.GetIssuedCertificateResponse, error) {
+	return &cryptosv1.GetIssuedCertificateResponse{CertificateDer: []byte(req.GetSerialHex()), Status: "valid"}, nil
+}
+
 func (fakeNodeService) ExportCAKey(_ context.Context, req *cryptosv1.ExportCAKeyRequest) (*cryptosv1.ExportCAKeyResponse, error) {
 	// Echo the passphrase back inside the envelope so the test can assert the
 	// Client relayed it unchanged.
@@ -429,5 +435,30 @@ func TestDialPEM_MalformedKey(t *testing.T) {
 	_, err := DialPEM("127.0.0.1:0", certPEM, "not-a-valid-pem-key", "")
 	if err == nil {
 		t.Fatal("DialPEM() error = nil, want non-nil for a malformed key PEM")
+	}
+}
+
+func TestClient_GetIssuedCertificate(t *testing.T) {
+	serverCA := newTestCA(t, "fake-node-server-ca")
+	clientCA := newTestCA(t, "fake-node-client-ca")
+	addr, stop := startFakeNode(t, serverCA, clientCA)
+	defer stop()
+
+	adminPair := clientCA.issueLeaf(t, "manager-admin", []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth})
+	certPath, keyPath := writePEMFiles(t, t.TempDir(), adminPair)
+	client, err := Dial(store.Node{Name: "fake-node", Endpoint: addr, Role: "issuing", AdminCert: certPath, AdminKey: keyPath})
+	if err != nil {
+		t.Fatalf("Dial() error = %v, want nil", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	resp, err := client.GetIssuedCertificate(ctx, "0a1b")
+	if err != nil {
+		t.Fatalf("GetIssuedCertificate() error = %v, want nil", err)
+	}
+	if string(resp.GetCertificateDer()) != "0a1b" || resp.GetStatus() != "valid" {
+		t.Errorf("GetIssuedCertificate() = %v, want the serial echoed back", resp)
 	}
 }

@@ -52,6 +52,11 @@ type certListArgs struct {
 	Node string `json:"node,omitempty" jsonschema:"limit the list to this node; empty lists every node"`
 }
 
+type certGetArgs struct {
+	Node      string `json:"node" jsonschema:"the node that issued the certificate"`
+	SerialHex string `json:"serial_hex" jsonschema:"the certificate's serial number in hex, as cert_list shows it"`
+}
+
 type getNodeArgs struct {
 	Name string `json:"name" jsonschema:"the node's inventory name"`
 }
@@ -94,6 +99,10 @@ func registerTools(s *mcp.Server, t *tools) {
 	add(s, t, "cert_list", "List issued and revoked certificates across the fleet or on one node.", false,
 		func(ctx context.Context, in certListArgs) (string, error) {
 			return call(ctx, t.svc.ListCertificates, &fleetv1.ListCertificatesRequest{Node: in.Node})
+		})
+	add(s, t, "cert_get", "Fetch one issued certificate and its chain as PEM, with its status (valid, revoked or expired), by node and serial.", false,
+		func(ctx context.Context, in certGetArgs) (string, error) {
+			return call(ctx, t.svc.GetCertificate, &fleetv1.GetCertificateRequest{NodeName: in.Node, SerialHex: in.SerialHex})
 		})
 	addGated(s, t, "cert_issue_from_csr",
 		"Issue a certificate from a CSR. An end-entity certificate on an intermediate or issuing node under a non-CA profile "+

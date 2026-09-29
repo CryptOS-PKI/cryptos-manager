@@ -41,6 +41,12 @@ import (
 
 // fakeConn is a canned NodeConn used to drive Service without a real dial.
 type fakeConn struct {
+	// getIssued is returned by GetIssuedCertificate; gotGetSerial records the
+	// serial it was asked for.
+	getIssued    *cryptosv1.GetIssuedCertificateResponse
+	getIssuedErr error
+	gotGetSerial string
+
 	status      *cryptosv1.GetStatusResponse
 	disks       *cryptosv1.ListInstallDisksResponse
 	identity    *cryptosv1.GetIdentityResponse
@@ -199,6 +205,14 @@ func (f *fakeConn) GetIdentity(context.Context) (*cryptosv1.GetIdentityResponse,
 		return nil, f.err
 	}
 	return f.identity, nil
+}
+
+func (f *fakeConn) GetIssuedCertificate(_ context.Context, serialHex string) (*cryptosv1.GetIssuedCertificateResponse, error) {
+	f.gotGetSerial = serialHex
+	if f.getIssuedErr != nil {
+		return nil, f.getIssuedErr
+	}
+	return f.getIssued, nil
 }
 
 func (f *fakeConn) ListIssued(context.Context) (*cryptosv1.ListIssuedResponse, error) {

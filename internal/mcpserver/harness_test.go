@@ -41,6 +41,8 @@ import (
 	"github.com/CryptOS-PKI/manager/internal/store"
 	"github.com/CryptOS-PKI/manager/internal/store/memory"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -109,6 +111,22 @@ func (f *fakeNode) issuedCount() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.issued
+}
+
+// GetIssuedCertificate knows serial 0a1b (valid) and dead (revoked); any
+// other serial is NotFound, as a node reports it.
+func (f *fakeNode) GetIssuedCertificate(_ context.Context, serialHex string) (*cryptosv1.GetIssuedCertificateResponse, error) {
+	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	tmpl := &x509.Certificate{SerialNumber: big.NewInt(0x0a1b), Subject: pkix.Name{CommonName: "svc.example.org"}, NotBefore: time.Now(), NotAfter: time.Now().Add(time.Hour)}
+	der, _ := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	switch serialHex {
+	case "0a1b":
+		return &cryptosv1.GetIssuedCertificateResponse{CertificateDer: der, ChainDer: [][]byte{der}, Status: "valid"}, nil
+	case "dead":
+		return &cryptosv1.GetIssuedCertificateResponse{CertificateDer: der, ChainDer: [][]byte{der}, Status: "revoked", RevokedAt: "2026-09-01T00:00:00Z"}, nil
+	default:
+		return nil, status.Error(codes.NotFound, "no such serial")
+	}
 }
 
 func (f *fakeNode) ListIssued(context.Context) (*cryptosv1.ListIssuedResponse, error) {

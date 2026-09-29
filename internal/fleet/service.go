@@ -40,6 +40,7 @@ type NodeConn interface {
 	ListInstallDisks(ctx context.Context) (*cryptosv1.ListInstallDisksResponse, error)
 	GetIdentity(ctx context.Context) (*cryptosv1.GetIdentityResponse, error)
 	ListIssued(ctx context.Context) (*cryptosv1.ListIssuedResponse, error)
+	GetIssuedCertificate(ctx context.Context, serialHex string) (*cryptosv1.GetIssuedCertificateResponse, error)
 	ListRevocations(ctx context.Context) (*cryptosv1.ListRevocationsResponse, error)
 	Attest(ctx context.Context, nonce []byte) (*cryptosv1.AttestResponse, error)
 	GetSubordinateCSR(ctx context.Context) (*cryptosv1.GetSubordinateCSRResponse, error)
