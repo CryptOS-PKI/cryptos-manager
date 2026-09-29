@@ -69,7 +69,7 @@ func testStore(t *testing.T) *Store {
 func truncateAll(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
 	if _, err := pool.Exec(context.Background(),
-		`TRUNCATE nodes, profiles, adapters, audit_events, enrollments, operator_credentials RESTART IDENTITY`); err != nil {
+		`TRUNCATE nodes, profiles, adapters, audit_events, enrollments, operator_credentials, mcp_keys, oauth_requests, oauth_codes RESTART IDENTITY`); err != nil {
 		t.Fatalf("truncate: %v", err)
 	}
 }

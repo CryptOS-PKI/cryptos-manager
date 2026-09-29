@@ -52,6 +52,42 @@ const v3OperatorCredentialsSQL = `CREATE TABLE IF NOT EXISTS operator_credential
   issued_at timestamptz NOT NULL DEFAULT now()
 );`
 
+// v4McpSQL records who acted on every audit row, versions the audit hash
+// chain so rows hashed before the actor fields keep verifying, and adds the
+// MCP agent key table plus the short-lived OAuth login state. The OAuth state
+// is in the database rather than in memory because a login's browser leg and
+// token leg can land on different replicas.
+const v4McpSQL = `ALTER TABLE audit_events
+  ADD COLUMN IF NOT EXISTS actor_kind text NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS actor_cn text NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS actor_serial text NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS key_id text NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS via text NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS tool text NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS request_digest text NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS outcome text NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS approval_id text NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS approver_serial text NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS chain_version integer NOT NULL DEFAULT 1;
+CREATE TABLE IF NOT EXISTS mcp_keys (
+  id text PRIMARY KEY, token_hash text UNIQUE NOT NULL, label text NOT NULL,
+  client_name text NOT NULL, operator_serial text NOT NULL, operator_cn text NOT NULL,
+  operator_cert_der bytea NOT NULL, level_ceiling text NOT NULL,
+  created_at timestamptz NOT NULL, last_used_at timestamptz, revoked_at timestamptz,
+  expires_at timestamptz
+);
+CREATE TABLE IF NOT EXISTS oauth_requests (
+  id text PRIMARY KEY, client_id text NOT NULL, client_name text NOT NULL,
+  redirect_uri text NOT NULL, state text NOT NULL, code_challenge text NOT NULL,
+  expires_at timestamptz NOT NULL
+);
+CREATE TABLE IF NOT EXISTS oauth_codes (
+  code_hash text PRIMARY KEY, client_id text NOT NULL, client_name text NOT NULL,
+  redirect_uri text NOT NULL, code_challenge text NOT NULL, operator_cn text NOT NULL,
+  operator_serial text NOT NULL, operator_cert_der bytea NOT NULL,
+  level_ceiling text NOT NULL, label text NOT NULL, expires_at timestamptz NOT NULL
+);`
+
 // migration is one ordered, idempotently-tracked schema step.
 type migration struct {
 	version string
@@ -64,6 +100,7 @@ var migrations = []migration{
 	{version: "v1", sql: schemaSQL},
 	{version: "v2", sql: v2ProfilesSQL},
 	{version: "v3", sql: v3OperatorCredentialsSQL},
+	{version: "v4", sql: v4McpSQL},
 }
 
 // migrate applies every not-yet-applied migration in order, each tracked in a

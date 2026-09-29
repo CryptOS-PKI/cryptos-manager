@@ -20,6 +20,7 @@ limitations under the License.
 
 import (
 	"testing"
+	"time"
 
 	"github.com/CryptOS-PKI/manager/internal/store"
 )
@@ -367,5 +368,99 @@ func TestStore_SetAdapterEnabled_MissingErrors(t *testing.T) {
 
 	if _, err := s.SetAdapterEnabled("missing", true); err == nil {
 		t.Fatal("SetAdapterEnabled(missing) returned nil, want error")
+	}
+}
+
+func TestStore_AddAuditEvent_StampsCurrentChainVersionAndKeepsActor(t *testing.T) {
+	s := New(nil)
+	got := s.AddAuditEvent(store.AuditEvent{
+		ID: "ev-1", Kind: "issued", ActorKind: "mcp_key", ActorCN: "operator@example.org",
+		ActorSerial: "0A:BC", KeyID: "key-1", Via: "mcp", Tool: "cert_issue_from_csr", Outcome: "ok",
+	})
+	if got.ChainVersion != store.AuditChainVersion {
+		t.Fatalf("ChainVersion = %d, want %d", got.ChainVersion, store.AuditChainVersion)
+	}
+	if got.Hash != store.HashEvent("", got) {
+		t.Fatal("stored hash does not verify")
+	}
+	stored := s.Audit()[0]
+	if stored.ActorCN != "operator@example.org" || stored.KeyID != "key-1" || stored.Tool != "cert_issue_from_csr" {
+		t.Fatalf("stored actor fields = %+v", stored)
+	}
+}
+
+func TestStore_McpKeys(t *testing.T) {
+	s := New(nil)
+	t0 := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	s.AddMcpKey(store.McpKey{ID: "k1", TokenHash: "h1", OperatorSerial: "01", CreatedAt: t0})
+	s.AddMcpKey(store.McpKey{ID: "k2", TokenHash: "h2", OperatorSerial: "02", CreatedAt: t0.Add(time.Hour)})
+
+	if k, ok := s.McpKeyByHash("h2"); !ok || k.ID != "k2" {
+		t.Fatalf("McpKeyByHash(h2) = %+v, %v", k, ok)
+	}
+	if _, ok := s.McpKeyByHash("nope"); ok {
+		t.Fatal("McpKeyByHash(nope) found a key")
+	}
+	if all := s.McpKeys(); len(all) != 2 || all[0].ID != "k2" {
+		t.Fatalf("McpKeys() = %+v, want newest first", all)
+	}
+
+	if !s.TouchMcpKey("k1", t0.Add(time.Minute)) {
+		t.Fatal("first TouchMcpKey did not report first use")
+	}
+	if s.TouchMcpKey("k1", t0.Add(2*time.Minute)) {
+		t.Fatal("second TouchMcpKey reported first use")
+	}
+	if k, _ := s.McpKey("k1"); !k.LastUsedAt.Equal(t0.Add(2 * time.Minute)) {
+		t.Fatalf("LastUsedAt = %v", k.LastUsedAt)
+	}
+
+	rev, err := s.RevokeMcpKey("k1", t0.Add(3*time.Minute))
+	if err != nil || !rev.RevokedAt.Equal(t0.Add(3*time.Minute)) {
+		t.Fatalf("RevokeMcpKey = %+v, %v", rev, err)
+	}
+	again, err := s.RevokeMcpKey("k1", t0.Add(4*time.Minute))
+	if err != nil || !again.RevokedAt.Equal(t0.Add(3*time.Minute)) {
+		t.Fatalf("second RevokeMcpKey = %+v, %v; want first revocation time kept", again, err)
+	}
+	if _, err := s.RevokeMcpKey("missing", t0); err == nil {
+		t.Fatal("RevokeMcpKey(missing) = nil error")
+	}
+}
+
+func TestStore_OAuthStateIsSingleUse(t *testing.T) {
+	s := New(nil)
+	future := time.Now().Add(time.Minute)
+	s.AddOAuthRequest(store.OAuthRequest{ID: "r1", ClientName: "agent", ExpiresAt: future})
+	if r, ok := s.OAuthRequest("r1"); !ok || r.ClientName != "agent" {
+		t.Fatalf("OAuthRequest(r1) = %+v, %v", r, ok)
+	}
+	if _, ok := s.TakeOAuthRequest("r1"); !ok {
+		t.Fatal("TakeOAuthRequest(r1) missing")
+	}
+	if _, ok := s.TakeOAuthRequest("r1"); ok {
+		t.Fatal("TakeOAuthRequest(r1) succeeded twice")
+	}
+
+	s.AddOAuthCode(store.OAuthCode{CodeHash: "c1", OperatorSerial: "01", ExpiresAt: future})
+	if c, ok := s.TakeOAuthCode("c1"); !ok || c.OperatorSerial != "01" {
+		t.Fatalf("TakeOAuthCode(c1) = %+v, %v", c, ok)
+	}
+	if _, ok := s.TakeOAuthCode("c1"); ok {
+		t.Fatal("TakeOAuthCode(c1) succeeded twice")
+	}
+}
+
+func TestStore_AddOAuthRequestDropsExpiredState(t *testing.T) {
+	s := New(nil)
+	past := time.Now().Add(-time.Minute)
+	s.AddOAuthRequest(store.OAuthRequest{ID: "old", ExpiresAt: past})
+	s.AddOAuthCode(store.OAuthCode{CodeHash: "oldc", ExpiresAt: past})
+	s.AddOAuthRequest(store.OAuthRequest{ID: "new", ExpiresAt: time.Now().Add(time.Minute)})
+	if _, ok := s.OAuthRequest("old"); ok {
+		t.Fatal("expired request survived a later add")
+	}
+	if _, ok := s.TakeOAuthCode("oldc"); ok {
+		t.Fatal("expired code survived a later add")
 	}
 }

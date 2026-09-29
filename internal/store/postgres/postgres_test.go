@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/CryptOS-PKI/manager/internal/store"
 )
@@ -381,5 +382,132 @@ func TestOperatorCredentialsCRUD(t *testing.T) {
 
 	if err := s.MarkOperatorCredentialRevoked("nope"); err == nil {
 		t.Fatal("MarkOperatorCredentialRevoked(unknown) = nil, want an error")
+	}
+}
+
+func TestAuditActorFieldsRoundTripAndVerify(t *testing.T) {
+	s := testStore(t)
+
+	// A pre-actor row, as a database migrated from an older release holds it.
+	legacy := store.AuditEvent{ID: "ev-0", At: "2026-07-17T00:00:00Z", Kind: "issued", Summary: "s", TargetKind: "cert", TargetPath: "/p"}
+	legacy.Hash = store.HashEvent("", legacy)
+	if _, err := s.pool.Exec(context.Background(),
+		`INSERT INTO audit_events (id, at, kind, summary, target_kind, target_path, prev_hash, hash)
+		 VALUES ($1,$2,$3,$4,$5,$6,'',$7)`,
+		legacy.ID, legacy.At, legacy.Kind, legacy.Summary, legacy.TargetKind, legacy.TargetPath, legacy.Hash); err != nil {
+		t.Fatalf("insert legacy row: %v", err)
+	}
+
+	got := s.AddAuditEvent(store.AuditEvent{
+		ID: "ev-1", At: "2026-09-29T00:00:00Z", Kind: "issued", Summary: "Issued", TargetKind: "cert", TargetPath: "/nodes/n/certs",
+		ActorKind: "mcp_key", ActorCN: "operator@example.org", ActorSerial: "0A:BC", KeyID: "key-1",
+		Via: "mcp", Tool: "cert_issue_from_csr", RequestDigest: "abc", Outcome: "ok",
+	})
+	if got.ChainVersion != store.AuditChainVersion || got.PrevHash != legacy.Hash {
+		t.Fatalf("appended = %+v", got)
+	}
+
+	all := s.Audit()
+	if len(all) != 2 {
+		t.Fatalf("Audit() len = %d", len(all))
+	}
+	if all[0].ChainVersion != 1 {
+		t.Fatalf("legacy row chain version = %d, want 1", all[0].ChainVersion)
+	}
+	prev := ""
+	for _, e := range all {
+		if e.Hash != store.HashEvent(prev, e) {
+			t.Fatalf("row %s does not verify", e.ID)
+		}
+		prev = e.Hash
+	}
+	e := all[1]
+	if e.ActorKind != "mcp_key" || e.ActorCN != "operator@example.org" || e.ActorSerial != "0A:BC" ||
+		e.KeyID != "key-1" || e.Via != "mcp" || e.Tool != "cert_issue_from_csr" || e.RequestDigest != "abc" || e.Outcome != "ok" {
+		t.Fatalf("actor fields = %+v", e)
+	}
+}
+
+func TestMcpKeys(t *testing.T) {
+	s := testStore(t)
+	t0 := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	s.AddMcpKey(store.McpKey{
+		ID: "k1", TokenHash: "h1", Label: "laptop", ClientName: "agent", OperatorSerial: "01",
+		OperatorCN: "operator@example.org", OperatorCertDER: []byte{1, 2, 3}, LevelCeiling: "viewer", CreatedAt: t0,
+	})
+	s.AddMcpKey(store.McpKey{ID: "k2", TokenHash: "h2", OperatorSerial: "02", OperatorCertDER: []byte{4}, CreatedAt: t0.Add(time.Hour)})
+
+	k, ok := s.McpKeyByHash("h1")
+	if !ok || k.ID != "k1" || k.Label != "laptop" || k.ClientName != "agent" || k.LevelCeiling != "viewer" ||
+		string(k.OperatorCertDER) != string([]byte{1, 2, 3}) || !k.CreatedAt.Equal(t0) || !k.LastUsedAt.IsZero() || !k.RevokedAt.IsZero() {
+		t.Fatalf("McpKeyByHash(h1) = %+v, %v", k, ok)
+	}
+	if _, ok := s.McpKeyByHash("nope"); ok {
+		t.Fatal("McpKeyByHash(nope) found a key")
+	}
+	if all := s.McpKeys(); len(all) != 2 || all[0].ID != "k2" {
+		t.Fatalf("McpKeys() = %+v, want newest first", all)
+	}
+
+	if !s.TouchMcpKey("k1", t0.Add(time.Minute)) {
+		t.Fatal("first TouchMcpKey did not report first use")
+	}
+	if s.TouchMcpKey("k1", t0.Add(2*time.Minute)) {
+		t.Fatal("second TouchMcpKey reported first use")
+	}
+
+	rev, err := s.RevokeMcpKey("k1", t0.Add(3*time.Minute))
+	if err != nil || !rev.RevokedAt.Equal(t0.Add(3*time.Minute)) || !rev.LastUsedAt.Equal(t0.Add(2*time.Minute)) {
+		t.Fatalf("RevokeMcpKey = %+v, %v", rev, err)
+	}
+	again, err := s.RevokeMcpKey("k1", t0.Add(4*time.Minute))
+	if err != nil || !again.RevokedAt.Equal(t0.Add(3*time.Minute)) {
+		t.Fatalf("second RevokeMcpKey = %+v, %v", again, err)
+	}
+	if _, err := s.RevokeMcpKey("missing", t0); err == nil {
+		t.Fatal("RevokeMcpKey(missing) = nil error")
+	}
+}
+
+func TestOAuthStateIsSingleUseAndExpires(t *testing.T) {
+	s := testStore(t)
+	future := time.Now().Add(time.Minute).UTC().Truncate(time.Microsecond)
+	past := time.Now().Add(-time.Minute)
+
+	s.AddOAuthRequest(store.OAuthRequest{ID: "old", ExpiresAt: past})
+	s.AddOAuthCode(store.OAuthCode{CodeHash: "oldc", OperatorCertDER: []byte{9}, ExpiresAt: past})
+	s.AddOAuthRequest(store.OAuthRequest{
+		ID: "r1", ClientID: "cid", ClientName: "agent", RedirectURI: "http://127.0.0.1:1/cb",
+		State: "st", CodeChallenge: "ch", ExpiresAt: future,
+	})
+	if _, ok := s.OAuthRequest("old"); ok {
+		t.Fatal("expired request survived a later add")
+	}
+	if _, ok := s.TakeOAuthCode("oldc"); ok {
+		t.Fatal("expired code survived a later add")
+	}
+
+	r, ok := s.OAuthRequest("r1")
+	if !ok || r.ClientName != "agent" || r.RedirectURI != "http://127.0.0.1:1/cb" || r.State != "st" || !r.ExpiresAt.Equal(future) {
+		t.Fatalf("OAuthRequest(r1) = %+v, %v", r, ok)
+	}
+	if _, ok := s.TakeOAuthRequest("r1"); !ok {
+		t.Fatal("TakeOAuthRequest(r1) missing")
+	}
+	if _, ok := s.TakeOAuthRequest("r1"); ok {
+		t.Fatal("TakeOAuthRequest(r1) succeeded twice")
+	}
+
+	s.AddOAuthCode(store.OAuthCode{
+		CodeHash: "c1", ClientID: "cid", ClientName: "agent", RedirectURI: "http://127.0.0.1:1/cb", CodeChallenge: "ch",
+		OperatorCN: "operator@example.org", OperatorSerial: "01", OperatorCertDER: []byte{1}, LevelCeiling: "operator",
+		Label: "laptop", ExpiresAt: future,
+	})
+	c, ok := s.TakeOAuthCode("c1")
+	if !ok || c.OperatorSerial != "01" || c.LevelCeiling != "operator" || c.Label != "laptop" || len(c.OperatorCertDER) != 1 {
+		t.Fatalf("TakeOAuthCode(c1) = %+v, %v", c, ok)
+	}
+	if _, ok := s.TakeOAuthCode("c1"); ok {
+		t.Fatal("TakeOAuthCode(c1) succeeded twice")
 	}
 }
