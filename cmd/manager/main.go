@@ -37,6 +37,7 @@ import (
 
 	fleetv1connect "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1/fleetv1connect"
 	"github.com/CryptOS-PKI/manager/internal/apperr"
+	"github.com/CryptOS-PKI/manager/internal/approval"
 	"github.com/CryptOS-PKI/manager/internal/authz"
 	"github.com/CryptOS-PKI/manager/internal/config"
 	"github.com/CryptOS-PKI/manager/internal/fleet"
@@ -146,6 +147,8 @@ func main() {
 	svc = svc.WithOperatorCA(cfg.OperatorCANode)
 	mcpKeys := &mcpauth.Keys{Store: st}
 	svc = svc.WithMCP(mcpKeys, cfg.MCP.Enabled)
+	approvals := &approval.Service{Store: st}
+	svc = svc.WithApprovals(approvals)
 	svc = svc.WithAdoption(
 		nodeclient.FetchMaintenanceCert,
 		func(endpoint, pinnedSHA256, clientCertPEM, clientKeyPEM string) (fleet.NodeConn, error) {
@@ -218,7 +221,7 @@ func main() {
 
 	var mounts []func(*http.ServeMux)
 	if cfg.MCP.Enabled {
-		mount, err := mcpMount(cfg.MCP.PublicURL, svc, st, mcpKeys, tlsCfg.ClientCAs, revocationCache, authMW, b.Version)
+		mount, err := mcpMount(cfg.MCP.PublicURL, svc, st, mcpKeys, approvals, tlsCfg.ClientCAs, revocationCache, authMW, b.Version)
 		if err != nil {
 			log.Fatalf("manager: %v", err)
 		}

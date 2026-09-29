@@ -150,7 +150,8 @@ The manager can serve a [Model Context Protocol](https://modelcontextprotocol.io
 
 - 🔑 **Logged in with your operator certificate.** An MCP client such as the `claude` CLI runs a one-time OAuth login; the consent page in the web UI needs your operator certificate, and the client receives a long-lived `fos_mcp_` key bound to that certificate's serial. Clients without OAuth use a key from the Agent keys page.
 - 🧮 **Checked live on every call.** The key's certificate is re-validated against the operator CA and the revocation cache each time, and the key never acts above the certificate's level or its own ceiling.
-- 🛑 **Narrow by design.** Agents get read tools and non-CA leaf issuance on intermediate or issuing nodes. Revocation, profile and adapter changes, CA key material, node provisioning and operator credentials are not exposed.
+- 🛑 **Narrow by design.** Agents get read tools and non-CA leaf issuance on intermediate or issuing nodes. CA key material, node provisioning and operator credentials are not exposed.
+- ✋ **A person approves the risky calls.** Revocation, profile and adapter changes, and CA or root issuance only raise an approval; they run when the agent calls again after a person approves it in the web UI with their operator certificate. An approval covers one exact request, runs once and lapses after 15 minutes.
 - 🧾 **Audited.** Every MCP call, reads included, is in the hash-chained audit log with the operator, key and tool.
 
 ```yaml
@@ -199,7 +200,7 @@ Nothing tags automatically. On push to `main`, release-drafter categorises the m
 
 ## 🚦 Status
 
-**Alpha.** Read-only fleet integration, mTLS client-cert auth, durable Postgres state (enrollments and the hash-chained audit log, which now records the acting operator), and the MCP endpoint with direct tools are implemented; step-up approval for MCP and the broader inventory write paths are in progress.
+**Alpha.** Read-only fleet integration, mTLS client-cert auth, durable Postgres state (enrollments and the hash-chained audit log, which now records the acting operator), and the MCP endpoint with direct and step-up tools are implemented; the broader inventory write paths are in progress.
 
 ## 🧭 Companion repos
 

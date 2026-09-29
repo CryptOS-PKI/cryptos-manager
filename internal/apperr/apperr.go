@@ -64,6 +64,15 @@ const (
 	CodeMcpKeyNotFound    = 1005
 	CodeMcpCeilingTooHigh = 1006
 
+	CodeApprovalNeedsCert     = 1007
+	CodeApprovalNotFound      = 1008
+	CodeApprovalNotPending    = 1009
+	CodeApproverLevelTooLow   = 1010
+	CodeApprovalAwaiting      = 1011
+	CodeApprovalMismatch      = 1012
+	CodeApprovalUnusable      = 1013
+	CodeApprovalStatusInvalid = 1014
+
 	CodeNodeUnreachable = 1100
 	CodeNodeNotFound    = 1101
 
@@ -89,11 +98,19 @@ var entries = []apperr.Entry{
 	{Code: CodeMcpDisabled, Title: "Authorization", Cause: "the MCP endpoint is disabled (mcp.enabled is false), so no MCP key can be created"},
 	{Code: CodeMcpKeyNotFound, Title: "Authorization", Cause: "no MCP key with that id exists"},
 	{Code: CodeMcpCeilingTooHigh, Title: "Authorization", Cause: "the requested level ceiling is not viewer, operator or admin, or is above the operator's own level"},
+	{Code: CodeApprovalNeedsCert, Title: "Authorization", Cause: "step-up approvals are listed and decided only with an operator client certificate, never with an MCP key"},
+	{Code: CodeApprovalNotFound, Title: "Authorization", Cause: "no step-up approval with that id exists"},
+	{Code: CodeApprovalNotPending, Title: "Authorization", Cause: "the approval was already decided or has expired, so it cannot be decided"},
+	{Code: CodeApproverLevelTooLow, Title: "Authorization", Cause: "the approver's level is below the level the approved operation needs"},
+	{Code: CodeApprovalAwaiting, Title: "Authorization", Cause: "over MCP, the approval has not been decided yet; poll approval_status and call again once it is approved"},
+	{Code: CodeApprovalMismatch, Title: "Authorization", Cause: "over MCP, the approval was raised for a different tool, different arguments or a different key"},
+	{Code: CodeApprovalUnusable, Title: "Authorization", Cause: "over MCP, the approval was denied, has expired or was already used; call the tool without approval_id to request a new one"},
+	{Code: CodeApprovalStatusInvalid, Title: "Authorization", Cause: "the approval status filter is not pending, approved, denied, expired or used"},
 	{Code: CodeNodeUnreachable, Title: "Fleet", Cause: "the node could not be dialled or did not answer"},
 	{Code: CodeNodeNotFound, Title: "Fleet", Cause: "no node of that name is in the inventory"},
 	{Code: CodeProfileNotFound, Title: "Catalog", Cause: "no certificate profile of that name is known"},
 	{Code: CodeIssuanceRefused, Title: "Certificates", Cause: "the issuing node refused to sign the request"},
-	{Code: CodeIssuanceNeedsApproval, Title: "Certificates", Cause: "over MCP the request needs human step-up approval (a CA profile or the root node), which is not available yet; use the web UI"},
+	{Code: CodeIssuanceNeedsApproval, Title: "Certificates", Cause: "the request needs human step-up approval (a CA profile or the root node)"},
 	{Code: CodeOperatorCAUnconfigured, Title: "Operators", Cause: "no operator_ca_node is configured, so operator credentials cannot be listed, issued or revoked, and operator-cert revocation is not enforced"},
 	{Code: CodeOperatorNotFound, Title: "Operators", Cause: "no operator credential with that serial is recorded"},
 	{Code: CodeConfigRejected, Title: "Configuration", Cause: "the node rejected the configuration as invalid"},

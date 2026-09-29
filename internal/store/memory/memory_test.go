@@ -464,3 +464,59 @@ func TestStore_AddOAuthRequestDropsExpiredState(t *testing.T) {
 		t.Fatal("expired code survived a later add")
 	}
 }
+
+func TestStore_Approvals(t *testing.T) {
+	s := New(nil)
+	t0 := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	exp := t0.Add(15 * time.Minute)
+	pending := func(id string, created time.Time) store.Approval {
+		return store.Approval{
+			ID: id, Tool: "cert_revoke", Summary: "Revoke 0A on pki-issuing", RequestDigest: "d-" + id,
+			RequestedByCN: "operator@example.org", RequestedBySerial: "01", KeyID: "k1", RequiredLevel: "operator",
+			CreatedAt: created, ExpiresAt: created.Add(15 * time.Minute), Status: store.ApprovalPending,
+		}
+	}
+	s.AddApproval(pending("a1", t0))
+	s.AddApproval(pending("a2", t0.Add(time.Minute)))
+
+	got, ok := s.Approval("a1")
+	if !ok || got.Tool != "cert_revoke" || got.RequestDigest != "d-a1" || got.KeyID != "k1" || got.RequiredLevel != "operator" ||
+		got.Status != store.ApprovalPending || !got.CreatedAt.Equal(t0) || !got.ExpiresAt.Equal(exp) || !got.DecidedAt.IsZero() {
+		t.Fatalf("Approval(a1) = %+v, %v", got, ok)
+	}
+	if _, ok := s.Approval("missing"); ok {
+		t.Fatal("Approval(missing) found one")
+	}
+	if all := s.Approvals(); len(all) != 2 || all[0].ID != "a2" || all[1].ID != "a1" {
+		t.Fatalf("Approvals() = %+v, want newest first", all)
+	}
+
+	if _, ok := s.UseApproval("a1", t0.Add(time.Minute)); ok {
+		t.Fatal("a pending approval was used")
+	}
+	d, ok := s.DecideApproval("a1", store.ApprovalApproved, "admin@example.org", "02", "admin", t0.Add(time.Minute))
+	if !ok || d.Status != store.ApprovalApproved || d.DecidedByCN != "admin@example.org" || d.DecidedBySerial != "02" ||
+		d.DecidedByLevel != "admin" || !d.DecidedAt.Equal(t0.Add(time.Minute)) {
+		t.Fatalf("DecideApproval(a1) = %+v, %v", d, ok)
+	}
+	if _, ok := s.DecideApproval("a1", store.ApprovalDenied, "other@example.org", "03", "admin", t0.Add(2*time.Minute)); ok {
+		t.Fatal("a decided approval was decided again")
+	}
+	if _, ok := s.DecideApproval("a2", store.ApprovalApproved, "admin@example.org", "02", "admin", t0.Add(16*time.Minute)); ok {
+		t.Fatal("an expired approval was decided")
+	}
+	if _, ok := s.DecideApproval("missing", store.ApprovalApproved, "admin@example.org", "02", "admin", t0); ok {
+		t.Fatal("a missing approval was decided")
+	}
+
+	if _, ok := s.UseApproval("a1", exp); ok {
+		t.Fatal("an approval was used at its expiry")
+	}
+	u, ok := s.UseApproval("a1", t0.Add(2*time.Minute))
+	if !ok || u.Status != store.ApprovalUsed || !u.UsedAt.Equal(t0.Add(2*time.Minute)) || u.DecidedBySerial != "02" {
+		t.Fatalf("UseApproval(a1) = %+v, %v", u, ok)
+	}
+	if _, ok := s.UseApproval("a1", t0.Add(3*time.Minute)); ok {
+		t.Fatal("an approval was used twice")
+	}
+}

@@ -23,11 +23,14 @@ import (
 	"crypto/x509"
 	"encoding/asn1"
 	"encoding/pem"
+	"fmt"
 	"strings"
 
 	connect "connectrpc.com/connect"
 	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
 	"github.com/CryptOS-PKI/manager/internal/apperr"
+	"github.com/CryptOS-PKI/manager/internal/approval"
+	"github.com/CryptOS-PKI/manager/internal/authz"
 	"github.com/CryptOS-PKI/manager/internal/fleet"
 	"github.com/CryptOS-PKI/manager/internal/store"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -35,8 +38,10 @@ import (
 )
 
 type tools struct {
-	svc *fleet.Service
-	st  store.Store
+	svc       *fleet.Service
+	st        store.Store
+	approvals *approval.Service
+	publicURL string
 }
 
 type noArgs struct{}
@@ -59,60 +64,90 @@ type rejectArgs struct {
 }
 
 type issueArgs struct {
-	Node    string `json:"node" jsonschema:"the intermediate or issuing node that signs the certificate"`
-	Profile string `json:"profile" jsonschema:"a non-CA issuance profile configured on that node"`
-	CSRPEM  string `json:"csr_pem" jsonschema:"a PEM-encoded PKCS#10 certificate request; generate the key locally, it never leaves the agent"`
+	Node       string `json:"node" jsonschema:"the node that signs the certificate"`
+	Profile    string `json:"profile" jsonschema:"an issuance profile configured on that node"`
+	CSRPEM     string `json:"csr_pem" jsonschema:"a PEM-encoded PKCS#10 certificate request; generate the key locally, it never leaves the agent"`
+	ApprovalID string `json:"approval_id,omitempty" jsonschema:"leave empty on the first call; if the call returns pending_approval, call again with the same arguments plus the approval_id once a person has approved it"`
+}
+
+func (a issueArgs) approvalID() string { return a.ApprovalID }
+
+type approvalStatusArgs struct {
+	ApprovalID string `json:"approval_id,omitempty" jsonschema:"the approval to show; empty lists every approval this key raised"`
 }
 
 func registerTools(s *mcp.Server, t *tools) {
-	add(s, t.st, "fleet_whoami", "Show the operator this key acts as and its effective access level.", false,
+	add(s, t, "fleet_whoami", "Show the operator this key acts as and its effective access level.", false,
 		func(ctx context.Context, _ noArgs) (string, error) {
 			return call(ctx, t.svc.WhoAmI, &fleetv1.WhoAmIRequest{})
 		})
-	add(s, t.st, "fleet_list_nodes", "List every CA node in the fleet with its role and health.", false,
+	add(s, t, "fleet_list_nodes", "List every CA node in the fleet with its role and health.", false,
 		func(ctx context.Context, _ noArgs) (string, error) {
 			return call(ctx, t.svc.ListNodes, &fleetv1.ListNodesRequest{})
 		})
-	add(s, t.st, "fleet_get_node", "Show one CA node's detail, including its certificate chain.", false,
+	add(s, t, "fleet_get_node", "Show one CA node's detail, including its certificate chain.", false,
 		func(ctx context.Context, in getNodeArgs) (string, error) {
 			return call(ctx, t.svc.GetNode, &fleetv1.GetNodeRequest{Name: in.Name})
 		})
-	add(s, t.st, "fleet_get_node_config", "Read a node's full machine configuration (read-only).", false,
+	add(s, t, "fleet_get_node_config", "Read a node's full machine configuration (read-only).", false,
 		func(ctx context.Context, in nodeArg) (string, error) {
 			return call(ctx, t.svc.GetNodeConfig, &fleetv1.GetNodeConfigRequest{NodeName: in.Node})
 		})
-	add(s, t.st, "cert_list", "List issued and revoked certificates across the fleet or on one node.", false,
+	add(s, t, "cert_list", "List issued and revoked certificates across the fleet or on one node.", false,
 		func(ctx context.Context, in certListArgs) (string, error) {
 			return call(ctx, t.svc.ListCertificates, &fleetv1.ListCertificatesRequest{Node: in.Node})
 		})
-	add(s, t.st, "cert_issue_from_csr",
-		"Issue an end-entity certificate from a CSR on an intermediate or issuing node, under a non-CA profile. "+
-			"CA profiles and the root node need human approval and are refused. Returns the certificate as PEM.", true,
+	addGated(s, t, "cert_issue_from_csr",
+		"Issue a certificate from a CSR. An end-entity certificate on an intermediate or issuing node under a non-CA profile "+
+			"is issued at once. A CA profile, a CSR asking for CA:TRUE, or the root node needs a person's approval first: "+
+			"the call returns pending_approval with a link to show them. Returns the certificate as PEM.",
 		t.issueFromCSR)
-	add(s, t.st, "profile_list", "List the certificate issuance profiles in the catalog.", false,
+	add(s, t, "profile_list", "List the certificate issuance profiles in the catalog.", false,
 		func(ctx context.Context, _ noArgs) (string, error) {
 			return call(ctx, t.svc.ListProfiles, &fleetv1.ListProfilesRequest{})
 		})
-	add(s, t.st, "adapter_list", "List the enrollment protocol adapters (ACME, SCEP, EST, ...) and whether each is enabled.", false,
+	add(s, t, "adapter_list", "List the enrollment protocol adapters (ACME, SCEP, EST, ...) and whether each is enabled.", false,
 		func(ctx context.Context, _ noArgs) (string, error) {
 			return call(ctx, t.svc.ListAdapters, &fleetv1.ListAdaptersRequest{})
 		})
-	add(s, t.st, "audit_list", "List the hash-chained audit log.", false,
+	add(s, t, "audit_list", "List the hash-chained audit log.", false,
 		func(ctx context.Context, _ noArgs) (string, error) {
 			return call(ctx, t.svc.ListAudit, &fleetv1.ListAuditRequest{})
 		})
-	add(s, t.st, "enrollment_list", "List node enrollment requests and their status.", false,
+	add(s, t, "enrollment_list", "List node enrollment requests and their status.", false,
 		func(ctx context.Context, _ noArgs) (string, error) {
 			return call(ctx, t.svc.ListEnrollments, &fleetv1.ListEnrollmentsRequest{})
 		})
-	add(s, t.st, "enrollment_reject", "Reject a pending node enrollment request.", true,
+	add(s, t, "enrollment_reject", "Reject a pending node enrollment request.", true,
 		func(ctx context.Context, in rejectArgs) (string, error) {
 			return call(ctx, t.svc.RejectEnrollment, &fleetv1.RejectEnrollmentRequest{Id: in.ID, Reason: in.Reason})
 		})
-	add(s, t.st, "operator_credential_list", "List the operator certificates the manager has issued.", false,
+	add(s, t, "operator_credential_list", "List the operator certificates the manager has issued.", false,
 		func(ctx context.Context, _ noArgs) (string, error) {
 			return call(ctx, t.svc.ListOperatorCredentials, &fleetv1.ListOperatorCredentialsRequest{})
 		})
+	add(s, t, "approval_status", "Show the status of an approval this key raised (pending, approved, denied, expired or used), or list them all.", false,
+		t.approvalStatus)
+
+	registerStepUpTools(s, t)
+}
+
+// approvalStatus shows the caller's own approvals only: another key's
+// approval is reported as missing.
+func (t *tools) approvalStatus(ctx context.Context, in approvalStatusArgs) (string, error) {
+	id, _ := authz.FromContext(ctx) // the MCP wrapper always sets it
+	if in.ApprovalID == "" {
+		items := make([]*fleetv1.Approval, 0)
+		for _, a := range t.approvals.ForKey(id.KeyID) {
+			items = append(items, approval.ToProto(a))
+		}
+		return render(&fleetv1.ListApprovalsResponse{Items: items})
+	}
+	a, ok := t.approvals.Get(in.ApprovalID)
+	if !ok || a.KeyID != id.KeyID {
+		return "", refuse(apperr.CodeApprovalNotFound, "no approval %q raised by this key", in.ApprovalID)
+	}
+	return render(approval.ToProto(a))
 }
 
 // call dispatches to a FleetService handler in process and renders its
@@ -131,11 +166,12 @@ var directIssuerRoles = map[string]bool{"intermediate": true, "issuing": true}
 
 var oidBasicConstraints = asn1.ObjectIdentifier{2, 5, 29, 19}
 
-// issueFromCSR issues a leaf only in the direct case: a non-CA profile on an
-// intermediate or issuing node. The node's own configuration is authoritative
-// for its role and the profile, so both the inventory and the node must agree
-// before anything is signed. Everything else would need step-up approval.
-func (t *tools) issueFromCSR(ctx context.Context, in issueArgs) (string, error) {
+// issueFromCSR issues a non-CA leaf on an intermediate or issuing node at
+// once. A CSR asking for CA:TRUE, a CA profile or a root node needs a step-up
+// approval. The node's own configuration is authoritative for its role and
+// the profile, so both the inventory and the node are checked, and the
+// request is fully validated before an approval is raised.
+func (t *tools) issueFromCSR(ctx context.Context, in issueArgs, g *gate) (string, error) {
 	block, _ := pem.Decode([]byte(in.CSRPEM))
 	if block == nil || block.Type != "CERTIFICATE REQUEST" {
 		return "", invalid("csr_pem is not a PEM CERTIFICATE REQUEST")
@@ -147,9 +183,11 @@ func (t *tools) issueFromCSR(ctx context.Context, in issueArgs) (string, error) 
 	if err := csr.CheckSignature(); err != nil {
 		return "", invalid("csr_pem signature does not verify: %v", err)
 	}
+
+	var needs []string
 	for _, ext := range csr.Extensions {
 		if ext.Id.Equal(oidBasicConstraints) && requestsCA(ext.Value) {
-			return "", refuse(apperr.CodeIssuanceNeedsApproval, "the CSR asks for a CA certificate, which needs human approval")
+			needs = append(needs, "the CSR asks for a CA certificate")
 		}
 	}
 
@@ -158,7 +196,7 @@ func (t *tools) issueFromCSR(ctx context.Context, in issueArgs) (string, error) 
 		return "", refuse(apperr.CodeNodeNotFound, "no node named %q", in.Node)
 	}
 	if !directIssuerRoles[strings.ToLower(node.Role)] {
-		return "", refuse(apperr.CodeIssuanceNeedsApproval, "issuing on the %s node %q needs human approval", node.Role, in.Node)
+		needs = append(needs, fmt.Sprintf("the inventory lists %q as a %s node", in.Node, node.Role))
 	}
 
 	cfgResp, err := t.svc.GetNodeConfig(ctx, connect.NewRequest(&fleetv1.GetNodeConfigRequest{NodeName: in.Node}))
@@ -166,8 +204,9 @@ func (t *tools) issueFromCSR(ctx context.Context, in issueArgs) (string, error) 
 		return "", err
 	}
 	cfg := cfgResp.Msg.GetConfig()
-	if role := cfg.GetRole().GetKind(); !directIssuerRoles[strings.ToLower(role)] {
-		return "", refuse(apperr.CodeIssuanceNeedsApproval, "node %q reports role %q; issuing there needs human approval", in.Node, role)
+	role := cfg.GetRole().GetKind()
+	if !directIssuerRoles[strings.ToLower(role)] {
+		needs = append(needs, fmt.Sprintf("node %q reports role %q", in.Node, role))
 	}
 	var found bool
 	for _, p := range cfg.GetPki().GetProfiles() {
@@ -176,11 +215,19 @@ func (t *tools) issueFromCSR(ctx context.Context, in issueArgs) (string, error) 
 		}
 		found = true
 		if p.GetBasicConstraints().GetIsCa() {
-			return "", refuse(apperr.CodeIssuanceNeedsApproval, "profile %q issues CA certificates, which needs human approval", in.Profile)
+			needs = append(needs, fmt.Sprintf("profile %q issues CA certificates", in.Profile))
 		}
 	}
 	if !found {
 		return "", refuse(apperr.CodeProfileNotFound, "node %q has no profile named %q", in.Node, in.Profile)
+	}
+
+	if len(needs) > 0 {
+		summary := fmt.Sprintf("Issue a certificate for %s on node %q (role %s) under profile %q. Needs approval because %s.",
+			csrSubject(csr), in.Node, role, in.Profile, strings.Join(needs, "; "))
+		if ctx, err = g.require(ctx, summary); err != nil {
+			return "", err
+		}
 	}
 
 	resp, err := t.svc.IssueLeaf(ctx, connect.NewRequest(&fleetv1.IssueLeafRequest{
@@ -190,6 +237,15 @@ func (t *tools) issueFromCSR(ctx context.Context, in issueArgs) (string, error) 
 		return "", err
 	}
 	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: resp.Msg.GetCertDer()})), nil
+}
+
+// csrSubject names what a CSR asks to be certified, for an approval summary.
+func csrSubject(csr *x509.CertificateRequest) string {
+	out := fmt.Sprintf("subject %q", csr.Subject.String())
+	if len(csr.DNSNames) > 0 {
+		out += fmt.Sprintf(" (DNS names %s)", strings.Join(csr.DNSNames, ", "))
+	}
+	return out
 }
 
 // requestsCA reports whether a basicConstraints extension value asks for

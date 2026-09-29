@@ -25,6 +25,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/CryptOS-PKI/manager/internal/approval"
 	"github.com/CryptOS-PKI/manager/internal/authz"
 	"github.com/CryptOS-PKI/manager/internal/fleet"
 	"github.com/CryptOS-PKI/manager/internal/mcpauth"
@@ -39,7 +40,7 @@ func testMCPMount(t *testing.T, roots *x509.CertPool, cache *authz.RevocationCac
 	t.Helper()
 	st := memory.New(nil)
 	svc := fleet.New(st, nil)
-	return mcpMount("https://fleetos.example.org", svc, st, &mcpauth.Keys{Store: st}, roots, cache, authz.ClientCertMiddleware, "test")
+	return mcpMount("https://fleetos.example.org", svc, st, &mcpauth.Keys{Store: st}, &approval.Service{Store: st}, roots, cache, authz.ClientCertMiddleware, "test")
 }
 
 // The endpoint is refused outright rather than served without the live

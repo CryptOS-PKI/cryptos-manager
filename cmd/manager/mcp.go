@@ -23,6 +23,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/CryptOS-PKI/manager/internal/approval"
 	"github.com/CryptOS-PKI/manager/internal/authz"
 	"github.com/CryptOS-PKI/manager/internal/fleet"
 	"github.com/CryptOS-PKI/manager/internal/mcpauth"
@@ -40,6 +41,7 @@ func mcpMount(
 	svc *fleet.Service,
 	st store.Store,
 	keys *mcpauth.Keys,
+	approvals *approval.Service,
 	roots *x509.CertPool,
 	revocations *authz.RevocationCache,
 	certMW func(http.Handler) http.Handler,
@@ -55,7 +57,7 @@ func mcpMount(
 	login := &oauth.Server{Store: st, Keys: keys, PublicURL: publicURL}
 	resolver := &mcpauth.Resolver{Store: st, Roots: roots, Revoked: revocations}
 	endpoint := http.NewCrossOriginProtection().Handler(
-		mcpauth.Middleware(resolver, login.ResourceMetadataURL())(mcpserver.Handler(svc, st, version)))
+		mcpauth.Middleware(resolver, login.ResourceMetadataURL())(mcpserver.Handler(svc, st, approvals, publicURL, version)))
 
 	return func(mux *http.ServeMux) {
 		mux.Handle("/mcp", endpoint)

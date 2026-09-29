@@ -29,12 +29,13 @@ import (
 	"github.com/CryptOS-PKI/manager/internal/store"
 )
 
-var phaseOneTools = []string{
-	"adapter_list", "audit_list", "cert_issue_from_csr", "cert_list", "enrollment_list", "enrollment_reject",
-	"fleet_get_node", "fleet_get_node_config", "fleet_list_nodes", "fleet_whoami", "operator_credential_list", "profile_list",
+var registeredTools = []string{
+	"adapter_list", "adapter_set_enabled", "approval_status", "audit_list", "cert_issue_from_csr", "cert_list", "cert_revoke",
+	"enrollment_list", "enrollment_reject", "fleet_get_node", "fleet_get_node_config", "fleet_list_nodes", "fleet_whoami",
+	"operator_credential_list", "profile_apply_to_node", "profile_create", "profile_delete", "profile_list", "profile_update",
 }
 
-func TestListTools_OnlyDirectToolsAreRegistered(t *testing.T) {
+func TestListTools_RegistersDirectAndStepUpToolsOnly(t *testing.T) {
 	h := newHarness(t)
 	res, err := h.session(h.key(authz.LevelAdmin, "")).ListTools(context.Background(), nil)
 	if err != nil {
@@ -45,25 +46,28 @@ func TestListTools_OnlyDirectToolsAreRegistered(t *testing.T) {
 		got = append(got, tool.Name)
 	}
 	sort.Strings(got)
-	if strings.Join(got, ",") != strings.Join(phaseOneTools, ",") {
-		t.Fatalf("tools = %v, want %v", got, phaseOneTools)
+	if strings.Join(got, ",") != strings.Join(registeredTools, ",") {
+		t.Fatalf("tools = %v, want %v", got, registeredTools)
 	}
 
-	absent := map[string]bool{}
+	present := map[string]bool{}
 	for _, name := range got {
-		absent[name] = true
+		present[name] = true
 	}
 	for _, spec := range Catalog {
-		if spec.Policy != Direct && absent[spec.Name] {
-			t.Errorf("%s (policy %v) is registered", spec.Name, spec.Policy)
+		if spec.Policy == Excluded && present[spec.Name] {
+			t.Errorf("%s is excluded but registered", spec.Name)
+		}
+		if spec.Policy != Excluded && !present[spec.Name] {
+			t.Errorf("%s (policy %v) is not registered", spec.Name, spec.Policy)
 		}
 	}
 	for _, never := range []string{
 		"export_ca_key", "import_ca_key", "decommission_node", "adopt_node", "apply_node_config", "rekey_node",
 		"enrollment_create", "enrollment_approve", "operator_credential_issue", "operator_credential_revoke",
-		"mcp_key_create", "mcp_key_list", "mcp_key_revoke", "cert_revoke", "profile_create", "adapter_set_enabled", "approval_status",
+		"mcp_key_create", "mcp_key_list", "mcp_key_revoke", "approval_list", "approval_decide",
 	} {
-		if absent[never] {
+		if present[never] {
 			t.Errorf("excluded tool %s is registered", never)
 		}
 	}
@@ -142,13 +146,10 @@ func TestIssueFromCSR_DirectLeafOnAnIssuingNode(t *testing.T) {
 
 func TestIssueFromCSR_Refusals(t *testing.T) {
 	cases := map[string]map[string]any{
-		"root node":               {"node": "pki-root", "profile": "tls-server"},
-		"node reports root":       {"node": "pki-liar", "profile": "tls-server"},
-		"CA profile":              {"node": "pki-issuing", "profile": "sub-ca"},
-		"profile unknown to node": {"node": "pki-issuing", "profile": "nope"},
-		"unknown node":            {"node": "pki-missing", "profile": "tls-server"},
-		"CSR asks for CA:TRUE":    {"node": "pki-issuing", "profile": "tls-server", "ca_csr": true},
-		"not a CSR":               {"node": "pki-issuing", "profile": "tls-server", "csr_pem": "junk"},
+		"profile unknown to node":         {"node": "pki-issuing", "profile": "nope"},
+		"unknown node":                    {"node": "pki-missing", "profile": "tls-server"},
+		"unknown node with a CA:TRUE CSR": {"node": "pki-missing", "profile": "tls-server", "ca_csr": true},
+		"not a CSR":                       {"node": "pki-issuing", "profile": "tls-server", "csr_pem": "junk"},
 	}
 	for name, args := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -173,15 +174,6 @@ func TestIssueFromCSR_Refusals(t *testing.T) {
 				t.Fatalf("refusal audit = %+v", last)
 			}
 		})
-	}
-}
-
-func TestIssueFromCSR_StepUpCasesNameTheErrorCode(t *testing.T) {
-	h := newHarness(t)
-	cs := h.session(h.key(authz.LevelAdmin, ""))
-	res := h.call(cs, "cert_issue_from_csr", map[string]any{"node": "pki-root", "profile": "tls-server", "csr_pem": csrPEM(t, false)})
-	if !res.IsError || !strings.Contains(text(res), "1301") {
-		t.Fatalf("root refusal = %q", text(res))
 	}
 }
 

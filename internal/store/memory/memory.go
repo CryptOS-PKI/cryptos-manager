@@ -42,6 +42,7 @@ type Store struct {
 	mcpKeys       map[string]store.McpKey
 	oauthRequests map[string]store.OAuthRequest
 	oauthCodes    map[string]store.OAuthCode
+	approvals     map[string]store.Approval
 }
 
 // New builds a Store from the given nodes, keyed by Node.Name, with an
@@ -68,6 +69,7 @@ func NewWithCatalog(nodes []store.Node, profiles []store.Profile, adapters []sto
 		mcpKeys:       map[string]store.McpKey{},
 		oauthRequests: map[string]store.OAuthRequest{},
 		oauthCodes:    map[string]store.OAuthCode{},
+		approvals:     map[string]store.Approval{},
 	}
 }
 
@@ -464,4 +466,76 @@ func (s *Store) TakeOAuthCode(hash string) (store.OAuthCode, bool) {
 	delete(s.oauthCodes, hash)
 
 	return c, ok
+}
+
+// AddApproval records a newly raised approval.
+func (s *Store) AddApproval(a store.Approval) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.approvals[a.ID] = a
+}
+
+// Approval returns the approval with the given ID, and whether it was found.
+func (s *Store) Approval(id string) (store.Approval, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	a, ok := s.approvals[id]
+
+	return a, ok
+}
+
+// Approvals returns every approval, newest first.
+func (s *Store) Approvals() []store.Approval {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	out := make([]store.Approval, 0, len(s.approvals))
+	for _, a := range s.approvals {
+		out = append(out, a)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].CreatedAt.Equal(out[j].CreatedAt) {
+			return out[i].CreatedAt.After(out[j].CreatedAt)
+		}
+		return out[i].ID < out[j].ID
+	})
+
+	return out
+}
+
+// DecideApproval records the decision on a pending, unexpired approval.
+func (s *Store) DecideApproval(id, status, deciderCN, deciderSerial, deciderLevel string, at time.Time) (store.Approval, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	a, ok := s.approvals[id]
+	if !ok || a.Status != store.ApprovalPending || !at.Before(a.ExpiresAt) {
+		return store.Approval{}, false
+	}
+	a.Status = status
+	a.DecidedByCN = deciderCN
+	a.DecidedBySerial = deciderSerial
+	a.DecidedByLevel = deciderLevel
+	a.DecidedAt = at
+	s.approvals[id] = a
+
+	return a, true
+}
+
+// UseApproval marks an approved, unexpired approval used.
+func (s *Store) UseApproval(id string, at time.Time) (store.Approval, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	a, ok := s.approvals[id]
+	if !ok || a.Status != store.ApprovalApproved || !at.Before(a.ExpiresAt) {
+		return store.Approval{}, false
+	}
+	a.Status = store.ApprovalUsed
+	a.UsedAt = at
+	s.approvals[id] = a
+
+	return a, true
 }

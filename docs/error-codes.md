@@ -14,11 +14,19 @@ The manager owns the 1000-1999 block; another service takes its own first digit.
 | 1004 | Authorization | the MCP endpoint is disabled (mcp.enabled is false), so no MCP key can be created |
 | 1005 | Authorization | no MCP key with that id exists |
 | 1006 | Authorization | the requested level ceiling is not viewer, operator or admin, or is above the operator's own level |
+| 1007 | Authorization | step-up approvals are listed and decided only with an operator client certificate, never with an MCP key |
+| 1008 | Authorization | no step-up approval with that id exists |
+| 1009 | Authorization | the approval was already decided or has expired, so it cannot be decided |
+| 1010 | Authorization | the approver's level is below the level the approved operation needs |
+| 1011 | Authorization | over MCP, the approval has not been decided yet; poll approval_status and call again once it is approved |
+| 1012 | Authorization | over MCP, the approval was raised for a different tool, different arguments or a different key |
+| 1013 | Authorization | over MCP, the approval was denied, has expired or was already used; call the tool without approval_id to request a new one |
+| 1014 | Authorization | the approval status filter is not pending, approved, denied, expired or used |
 | 1100 | Fleet | the node could not be dialled or did not answer |
 | 1101 | Fleet | no node of that name is in the inventory |
 | 1200 | Catalog | no certificate profile of that name is known |
 | 1300 | Certificates | the issuing node refused to sign the request |
-| 1301 | Certificates | over MCP the request needs human step-up approval (a CA profile or the root node), which is not available yet; use the web UI |
+| 1301 | Certificates | the request needs human step-up approval (a CA profile or the root node) |
 | 1400 | Operators | no operator_ca_node is configured, so operator credentials cannot be listed, issued or revoked, and operator-cert revocation is not enforced |
 | 1401 | Operators | no operator credential with that serial is recorded |
 | 1500 | Configuration | the node rejected the configuration as invalid |
