@@ -18,4 +18,18 @@ data:
     tlsKey: /etc/cryptos/fleet/tls/tls.key
     operatorCAPath: /etc/cryptos/fleet/operator-ca/operator-ca.pem
     {{- end }}
+    {{- if .Values.operatorCANode }}
+    operator_ca_node: {{ .Values.operatorCANode | quote }}
+    {{- end }}
+    {{- if .Values.mcp.enabled }}
+    {{- if .Values.authBypass }}
+    {{- fail "mcp.enabled requires authBypass: false" }}
+    {{- end }}
+    {{- if not .Values.operatorCANode }}
+    {{- fail "mcp.enabled requires operatorCANode (the operator-certificate revocation source)" }}
+    {{- end }}
+    mcp:
+      enabled: true
+      public_url: {{ required "mcp.publicURL is required when mcp.enabled is true" .Values.mcp.publicURL | quote }}
+    {{- end }}
     nodes: {{ toJson .Values.nodes }}
