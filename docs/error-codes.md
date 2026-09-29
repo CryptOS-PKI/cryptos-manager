@@ -10,10 +10,15 @@ The manager owns the 1000-1999 block; another service takes its own first digit.
 | --- | --- | --- |
 | 1001 | Authorization | no verified client certificate was presented |
 | 1002 | Authorization | the certificate lacks the access level the call needs |
+| 1003 | Authorization | MCP keys are managed only with an operator client certificate, never with an MCP key |
+| 1004 | Authorization | the MCP endpoint is disabled (mcp.enabled is false), so no MCP key can be created |
+| 1005 | Authorization | no MCP key with that id exists |
+| 1006 | Authorization | the requested level ceiling is not viewer, operator or admin, or is above the operator's own level |
 | 1100 | Fleet | the node could not be dialled or did not answer |
 | 1101 | Fleet | no node of that name is in the inventory |
 | 1200 | Catalog | no certificate profile of that name is known |
 | 1300 | Certificates | the issuing node refused to sign the request |
+| 1301 | Certificates | over MCP the request needs human step-up approval (a CA profile or the root node), which is not available yet; use the web UI |
 | 1400 | Operators | no operator_ca_node is configured, so operator credentials cannot be listed, issued or revoked, and operator-cert revocation is not enforced |
 | 1401 | Operators | no operator credential with that serial is recorded |
 | 1500 | Configuration | the node rejected the configuration as invalid |

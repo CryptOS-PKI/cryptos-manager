@@ -7,6 +7,7 @@
 - 🌳 **Cross-node visibility.** Walks every linked node's declared `role`, `parent`, and `pair` to render a multi-Root fleet topology. Each Root is sovereign; the FM never crosses Root trust boundaries on its own.
 - 📚 **Inventory.** Tracks issued certificates, revocation status, and audit deltas across the fleet. Persists to Postgres (cross-node inventory only — per-node state stays on each node's embedded etcd).
 - 📜 **Declarative pushes.** When linked, an FM operator can push `MachineConfig` updates to nodes; nodes verify signatures and apply on next reboot.
+- 🧩 **MCP for AI agents.** An optional `/mcp` endpoint on the same listener lets an agent read the fleet and issue end-entity certificates, under the same viewer/operator/admin checks as the web UI. See [`docs/mcp.md`](docs/mcp.md).
 - 🚫 **Never an issuance authority.** The FM's peer cert lacks `keyCertSign` and `cRLSign`. The FM cannot sign certificates, even if compromised. Each Root retains full control.
 
 ## 🔗 Linking model
@@ -143,6 +144,28 @@ helm install fleet oci://ghcr.io/cryptos-pki/charts/fleet-manager --version X.Y.
   --set-json 'nodes=[{"name":"pki-root","endpoint":"pki-root.example:443","role":"root","adminCertPath":"...","adminKeyPath":"...","caCertPath":"..."}]'
 ```
 
+## 🔌 MCP endpoint
+
+The manager can serve a [Model Context Protocol](https://modelcontextprotocol.io) endpoint at `/mcp` for AI agents. It is off by default.
+
+- 🔑 **Logged in with your operator certificate.** An MCP client such as the `claude` CLI runs a one-time OAuth login; the consent page in the web UI needs your operator certificate, and the client receives a long-lived `fos_mcp_` key bound to that certificate's serial. Clients without OAuth use a key from the Agent keys page.
+- 🧮 **Checked live on every call.** The key's certificate is re-validated against the operator CA and the revocation cache each time, and the key never acts above the certificate's level or its own ceiling.
+- 🛑 **Narrow by design.** Agents get read tools and non-CA leaf issuance on intermediate or issuing nodes. Revocation, profile and adapter changes, CA key material, node provisioning and operator credentials are not exposed.
+- 🧾 **Audited.** Every MCP call, reads included, is in the hash-chained audit log with the operator, key and tool.
+
+```yaml
+# config.yaml (also needs authBypass: false, operatorCAPath and operator_ca_node)
+mcp:
+  enabled: true
+  public_url: "https://fleetos.example.org"
+```
+
+```sh
+claude mcp add --transport http fleetos https://fleetos.example.org/mcp
+```
+
+Setup, the tool list and key management are in [`docs/mcp.md`](docs/mcp.md).
+
 ## 🗄️ State backend
 
 The manager keeps its state either in memory or in Postgres, chosen by the `database_url` config key:
@@ -176,7 +199,7 @@ Nothing tags automatically. On push to `main`, release-drafter categorises the m
 
 ## 🚦 Status
 
-**Alpha.** Read-only fleet integration, mTLS client-cert auth, and durable Postgres state (enrollments and the hash-chained audit log) are implemented; the broader inventory write paths are in progress.
+**Alpha.** Read-only fleet integration, mTLS client-cert auth, durable Postgres state (enrollments and the hash-chained audit log, which now records the acting operator), and the MCP endpoint with direct tools are implemented; step-up approval for MCP and the broader inventory write paths are in progress.
 
 ## 🧭 Companion repos
 

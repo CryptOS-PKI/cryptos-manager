@@ -22,6 +22,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/CryptOS-PKI/manager/internal/store"
 	"github.com/jackc/pgx/v5"
@@ -244,7 +245,9 @@ func (s *Store) SetAdapterEnabled(name string, enabled bool) (store.Adapter, err
 // Audit returns every audit event ordered by append sequence.
 func (s *Store) Audit() []store.AuditEvent {
 	rows, err := s.pool.Query(bg(),
-		`SELECT id, at, kind, summary, target_kind, target_path, prev_hash, hash
+		`SELECT id, at, kind, summary, target_kind, target_path, actor_kind, actor_cn,
+		        actor_serial, key_id, via, tool, request_digest, outcome, approval_id,
+		        approver_serial, chain_version, prev_hash, hash
 		 FROM audit_events ORDER BY seq`)
 	if err != nil {
 		panic(fmt.Sprintf("postgres: query audit_events: %v", err))
@@ -254,7 +257,9 @@ func (s *Store) Audit() []store.AuditEvent {
 	out := make([]store.AuditEvent, 0)
 	for rows.Next() {
 		var e store.AuditEvent
-		if err := rows.Scan(&e.ID, &e.At, &e.Kind, &e.Summary, &e.TargetKind, &e.TargetPath, &e.PrevHash, &e.Hash); err != nil {
+		if err := rows.Scan(&e.ID, &e.At, &e.Kind, &e.Summary, &e.TargetKind, &e.TargetPath,
+			&e.ActorKind, &e.ActorCN, &e.ActorSerial, &e.KeyID, &e.Via, &e.Tool, &e.RequestDigest,
+			&e.Outcome, &e.ApprovalID, &e.ApproverSerial, &e.ChainVersion, &e.PrevHash, &e.Hash); err != nil {
 			panic(fmt.Sprintf("postgres: scan audit event: %v", err))
 		}
 		out = append(out, e)
@@ -364,13 +369,18 @@ func (s *Store) AddAuditEvent(e store.AuditEvent) store.AuditEvent {
 		panic(fmt.Sprintf("postgres: read last audit hash: %v", err))
 	}
 
+	e.ChainVersion = store.AuditChainVersion
 	e.PrevHash = prev
 	e.Hash = store.HashEvent(prev, e)
 
 	if _, err := tx.Exec(ctx,
-		`INSERT INTO audit_events (id, at, kind, summary, target_kind, target_path, prev_hash, hash)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-		e.ID, e.At, e.Kind, e.Summary, e.TargetKind, e.TargetPath, e.PrevHash, e.Hash); err != nil {
+		`INSERT INTO audit_events (id, at, kind, summary, target_kind, target_path, actor_kind,
+		   actor_cn, actor_serial, key_id, via, tool, request_digest, outcome, approval_id,
+		   approver_serial, chain_version, prev_hash, hash)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
+		e.ID, e.At, e.Kind, e.Summary, e.TargetKind, e.TargetPath, e.ActorKind, e.ActorCN,
+		e.ActorSerial, e.KeyID, e.Via, e.Tool, e.RequestDigest, e.Outcome, e.ApprovalID,
+		e.ApproverSerial, e.ChainVersion, e.PrevHash, e.Hash); err != nil {
 		panic(fmt.Sprintf("postgres: insert audit event %q: %v", e.ID, err))
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -568,4 +578,204 @@ func scanEnrollment(r rowScanner) (store.Enrollment, error) {
 		&e.AttestationOK, &e.Profile,
 	)
 	return e, err
+}
+
+const selectMcpKey = `SELECT id, token_hash, label, client_name, operator_serial, operator_cn,
+  operator_cert_der, level_ceiling, created_at, last_used_at, revoked_at, expires_at FROM mcp_keys`
+
+func scanMcpKey(row pgx.Row) (store.McpKey, error) {
+	var (
+		k                          store.McpKey
+		lastUsed, revoked, expires *time.Time
+	)
+	if err := row.Scan(&k.ID, &k.TokenHash, &k.Label, &k.ClientName, &k.OperatorSerial, &k.OperatorCN,
+		&k.OperatorCertDER, &k.LevelCeiling, &k.CreatedAt, &lastUsed, &revoked, &expires); err != nil {
+		return store.McpKey{}, err
+	}
+	k.CreatedAt = k.CreatedAt.UTC()
+	k.LastUsedAt = timeOrZero(lastUsed)
+	k.RevokedAt = timeOrZero(revoked)
+	k.ExpiresAt = timeOrZero(expires)
+	return k, nil
+}
+
+func timeOrZero(t *time.Time) time.Time {
+	if t == nil {
+		return time.Time{}
+	}
+	return t.UTC()
+}
+
+func nullTime(t time.Time) *time.Time {
+	if t.IsZero() {
+		return nil
+	}
+	return &t
+}
+
+// AddMcpKey records a newly minted MCP key. A duplicate id or token hash is a
+// hard error, surfaced via the store's panic-on-error contract.
+func (s *Store) AddMcpKey(k store.McpKey) {
+	if _, err := s.pool.Exec(bg(),
+		`INSERT INTO mcp_keys (id, token_hash, label, client_name, operator_serial, operator_cn,
+		   operator_cert_der, level_ceiling, created_at, last_used_at, revoked_at, expires_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+		k.ID, k.TokenHash, k.Label, k.ClientName, k.OperatorSerial, k.OperatorCN, k.OperatorCertDER,
+		k.LevelCeiling, k.CreatedAt, nullTime(k.LastUsedAt), nullTime(k.RevokedAt), nullTime(k.ExpiresAt)); err != nil {
+		panic(fmt.Sprintf("postgres: insert mcp key %q: %v", k.ID, err))
+	}
+}
+
+// McpKeyByHash returns the key whose token_hash is hash, and whether it was
+// found.
+func (s *Store) McpKeyByHash(hash string) (store.McpKey, bool) {
+	return s.oneMcpKey(selectMcpKey+` WHERE token_hash = $1`, hash)
+}
+
+// McpKey returns the key with the given ID, and whether it was found.
+func (s *Store) McpKey(id string) (store.McpKey, bool) {
+	return s.oneMcpKey(selectMcpKey+` WHERE id = $1`, id)
+}
+
+func (s *Store) oneMcpKey(query, arg string) (store.McpKey, bool) {
+	k, err := scanMcpKey(s.pool.QueryRow(bg(), query, arg))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return store.McpKey{}, false
+	}
+	if err != nil {
+		panic(fmt.Sprintf("postgres: query mcp key: %v", err))
+	}
+	return k, true
+}
+
+// McpKeys returns every MCP key, newest first.
+func (s *Store) McpKeys() []store.McpKey {
+	rows, err := s.pool.Query(bg(), selectMcpKey+` ORDER BY created_at DESC, id`)
+	if err != nil {
+		panic(fmt.Sprintf("postgres: query mcp_keys: %v", err))
+	}
+	defer rows.Close()
+
+	out := make([]store.McpKey, 0)
+	for rows.Next() {
+		k, err := scanMcpKey(rows)
+		if err != nil {
+			panic(fmt.Sprintf("postgres: scan mcp key: %v", err))
+		}
+		out = append(out, k)
+	}
+	if err := rows.Err(); err != nil {
+		panic(fmt.Sprintf("postgres: iterate mcp_keys: %v", err))
+	}
+	return out
+}
+
+// RevokeMcpKey stamps revoked_at on the key, keeping the first revocation
+// time of an already revoked key.
+func (s *Store) RevokeMcpKey(id string, at time.Time) (store.McpKey, error) {
+	k, err := scanMcpKey(s.pool.QueryRow(bg(),
+		`UPDATE mcp_keys SET revoked_at = COALESCE(revoked_at, $2) WHERE id = $1
+		 RETURNING id, token_hash, label, client_name, operator_serial, operator_cn,
+		   operator_cert_der, level_ceiling, created_at, last_used_at, revoked_at, expires_at`, id, at))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return store.McpKey{}, fmt.Errorf("postgres: mcp key %q not found", id)
+	}
+	if err != nil {
+		return store.McpKey{}, fmt.Errorf("postgres: revoke mcp key %q: %w", id, err)
+	}
+	return k, nil
+}
+
+// TouchMcpKey sets last_used_at on the key and reports whether it was the
+// key's first use. The previous value is read in the same statement, so two
+// concurrent first requests cannot both report first use.
+func (s *Store) TouchMcpKey(id string, at time.Time) bool {
+	var prev *time.Time
+	err := s.pool.QueryRow(bg(),
+		`UPDATE mcp_keys k SET last_used_at = $2 FROM (SELECT id, last_used_at FROM mcp_keys WHERE id = $1 FOR UPDATE) old
+		 WHERE k.id = old.id RETURNING old.last_used_at`, id, at).Scan(&prev)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false
+	}
+	if err != nil {
+		panic(fmt.Sprintf("postgres: touch mcp key %q: %v", id, err))
+	}
+	return prev == nil
+}
+
+// AddOAuthRequest records a pending authorization request and drops expired
+// OAuth state, so abandoned logins do not accumulate.
+func (s *Store) AddOAuthRequest(r store.OAuthRequest) {
+	ctx := bg()
+	if _, err := s.pool.Exec(ctx, `DELETE FROM oauth_requests WHERE expires_at < now()`); err != nil {
+		panic(fmt.Sprintf("postgres: purge oauth_requests: %v", err))
+	}
+	if _, err := s.pool.Exec(ctx, `DELETE FROM oauth_codes WHERE expires_at < now()`); err != nil {
+		panic(fmt.Sprintf("postgres: purge oauth_codes: %v", err))
+	}
+	if _, err := s.pool.Exec(ctx,
+		`INSERT INTO oauth_requests (id, client_id, client_name, redirect_uri, state, code_challenge, expires_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		r.ID, r.ClientID, r.ClientName, r.RedirectURI, r.State, r.CodeChallenge, r.ExpiresAt); err != nil {
+		panic(fmt.Sprintf("postgres: insert oauth request: %v", err))
+	}
+}
+
+const oauthRequestCols = `id, client_id, client_name, redirect_uri, state, code_challenge, expires_at`
+
+func (s *Store) oauthRequest(query, id string) (store.OAuthRequest, bool) {
+	var r store.OAuthRequest
+	err := s.pool.QueryRow(bg(), query, id).
+		Scan(&r.ID, &r.ClientID, &r.ClientName, &r.RedirectURI, &r.State, &r.CodeChallenge, &r.ExpiresAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return store.OAuthRequest{}, false
+	}
+	if err != nil {
+		panic(fmt.Sprintf("postgres: query oauth request: %v", err))
+	}
+	r.ExpiresAt = r.ExpiresAt.UTC()
+	return r, true
+}
+
+// OAuthRequest returns the pending request with the given ID.
+func (s *Store) OAuthRequest(id string) (store.OAuthRequest, bool) {
+	return s.oauthRequest(`SELECT `+oauthRequestCols+` FROM oauth_requests WHERE id = $1`, id)
+}
+
+// TakeOAuthRequest deletes and returns the pending request with the given ID
+// in one statement, so consent can be given at most once.
+func (s *Store) TakeOAuthRequest(id string) (store.OAuthRequest, bool) {
+	return s.oauthRequest(`DELETE FROM oauth_requests WHERE id = $1 RETURNING `+oauthRequestCols, id)
+}
+
+// AddOAuthCode records an approved authorization code.
+func (s *Store) AddOAuthCode(c store.OAuthCode) {
+	if _, err := s.pool.Exec(bg(),
+		`INSERT INTO oauth_codes (code_hash, client_id, client_name, redirect_uri, code_challenge,
+		   operator_cn, operator_serial, operator_cert_der, level_ceiling, label, expires_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+		c.CodeHash, c.ClientID, c.ClientName, c.RedirectURI, c.CodeChallenge, c.OperatorCN,
+		c.OperatorSerial, c.OperatorCertDER, c.LevelCeiling, c.Label, c.ExpiresAt); err != nil {
+		panic(fmt.Sprintf("postgres: insert oauth code: %v", err))
+	}
+}
+
+// TakeOAuthCode deletes and returns the code with the given hash in one
+// statement, so a code can be redeemed at most once.
+func (s *Store) TakeOAuthCode(hash string) (store.OAuthCode, bool) {
+	var c store.OAuthCode
+	err := s.pool.QueryRow(bg(),
+		`DELETE FROM oauth_codes WHERE code_hash = $1 RETURNING code_hash, client_id, client_name,
+		   redirect_uri, code_challenge, operator_cn, operator_serial, operator_cert_der,
+		   level_ceiling, label, expires_at`, hash).
+		Scan(&c.CodeHash, &c.ClientID, &c.ClientName, &c.RedirectURI, &c.CodeChallenge, &c.OperatorCN,
+			&c.OperatorSerial, &c.OperatorCertDER, &c.LevelCeiling, &c.Label, &c.ExpiresAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return store.OAuthCode{}, false
+	}
+	if err != nil {
+		panic(fmt.Sprintf("postgres: take oauth code: %v", err))
+	}
+	c.ExpiresAt = c.ExpiresAt.UTC()
+	return c, true
 }

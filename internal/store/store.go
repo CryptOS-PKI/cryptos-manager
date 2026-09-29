@@ -22,6 +22,9 @@ limitations under the License.
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"strconv"
+	"strings"
+	"time"
 )
 
 // Node is one fleet member as seen by the store: its dial address, role,
@@ -66,8 +69,82 @@ type AuditEvent struct {
 	Summary    string
 	TargetKind string
 	TargetPath string
-	PrevHash   string
-	Hash       string
+
+	// Actor fields: who acted and through which surface. ActorKind is
+	// "cert" or "mcp_key"; Via is "web", "mcp" or "api"; Outcome is "ok",
+	// "denied", "pending" or "error". ApprovalID and ApproverSerial are
+	// reserved for step-up approval.
+	ActorKind      string
+	ActorCN        string
+	ActorSerial    string
+	KeyID          string
+	Via            string
+	Tool           string
+	RequestDigest  string
+	Outcome        string
+	ApprovalID     string
+	ApproverSerial string
+
+	// ChainVersion selects the HashEvent formula the row was hashed with.
+	// Rows written before actors were recorded carry 0 or 1.
+	ChainVersion int
+
+	PrevHash string
+	Hash     string
+}
+
+// AuditChainVersion is the HashEvent formula every new audit row is hashed
+// with. Version 2 added the actor fields to the hash.
+const AuditChainVersion = 2
+
+// McpKey is one MCP agent key. Only the SHA-256 of the key is stored; the
+// plaintext is shown once at mint. The key is bound to the operator
+// certificate serial it was minted under, and that certificate is kept so
+// every request can re-validate it. A zero time means the timestamp is unset.
+type McpKey struct {
+	ID              string
+	TokenHash       string
+	Label           string
+	ClientName      string
+	OperatorSerial  string
+	OperatorCN      string
+	OperatorCertDER []byte
+	LevelCeiling    string
+	CreatedAt       time.Time
+	LastUsedAt      time.Time
+	RevokedAt       time.Time
+	ExpiresAt       time.Time
+}
+
+// OAuthRequest is an authorization request waiting for the operator's
+// consent in the browser. It lives until ExpiresAt or until consent is given
+// or refused, whichever comes first.
+type OAuthRequest struct {
+	ID            string
+	ClientID      string
+	ClientName    string
+	RedirectURI   string
+	State         string
+	CodeChallenge string
+	ExpiresAt     time.Time
+}
+
+// OAuthCode is an approved, not yet redeemed authorization code. It carries
+// the identity captured at consent, so the token endpoint can mint the key
+// without seeing the operator certificate itself. Only the code's SHA-256 is
+// stored.
+type OAuthCode struct {
+	CodeHash        string
+	ClientID        string
+	ClientName      string
+	RedirectURI     string
+	CodeChallenge   string
+	OperatorCN      string
+	OperatorSerial  string
+	OperatorCertDER []byte
+	LevelCeiling    string
+	Label           string
+	ExpiresAt       time.Time
 }
 
 // Enrollment is a node's request to join the fleet under a parent CA,
@@ -159,6 +236,36 @@ type Store interface {
 	// MarkOperatorCredentialRevoked flags the credential with the given hex
 	// serial as revoked. It returns an error if no credential has that serial.
 	MarkOperatorCredentialRevoked(serialHex string) error
+	// AddMcpKey records a newly minted MCP key.
+	AddMcpKey(k McpKey)
+	// McpKeyByHash returns the key whose TokenHash is hash, revoked or not,
+	// and whether it was found.
+	McpKeyByHash(hash string) (McpKey, bool)
+	// McpKey returns the key with the given ID, and whether it was found.
+	McpKey(id string) (McpKey, bool)
+	// McpKeys returns every MCP key, newest first.
+	McpKeys() []McpKey
+	// RevokeMcpKey stamps RevokedAt on the key with the given ID and returns
+	// it. Revoking an already revoked key keeps its first RevokedAt. It
+	// returns an error if no key has that ID.
+	RevokeMcpKey(id string, at time.Time) (McpKey, error)
+	// TouchMcpKey sets LastUsedAt on the key with the given ID and reports
+	// whether this was the key's first use.
+	TouchMcpKey(id string, at time.Time) (firstUse bool)
+	// AddOAuthRequest records a pending authorization request, dropping any
+	// request or code that has already expired.
+	AddOAuthRequest(r OAuthRequest)
+	// OAuthRequest returns the pending request with the given ID, and whether
+	// it was found. The caller checks ExpiresAt.
+	OAuthRequest(id string) (OAuthRequest, bool)
+	// TakeOAuthRequest removes and returns the pending request with the
+	// given ID, so consent can be given at most once.
+	TakeOAuthRequest(id string) (OAuthRequest, bool)
+	// AddOAuthCode records an approved authorization code.
+	AddOAuthCode(c OAuthCode)
+	// TakeOAuthCode removes and returns the code whose CodeHash is hash, so
+	// a code can be redeemed at most once.
+	TakeOAuthCode(hash string) (OAuthCode, bool)
 }
 
 // HashEvent computes the chain hash for an audit event: the SHA-256, in hex, of
@@ -166,7 +273,28 @@ type Store interface {
 // into each hash makes the log tamper-evident: altering any past event breaks
 // every hash after it. The identity/derived fields (PrevHash, Hash) are not
 // themselves hashed.
+//
+// The formula is chosen by e.ChainVersion so rows written under an older
+// version keep verifying after the hashed field set grows.
 func HashEvent(prevHash string, e AuditEvent) string {
-	h := sha256.Sum256([]byte(prevHash + "\n" + e.ID + e.At + e.Kind + e.Summary + e.TargetKind + e.TargetPath))
+	if e.ChainVersion < 2 {
+		h := sha256.Sum256([]byte(prevHash + "\n" + e.ID + e.At + e.Kind + e.Summary + e.TargetKind + e.TargetPath))
+		return hex.EncodeToString(h[:])
+	}
+
+	// Length-prefixed so text moved across a field boundary changes the hash.
+	var b strings.Builder
+	b.WriteString(prevHash)
+	for _, f := range []string{
+		strconv.Itoa(e.ChainVersion), e.ID, e.At, e.Kind, e.Summary, e.TargetKind, e.TargetPath,
+		e.ActorKind, e.ActorCN, e.ActorSerial, e.KeyID, e.Via, e.Tool, e.RequestDigest, e.Outcome,
+		e.ApprovalID, e.ApproverSerial,
+	} {
+		b.WriteString("\n")
+		b.WriteString(strconv.Itoa(len(f)))
+		b.WriteString(":")
+		b.WriteString(f)
+	}
+	h := sha256.Sum256([]byte(b.String()))
 	return hex.EncodeToString(h[:])
 }

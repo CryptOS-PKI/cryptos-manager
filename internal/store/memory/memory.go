@@ -22,7 +22,9 @@ limitations under the License.
 
 import (
 	"fmt"
+	"sort"
 	"sync"
+	"time"
 
 	"github.com/CryptOS-PKI/manager/internal/store"
 )
@@ -37,6 +39,9 @@ type Store struct {
 	audit         []store.AuditEvent
 	enrollments   []store.Enrollment
 	operatorCreds []store.OperatorCredential
+	mcpKeys       map[string]store.McpKey
+	oauthRequests map[string]store.OAuthRequest
+	oauthCodes    map[string]store.OAuthCode
 }
 
 // New builds a Store from the given nodes, keyed by Node.Name, with an
@@ -55,11 +60,14 @@ func NewWithCatalog(nodes []store.Node, profiles []store.Profile, adapters []sto
 	}
 
 	return &Store{
-		nodes:       m,
-		profiles:    profiles,
-		adapters:    adapters,
-		audit:       audit,
-		enrollments: enrollments,
+		nodes:         m,
+		profiles:      profiles,
+		adapters:      adapters,
+		audit:         audit,
+		enrollments:   enrollments,
+		mcpKeys:       map[string]store.McpKey{},
+		oauthRequests: map[string]store.OAuthRequest{},
+		oauthCodes:    map[string]store.OAuthCode{},
 	}
 }
 
@@ -217,6 +225,7 @@ func (s *Store) AddAuditEvent(e store.AuditEvent) store.AuditEvent {
 	if n := len(s.audit); n > 0 {
 		prev = s.audit[n-1].Hash
 	}
+	e.ChainVersion = store.AuditChainVersion
 	e.PrevHash = prev
 	e.Hash = store.HashEvent(prev, e)
 	s.audit = append(s.audit, e)
@@ -308,4 +317,151 @@ func (s *Store) MarkOperatorCredentialRevoked(serialHex string) error {
 	}
 
 	return fmt.Errorf("memory: operator credential %q not found", serialHex)
+}
+
+// AddMcpKey records a newly minted MCP key.
+func (s *Store) AddMcpKey(k store.McpKey) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.mcpKeys[k.ID] = k
+}
+
+// McpKeyByHash returns the key whose TokenHash is hash, and whether it was
+// found.
+func (s *Store) McpKeyByHash(hash string) (store.McpKey, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for _, k := range s.mcpKeys {
+		if k.TokenHash == hash {
+			return k, true
+		}
+	}
+
+	return store.McpKey{}, false
+}
+
+// McpKey returns the key with the given ID, and whether it was found.
+func (s *Store) McpKey(id string) (store.McpKey, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	k, ok := s.mcpKeys[id]
+
+	return k, ok
+}
+
+// McpKeys returns every MCP key, newest first.
+func (s *Store) McpKeys() []store.McpKey {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	out := make([]store.McpKey, 0, len(s.mcpKeys))
+	for _, k := range s.mcpKeys {
+		out = append(out, k)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].CreatedAt.Equal(out[j].CreatedAt) {
+			return out[i].CreatedAt.After(out[j].CreatedAt)
+		}
+		return out[i].ID < out[j].ID
+	})
+
+	return out
+}
+
+// RevokeMcpKey stamps RevokedAt on the key with the given ID, keeping the
+// first revocation time of an already revoked key.
+func (s *Store) RevokeMcpKey(id string, at time.Time) (store.McpKey, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	k, ok := s.mcpKeys[id]
+	if !ok {
+		return store.McpKey{}, fmt.Errorf("memory: mcp key %q not found", id)
+	}
+	if k.RevokedAt.IsZero() {
+		k.RevokedAt = at
+		s.mcpKeys[id] = k
+	}
+
+	return k, nil
+}
+
+// TouchMcpKey sets LastUsedAt on the key and reports whether it was the
+// key's first use.
+func (s *Store) TouchMcpKey(id string, at time.Time) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	k, ok := s.mcpKeys[id]
+	if !ok {
+		return false
+	}
+	first := k.LastUsedAt.IsZero()
+	k.LastUsedAt = at
+	s.mcpKeys[id] = k
+
+	return first
+}
+
+// AddOAuthRequest records a pending authorization request and drops expired
+// OAuth state.
+func (s *Store) AddOAuthRequest(r store.OAuthRequest) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := time.Now()
+	for id, old := range s.oauthRequests {
+		if old.ExpiresAt.Before(now) {
+			delete(s.oauthRequests, id)
+		}
+	}
+	for h, old := range s.oauthCodes {
+		if old.ExpiresAt.Before(now) {
+			delete(s.oauthCodes, h)
+		}
+	}
+	s.oauthRequests[r.ID] = r
+}
+
+// OAuthRequest returns the pending request with the given ID.
+func (s *Store) OAuthRequest(id string) (store.OAuthRequest, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	r, ok := s.oauthRequests[id]
+
+	return r, ok
+}
+
+// TakeOAuthRequest removes and returns the pending request with the given ID.
+func (s *Store) TakeOAuthRequest(id string) (store.OAuthRequest, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	r, ok := s.oauthRequests[id]
+	delete(s.oauthRequests, id)
+
+	return r, ok
+}
+
+// AddOAuthCode records an approved authorization code.
+func (s *Store) AddOAuthCode(c store.OAuthCode) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.oauthCodes[c.CodeHash] = c
+}
+
+// TakeOAuthCode removes and returns the code with the given hash.
+func (s *Store) TakeOAuthCode(hash string) (store.OAuthCode, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	c, ok := s.oauthCodes[hash]
+	delete(s.oauthCodes, hash)
+
+	return c, ok
 }

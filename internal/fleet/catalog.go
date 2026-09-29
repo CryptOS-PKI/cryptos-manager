@@ -180,12 +180,22 @@ func adapterToProto(a store.Adapter) *fleetv1.EnrollmentAdapter {
 
 func auditToProto(e store.AuditEvent) *fleetv1.AuditEvent {
 	return &fleetv1.AuditEvent{
-		Id:         e.ID,
-		At:         e.At,
-		Kind:       e.Kind,
-		Summary:    e.Summary,
-		TargetKind: e.TargetKind,
-		TargetPath: e.TargetPath,
+		Id:             e.ID,
+		At:             e.At,
+		Kind:           e.Kind,
+		Summary:        e.Summary,
+		TargetKind:     e.TargetKind,
+		TargetPath:     e.TargetPath,
+		ActorKind:      e.ActorKind,
+		ActorCn:        e.ActorCN,
+		ActorSerial:    e.ActorSerial,
+		KeyId:          e.KeyID,
+		Via:            e.Via,
+		Tool:           e.Tool,
+		RequestDigest:  e.RequestDigest,
+		Outcome:        e.Outcome,
+		ApprovalId:     e.ApprovalID,
+		ApproverSerial: e.ApproverSerial,
 	}
 }
 

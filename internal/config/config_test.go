@@ -290,3 +290,93 @@ func TestLoad_DeployExampleConfig(t *testing.T) {
 		t.Error("no nodes in the example; the node block is what adopters edit first")
 	}
 }
+
+func loadYAML(t *testing.T, body string) (Config, error) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	return Load(path)
+}
+
+const mcpReady = `
+listen: ":8443"
+operatorCAPath: /etc/fleet/operator-ca.pem
+operator_ca_node: pki-operator
+mcp:
+  enabled: true
+  public_url: "https://fleetos.example.org"
+`
+
+func TestLoad_MCPDisabledByDefault(t *testing.T) {
+	cfg, err := Load("../../config.example.yaml")
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.MCP.Enabled {
+		t.Error("MCP.Enabled = true, want false by default")
+	}
+}
+
+func TestLoad_MCPEnabled(t *testing.T) {
+	cfg, err := loadYAML(t, mcpReady)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if !cfg.MCP.Enabled || cfg.MCP.PublicURL != "https://fleetos.example.org" {
+		t.Fatalf("MCP = %+v", cfg.MCP)
+	}
+}
+
+func TestLoad_MCPTrailingSlashIsTrimmed(t *testing.T) {
+	cfg, err := loadYAML(t, strings.Replace(mcpReady, `"https://fleetos.example.org"`, `"https://fleetos.example.org/"`, 1))
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.MCP.PublicURL != "https://fleetos.example.org" {
+		t.Fatalf("PublicURL = %q", cfg.MCP.PublicURL)
+	}
+}
+
+// With MCP enabled the manager refuses to start in any configuration where
+// the per-request certificate checks could not be enforced.
+func TestLoad_MCPFailsClosed(t *testing.T) {
+	cases := map[string]struct {
+		body string
+		want string
+	}{
+		"authBypass": {
+			body: mcpReady + "authBypass: true\n",
+			want: "authBypass",
+		},
+		"no operator_ca_node": {
+			body: strings.Replace(mcpReady, "operator_ca_node: pki-operator\n", "", 1),
+			want: "operator_ca_node",
+		},
+		"no operatorCAPath": {
+			body: strings.Replace(mcpReady, "operatorCAPath: /etc/fleet/operator-ca.pem\n", "", 1),
+			want: "operatorCAPath",
+		},
+		"no public_url": {
+			body: strings.Replace(mcpReady, `  public_url: "https://fleetos.example.org"`+"\n", "", 1),
+			want: "public_url",
+		},
+		"plain http public_url": {
+			body: strings.Replace(mcpReady, "https://fleetos.example.org", "http://fleetos.example.org", 1),
+			want: "public_url",
+		},
+		"public_url with a path": {
+			body: strings.Replace(mcpReady, "https://fleetos.example.org", "https://fleetos.example.org/fleet", 1),
+			want: "public_url",
+		},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := loadYAML(t, c.body)
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("Load() error = %v, want one naming %s", err, c.want)
+			}
+		})
+	}
+}

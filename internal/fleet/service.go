@@ -27,6 +27,7 @@ import (
 
 	fleetv1connect "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1/fleetv1connect"
 	cryptosv1 "github.com/CryptOS-PKI/api/go/cryptos/v1"
+	"github.com/CryptOS-PKI/manager/internal/mcpauth"
 	"github.com/CryptOS-PKI/manager/internal/nodeclient"
 	"github.com/CryptOS-PKI/manager/internal/store"
 )
@@ -77,6 +78,12 @@ type Service struct {
 	// instead of reaching a real node; production wires nodeclient.
 	previewCert     func(endpoint string) (certSHA256, subject string, err error)
 	dialMaintenance func(endpoint, pinnedSHA256, clientCertPEM, clientKeyPEM string) (NodeConn, error)
+
+	// mcpKeys backs the MCP key management RPCs. mcpEnabled gates minting:
+	// listing and revoking keep working with the endpoint switched off, so an
+	// operator can still clean up.
+	mcpKeys    *mcpauth.Keys
+	mcpEnabled bool
 }
 
 // New builds a Service backed by st, dialing nodes with dial. Callers in
@@ -111,6 +118,15 @@ func (s *Service) WithOperatorCA(nodeName string) *Service {
 func (s *Service) WithAdoption(previewCert func(endpoint string) (certSHA256, subject string, err error), dialMaintenance func(endpoint, pinnedSHA256, clientCertPEM, clientKeyPEM string) (NodeConn, error)) *Service {
 	s.previewCert = previewCert
 	s.dialMaintenance = dialMaintenance
+
+	return s
+}
+
+// WithMCP supplies the MCP key store and whether the MCP endpoint is enabled.
+// Returns s for chaining.
+func (s *Service) WithMCP(keys *mcpauth.Keys, enabled bool) *Service {
+	s.mcpKeys = keys
+	s.mcpEnabled = enabled
 
 	return s
 }

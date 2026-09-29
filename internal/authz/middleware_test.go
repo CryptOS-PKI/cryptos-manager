@@ -154,3 +154,40 @@ func TestBypassMiddleware_SetsDevIdentity(t *testing.T) {
 		t.Fatalf("bypass identity = %+v, want DevIdentity", got)
 	}
 }
+
+func TestClientCertMiddleware_MarksWebSurfaceAndCarriesPeerCert(t *testing.T) {
+	cert := leafCert(t, LevelViewer)
+	var (
+		id     Identity
+		peer   *x509.Certificate
+		peerOK bool
+	)
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id, _ = FromContext(r.Context())
+		peer, peerOK = PeerCertFromContext(r.Context())
+	})
+	req := httptest.NewRequest(http.MethodPost, "/rpc", nil)
+	req.TLS = &tls.ConnectionState{PeerCertificates: []*x509.Certificate{cert}}
+	ClientCertMiddleware(next).ServeHTTP(httptest.NewRecorder(), req)
+
+	if id.Via != ViaWeb || id.KeyID != "" || id.ActorKind() != ActorCert {
+		t.Fatalf("identity = %+v, want web/cert with no key", id)
+	}
+	if !peerOK || !peer.Equal(cert) {
+		t.Fatal("peer certificate not carried on the context")
+	}
+}
+
+func TestIdentityFromCertificate(t *testing.T) {
+	cert := leafCert(t, LevelAdmin)
+	id, err := IdentityFromCertificate(cert)
+	if err != nil {
+		t.Fatalf("IdentityFromCertificate: %v", err)
+	}
+	if id.CN != "op@acme.example" || id.Serial != "0A:BC" || id.Level != LevelAdmin {
+		t.Fatalf("identity = %+v", id)
+	}
+	if (Identity{KeyID: "k"}).ActorKind() != ActorMCPKey {
+		t.Fatal("an identity with a key id is not an MCP key actor")
+	}
+}

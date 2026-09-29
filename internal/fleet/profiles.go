@@ -28,6 +28,7 @@ import (
 	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
 	cryptosv1 "github.com/CryptOS-PKI/api/go/cryptos/v1"
 	"github.com/CryptOS-PKI/manager/internal/apperr"
+	"github.com/CryptOS-PKI/manager/internal/auditlog"
 	"github.com/CryptOS-PKI/manager/internal/authz"
 	"github.com/CryptOS-PKI/manager/internal/store"
 	"google.golang.org/protobuf/proto"
@@ -58,7 +59,7 @@ func (s *Service) CreateProfile(ctx context.Context, req *connect.Request[fleetv
 		return nil, connect.NewError(connect.CodeAlreadyExists, fmt.Errorf("fleet: create profile: %w", err))
 	}
 
-	s.auditProfile("profile-created", "Created profile "+name, name)
+	s.auditProfile(ctx, "profile-created", "Created profile "+name, name)
 
 	return connect.NewResponse(&fleetv1.CreateProfileResponse{}), nil
 }
@@ -88,7 +89,7 @@ func (s *Service) UpdateProfile(ctx context.Context, req *connect.Request[fleetv
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("fleet: update profile: %w", err))
 	}
 
-	s.auditProfile("profile-updated", "Updated profile "+name, name)
+	s.auditProfile(ctx, "profile-updated", "Updated profile "+name, name)
 
 	return connect.NewResponse(&fleetv1.UpdateProfileResponse{}), nil
 }
@@ -111,7 +112,7 @@ func (s *Service) DeleteProfile(ctx context.Context, req *connect.Request[fleetv
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("fleet: delete profile: %w", err))
 	}
 
-	s.auditProfile("profile-deleted", "Deleted profile "+name, name)
+	s.auditProfile(ctx, "profile-deleted", "Deleted profile "+name, name)
 
 	return connect.NewResponse(&fleetv1.DeleteProfileResponse{}), nil
 }
@@ -175,7 +176,7 @@ func (s *Service) ApplyProfileToNode(ctx context.Context, req *connect.Request[f
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("fleet: apply config: %w", err))
 	}
 
-	s.auditProfile("profile-applied", fmt.Sprintf("Applied profile %s to %s", profileName, nodeName), profileName)
+	s.auditProfile(ctx, "profile-applied", fmt.Sprintf("Applied profile %s to %s", profileName, nodeName), profileName)
 
 	return connect.NewResponse(&fleetv1.ApplyProfileToNodeResponse{
 		Generation:     applied.GetGeneration(),
@@ -230,8 +231,8 @@ func insertOrReplaceProfile(profiles []*cryptosv1.CertificateProfile, p *cryptos
 }
 
 // auditProfile appends a single profile-scoped audit event.
-func (s *Service) auditProfile(kind, summary, name string) {
-	s.store.AddAuditEvent(store.AuditEvent{
+func (s *Service) auditProfile(ctx context.Context, kind, summary, name string) {
+	auditlog.Record(ctx, s.store, store.AuditEvent{
 		ID:         newAuditID(),
 		At:         time.Now().UTC().Format(time.RFC3339),
 		Kind:       kind,
