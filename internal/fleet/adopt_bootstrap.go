@@ -22,10 +22,14 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"fmt"
+	"io/fs"
+	"log"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -91,12 +95,10 @@ func mintBootstrapAdmin(cn string) (*mintedAdmin, error) {
 // returns the file paths, which the inventory Node records so nodeclient.Dial
 // can load them for managed operations.
 func writeAdminCreds(node string, a *mintedAdmin) (certPath, keyPath string, err error) {
-	dir := filepath.Join(adoptCredsBaseDir, node)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	certPath, keyPath = adminCredPaths(node)
+	if err := os.MkdirAll(filepath.Dir(certPath), 0o700); err != nil {
 		return "", "", fmt.Errorf("write admin creds: mkdir: %w", err)
 	}
-	certPath = filepath.Join(dir, "admin.crt")
-	keyPath = filepath.Join(dir, "admin.key")
 	if err := os.WriteFile(certPath, a.certPEM, 0o600); err != nil {
 		return "", "", fmt.Errorf("write admin creds: cert: %w", err)
 	}
@@ -104,4 +106,46 @@ func writeAdminCreds(node string, a *mintedAdmin) (certPath, keyPath string, err
 		return "", "", fmt.Errorf("write admin creds: key: %w", err)
 	}
 	return certPath, keyPath, nil
+}
+
+// adminCredPaths returns where a node's bootstrap admin cert and key live.
+func adminCredPaths(node string) (certPath, keyPath string) {
+	dir := filepath.Join(adoptCredsBaseDir, node)
+	return filepath.Join(dir, "admin.crt"), filepath.Join(dir, "admin.key")
+}
+
+// loadOrMintAdmin returns the bootstrap admin for node. An admin minted by an
+// earlier adoption attempt is reused, because once that attempt reached
+// ApplyConfig the node's staged config pins that exact cert and refuses any
+// other; minting a new one would lock the manager out of the node. It also
+// keeps a repeat adoption of an adopted node from overwriting the key its
+// managed operations use. Only when no usable pair is stored is a new admin
+// minted and written.
+func loadOrMintAdmin(node string) (a *mintedAdmin, certPath, keyPath string, reused bool, err error) {
+	certPath, keyPath = adminCredPaths(node)
+	certPEM, cerr := os.ReadFile(certPath)
+	keyPEM, kerr := os.ReadFile(keyPath)
+	switch {
+	case cerr == nil && kerr == nil:
+		_, perr := tls.X509KeyPair(certPEM, keyPEM)
+		if perr == nil {
+			log.Printf("fleet: adopt %s: reusing the bootstrap admin from an earlier attempt (%s)", node, certPath)
+			return &mintedAdmin{certPEM: certPEM, keyPEM: keyPEM}, certPath, keyPath, true, nil
+		}
+		log.Printf("fleet: adopt %s: stored bootstrap admin is unusable, minting a new one: %v", node, perr)
+	case errors.Is(cerr, fs.ErrNotExist) && errors.Is(kerr, fs.ErrNotExist):
+		log.Printf("fleet: adopt %s: no stored bootstrap admin, minting one", node)
+	default:
+		log.Printf("fleet: adopt %s: stored bootstrap admin is incomplete, minting a new one (cert: %v, key: %v)", node, cerr, kerr)
+	}
+
+	a, err = mintBootstrapAdmin("fleet-admin@" + node)
+	if err != nil {
+		return nil, "", "", false, err
+	}
+	certPath, keyPath, err = writeAdminCreds(node, a)
+	if err != nil {
+		return nil, "", "", false, err
+	}
+	return a, certPath, keyPath, false, nil
 }

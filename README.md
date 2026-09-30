@@ -14,6 +14,8 @@
 
 A node is linked to the FM via **mutual consent**: the operator declares the FM's URL + trust anchor in the node's machine config and reboots; the node calls the FM's `EnrollNode` with a TPM EK attestation; the FM operator approves in the UI; the FM issues the node a 90-day peer cert (EKU `clientAuth` only). Either side can revoke or unlink.
 
+Adopting a fresh node from its maintenance endpoint is safe to retry. The manager mints a bootstrap admin credential per node name and stores it under `MANAGER_NODE_CREDS_DIR` (default `/var/lib/cryptos-manager/node-creds`). A retry reuses it, because a node that got as far as installing trusts only that credential. When the node reports it has already booted its installed system, the retry skips the install, runs the first-boot ceremony only if a Root has not finished it, and registers the node. If the stored credential is gone, the node refuses the handshake and the adoption fails with a hint to reset the node from its console and adopt it again.
+
 Once linked, the node's embedded operator surface becomes read-only and FM owns day-to-day operations. Unlinking is a config change + reboot. A node that has never been linked is managed via [`cryptosctl`](https://github.com/CryptOS-PKI/cryptos) only — no web UI in that case (by design — there's no web frontend on the CA image).
 
 ## 🧱 Stack

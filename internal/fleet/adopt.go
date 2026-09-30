@@ -24,6 +24,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"strings"
 	"time"
 
@@ -130,6 +131,13 @@ func (s *Service) ListInstallDisks(ctx context.Context, req *connect.Request[fle
 // node in the inventory and audits "node-adopted". Every step is a streamed
 // phase so partial progress is visible; a reboot that never returns streams an
 // error phase rather than hanging.
+//
+// Adoption is safe to retry. A retry for the same node name reuses the
+// bootstrap admin the earlier attempt stored, and when the node reports that it
+// already booted its installed system it skips the install, runs the ceremony
+// only if the root has not completed it, and registers the node. For a root,
+// the ceremony writes the requested config over the staged one; a subordinate
+// keeps the config it was installed with.
 func (s *Service) AdoptNode(ctx context.Context, req *connect.Request[fleetv1.AdoptNodeRequest], stream *connect.ServerStream[fleetv1.AdoptNodeResponse]) error {
 	if err := requireAdmin(ctx); err != nil {
 		return err
@@ -162,13 +170,11 @@ func (s *Service) runAdoption(ctx context.Context, msg *fleetv1.AdoptNodeRequest
 	// the config so the node trusts it as admin, and keeps the private key to
 	// manage the node over mTLS afterward. Without a bootstrap admin the node's
 	// config is invalid; with the manager holding the key, managed operations
-	// (issue/revoke/rekey/config) can dial the node once it is established.
+	// (issue/revoke/rekey/config) can dial the node once it is established. A
+	// retry reuses the admin an earlier attempt stored, which is the one an
+	// installed node's staged config pins.
 	nodeName := adoptedNodeName(cfg, endpoint)
-	admin, err := mintBootstrapAdmin("fleet-admin@" + nodeName)
-	if err != nil {
-		return s.adoptFail(send, connect.CodeInternal, err)
-	}
-	adminCertPath, adminKeyPath, err := writeAdminCreds(nodeName, admin)
+	admin, adminCertPath, adminKeyPath, reused, err := loadOrMintAdmin(nodeName)
 	if err != nil {
 		return s.adoptFail(send, connect.CodeInternal, err)
 	}
@@ -176,9 +182,9 @@ func (s *Service) runAdoption(ctx context.Context, msg *fleetv1.AdoptNodeRequest
 		cfg.Bootstrap = &cryptosv1.Bootstrap{}
 	}
 	cfg.Bootstrap.AdminCertPem = string(admin.certPEM)
+	log.Printf("fleet: adopt %s at %s: start (reused admin: %t)", nodeName, endpoint, reused)
 
-	// Apply the initial config on the pinned maintenance endpoint.
-	if err := send(phaseApplyingConfig, "dialing maintenance endpoint and applying initial config", false); err != nil {
+	if err := send(phaseApplyingConfig, "dialing the node and checking whether it is already installed", false); err != nil {
 		return err
 	}
 	adminCert, adminKey := string(admin.certPEM), string(admin.keyPEM)
@@ -186,25 +192,47 @@ func (s *Service) runAdoption(ctx context.Context, msg *fleetv1.AdoptNodeRequest
 	if err != nil {
 		return s.adoptFail(send, connect.CodeUnavailable, fmt.Errorf("fleet: dial maintenance: %w", err))
 	}
-	_, err = conn.ApplyConfig(ctx, cfg)
+	// Maintenance mode leaves identity_state unset; an installed system always
+	// reports one. That is how a retry after a partial apply tells a node that
+	// still needs installing from one that already booted its staged config.
+	status, err := conn.GetStatus(ctx)
 	if err != nil {
 		_ = conn.Close()
-		return s.adoptFail(send, connect.CodeInternal, fmt.Errorf("fleet: apply config: %w", err))
+		log.Printf("fleet: adopt %s: status probe failed: %v", nodeName, err)
+		return s.adoptFail(send, connect.CodeUnavailable, fmt.Errorf(
+			"fleet: node status: %w (an installed node only accepts the admin credential minted by the adoption that installed it; if this manager no longer holds it, reset the node from its console and adopt again)", err))
 	}
-	_ = conn.Close()
+	identity := status.GetStatus().GetIdentityState()
+	installed := identity != cryptosv1.IdentityState_IDENTITY_STATE_UNSPECIFIED
+	log.Printf("fleet: adopt %s: node identity state %s, installed: %t", nodeName, identity, installed)
 
-	if err := send(phaseInstalling, "config applied, node installing", false); err != nil {
-		return err
+	if installed {
+		_ = conn.Close()
+		if err := send(phaseAwaitingReboot, "node already installed by an earlier adoption attempt; resuming", false); err != nil {
+			return err
+		}
+	} else {
+		if _, err := conn.ApplyConfig(ctx, cfg); err != nil {
+			_ = conn.Close()
+			return s.adoptFail(send, connect.CodeInternal, fmt.Errorf("fleet: apply config: %w", err))
+		}
+		_ = conn.Close()
+		log.Printf("fleet: adopt %s: config applied, node installing", nodeName)
+
+		if err := send(phaseInstalling, "config applied, node installing", false); err != nil {
+			return err
+		}
+		// The node installs to disk, self-reboots, and boots the installed
+		// system into RUNNING mode, serving mTLS with the bootstrap admin trust
+		// (a fresh identity cert, NOT the maintenance cert) and awaiting the
+		// first-boot ceremony.
+		if err := send(phaseAwaitingReboot, "node installing and rebooting into the installed system", false); err != nil {
+			return err
+		}
 	}
 
-	// The node installs to disk, self-reboots, and boots the installed system
-	// into RUNNING mode — serving mTLS with the bootstrap admin trust (a fresh
-	// identity cert, NOT the maintenance cert), awaiting the first-boot ceremony.
-	// Wait for it there, dialing with the admin cert the node now trusts (a
-	// managed dial, no maintenance pin — the running server cert differs).
-	if err := send(phaseAwaitingReboot, "node installing and rebooting into the installed system", false); err != nil {
-		return err
-	}
+	// Wait for the running node, dialing with the admin cert it trusts (a
+	// managed dial, no maintenance pin: the running server cert differs).
 	conn, err = s.awaitRunningNode(ctx, nodeName, endpoint, adminCertPath, adminKeyPath)
 	if err != nil {
 		return s.adoptFail(send, connect.CodeDeadlineExceeded, err)
@@ -216,7 +244,10 @@ func (s *Service) runAdoption(ctx context.Context, msg *fleetv1.AdoptNodeRequest
 	// subordinate CSR on boot and is awaiting a parent-signed chain, which a
 	// SUBORDINATE enrollment delivers as a separate admin-approved step. Only a
 	// root reaches "established" during adoption.
-	if isRootRole(cfg) {
+	switch {
+	case isRootRole(cfg) && identity == cryptosv1.IdentityState_IDENTITY_STATE_ESTABLISHED:
+		log.Printf("fleet: adopt %s: ceremony already completed on an earlier attempt, skipping it", nodeName)
+	case isRootRole(cfg):
 		if err := send(phaseCeremony, "starting first-boot ceremony", false); err != nil {
 			return err
 		}
@@ -235,18 +266,24 @@ func (s *Service) runAdoption(ctx context.Context, msg *fleetv1.AdoptNodeRequest
 		if !complete {
 			return s.adoptFail(send, connect.CodeInternal, errors.New("fleet: ceremony stream ended before completing"))
 		}
+		log.Printf("fleet: adopt %s: ceremony complete", nodeName)
 	}
 
 	// Register the node with the manager-held bootstrap admin credentials so
 	// managed operations can dial its mTLS endpoint immediately (Option A: the
 	// manager minted and kept this node's admin key).
 	s.registerAdoptedNode(cfg, endpoint, adminCertPath, adminKeyPath)
+	log.Printf("fleet: adopt %s: registered in the inventory", nodeName)
 
+	summary := fmt.Sprintf("Adopted node %s at %s", nodeName, endpoint)
+	if installed {
+		summary += " (resumed an earlier partial adoption)"
+	}
 	auditlog.Record(ctx, s.store, store.AuditEvent{
 		ID:         newAuditID(),
 		At:         time.Now().UTC().Format(time.RFC3339),
 		Kind:       "node-adopted",
-		Summary:    fmt.Sprintf("Adopted node %s at %s", adoptedNodeName(cfg, endpoint), endpoint),
+		Summary:    summary,
 		TargetKind: "node",
 		TargetPath: "/nodes/" + adoptedNodeName(cfg, endpoint),
 	})
