@@ -61,7 +61,8 @@ type Config struct {
 
 	// DatabaseURL is the Postgres connection DSN for durable state. Empty
 	// selects the in-memory store, seeded from the built-in catalog, which
-	// stays the default for offline dev and tests.
+	// stays the default for offline dev and tests. A non-empty
+	// MANAGER_DATABASE_URL (DatabaseURLEnv) overrides it.
 	DatabaseURL string `yaml:"database_url"`
 
 	// OperatorCANode names the fleet node that acts as the operator CA:
@@ -101,6 +102,12 @@ type NodeCfg struct {
 	CACertPath    string `yaml:"caCertPath"`
 }
 
+// DatabaseURLEnv overrides database_url when set and non-empty. The DSN
+// carries the database password, and the loader does no interpolation, so
+// this is how a deployment keeps it in a secret store rather than in
+// config.yaml.
+const DatabaseURLEnv = "MANAGER_DATABASE_URL"
+
 // Load reads the YAML file at path and returns the parsed Config, or an
 // error if the file cannot be read, the YAML is malformed, or validation
 // fails.
@@ -117,6 +124,9 @@ func Load(path string) (Config, error) {
 	}
 
 	cfg.MCP.PublicURL = strings.TrimRight(cfg.MCP.PublicURL, "/")
+	if v := os.Getenv(DatabaseURLEnv); v != "" {
+		cfg.DatabaseURL = v
+	}
 
 	if err := cfg.validate(); err != nil {
 		return Config{}, fmt.Errorf("config: %s: %w", path, err)

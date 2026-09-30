@@ -164,8 +164,29 @@ works but reports `dev` / `unknown`. Extra arguments go straight to `docker buil
 helm install fleet oci://ghcr.io/cryptos-pki/charts/fleet-manager --version X.Y.Z \
   --set tls.certSecret=<server-tls-secret> \
   --set operatorCA.configMap=<operator-ca-configmap> \
+  --set database.existingSecret=<postgres-dsn-secret> \
   --set-json 'nodes=[{"name":"pki-root","endpoint":"pki-root.example:443","role":"root","adminCertPath":"...","adminKeyPath":"...","caCertPath":"..."}]'
 ```
+
+`chart/fleet-manager` is the supported chart. Beyond the TLS Secret and operator CA
+ConfigMap it needs a Postgres DSN: `database.existingSecret` names a Secret whose
+`database.secretKey` (default `database-url`) holds it, and the chart passes it to the
+manager as `MANAGER_DATABASE_URL` so the password never appears in the rendered config. It
+refuses to render without one unless `authBypass` is on. The node credentials go on a
+PersistentVolumeClaim (`fleet-manager-node-creds`, or `nodeCreds.existingClaim`), which
+`helm uninstall` leaves in place.
+
+> [!WARNING]
+> That claim holds the admin key for every node the manager adopted. Deleting it locks the
+> manager out of those nodes until each one is reset from its console, so back it up with
+> the database.
+
+The chart runs one pod by default, with a `Recreate` rollout, because the default claim is
+`ReadWriteOnce`. More replicas need `nodeCreds.accessModes` to include `ReadWriteMany`, so
+every pod sees every node's key; the chart refuses to render otherwise. The pod runs as
+uid 65532 with a read-only root filesystem and every capability dropped. Readiness is
+`/healthz`, so a pod whose database is down leaves the Service. Startup and liveness only
+check that the listener accepts connections, so a database outage does not restart it.
 
 The MCP endpoint is off in the chart too. `mcp.enabled`, `mcp.publicURL` and `operatorCANode` turn it on; the chart refuses to render it without `operatorCANode` or with `authBypass`. See [`docs/mcp.md`](docs/mcp.md#with-the-helm-chart).
 
@@ -203,6 +224,10 @@ The manager keeps its state either in memory or in Postgres, chosen by the `data
 # config.yaml
 database_url: "postgres://manager:secret@db:5432/manager"
 ```
+
+A non-empty `MANAGER_DATABASE_URL` environment variable overrides `database_url`, so the
+DSN and its password can come from a secret store instead of the file. The manager logs
+`database_url taken from MANAGER_DATABASE_URL` when it does.
 
 The persistence layer is hand-rolled: raw SQL over [`pgx`](https://github.com/jackc/pgx), a hand-written schema, and a tiny version-tracked migrator — no ORM.
 

@@ -3,7 +3,10 @@ image:
   tag: ""            # defaults to .Chart.appVersion
   pullPolicy: IfNotPresent
 
-replicaCount: 2
+# One pod by default: the node-creds volume below is ReadWriteOnce. More than
+# one needs a ReadWriteMany volume, because every pod must hold the admin key
+# of every adopted node, and the chart refuses to render otherwise.
+replicaCount: 1
 
 service:
   port: 443
@@ -46,6 +49,28 @@ mcp:
   # External https origin clients reach, with no path, for example
   # https://fleetos.example.org. Required when enabled.
   publicURL: ""
+
+# Postgres holds the fleet's durable state: nodes, enrollments, operator
+# credentials and the hash-chained audit log. Name a Secret in the release
+# namespace whose secretKey holds the DSN, for example
+# postgres://manager:<password>@db:5432/manager. It reaches the manager as
+# MANAGER_DATABASE_URL, so the password never lands in the rendered config.
+# Required unless authBypass is true; without it the manager runs its
+# in-memory demo store, which is emptied on every restart.
+database:
+  existingSecret: ""
+  secretKey: "database-url"
+
+# The admin key the manager mints for every node it adopts, at
+# /var/lib/cryptos-manager/node-creds. An adopted node trusts only that key,
+# so losing it locks the manager out of the node until it is reset from its
+# console. The claim is kept on `helm uninstall`; back it up with the
+# database.
+nodeCreds:
+  existingClaim: ""   # use this PVC instead of creating one
+  storageClass: ""    # empty uses the cluster default
+  accessModes: ["ReadWriteOnce"]
+  size: 1Gi
 
 # Fleet node inventory. Each node's admin cert/key/ca are mounted separately by
 # the operator; paths here must match those mounts.

@@ -100,6 +100,9 @@ func main() {
 		st         store.Store
 		storeCheck func(context.Context) error
 	)
+	if os.Getenv(config.DatabaseURLEnv) != "" {
+		log.Printf("manager: database_url taken from %s", config.DatabaseURLEnv)
+	}
 	if cfg.DatabaseURL == "" {
 		// Dev-only in-memory store: seed the demo catalog so the offline mock UI
 		// renders against fixtures. The demo catalog never touches a real store.

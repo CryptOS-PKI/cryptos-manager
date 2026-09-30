@@ -3,8 +3,18 @@ kind: Deployment
 metadata:
   name: {{ include "fleet-manager.name" . }}
   labels: {{- include "fleet-manager.labels" . | nindent 4 }}
+{{- $rwx := has "ReadWriteMany" .Values.nodeCreds.accessModes }}
+{{- if and (gt (int .Values.replicaCount) 1) (not $rwx) }}
+{{- fail "replicaCount > 1 needs nodeCreds.accessModes to include ReadWriteMany: every pod must hold every adopted node's admin key" }}
+{{- end }}
+{{- if not .Values.authBypass }}
+{{- $_ := required "database.existingSecret is required when authBypass is false (without it the manager runs its in-memory demo store)" .Values.database.existingSecret }}
+{{- end }}
 spec:
   replicas: {{ .Values.replicaCount }}
+  strategy:
+    # A ReadWriteOnce volume cannot attach to the old and new pod at once.
+    type: {{ if $rwx }}RollingUpdate{{ else }}Recreate{{ end }}
   selector:
     matchLabels:
       app.kubernetes.io/name: {{ include "fleet-manager.name" . }}
@@ -17,6 +27,10 @@ spec:
         runAsNonRoot: true
         runAsUser: 65532
         runAsGroup: 65532
+        # Makes the node-creds volume writable by the manager whatever owner
+        # the provisioner gives it.
+        fsGroup: 65532
+        fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
       containers:
@@ -24,15 +38,34 @@ spec:
           image: {{ include "fleet-manager.image" . | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           args: ["-config", "/etc/cryptos/fleet/config.yaml"]
-          # Read-only root, as the image is built to run. The chart mounts no
-          # volume for node credentials yet, so adoption fails with a
-          # read-only filesystem error rather than writing admin keys into a
-          # container layer that is lost when the pod goes.
+          # Read-only root, as the image is built to run; node-creds is the one
+          # writable mount.
           securityContext:
             readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
+          {{- if .Values.database.existingSecret }}
+          env:
+            - name: MANAGER_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.database.existingSecret | quote }}
+                  key: {{ .Values.database.secretKey | quote }}
+          {{- end }}
+          # The manager waits up to 90s for Postgres before it listens.
+          startupProbe:
+            tcpSocket:
+              port: https
+            periodSeconds: 10
+            failureThreshold: 12
+          # Liveness only asks whether the process still accepts connections:
+          # /healthz also checks Postgres, and a database outage should take
+          # the pods out of the Service, not restart them.
+          livenessProbe:
+            tcpSocket:
+              port: https
+            periodSeconds: 20
           readinessProbe:
             httpGet:
               path: /healthz
@@ -51,6 +84,8 @@ spec:
             - name: config
               mountPath: /etc/cryptos/fleet/config.yaml
               subPath: config.yaml
+            - name: node-creds
+              mountPath: /var/lib/cryptos-manager/node-creds
             {{- if not .Values.authBypass }}
             - name: tls
               mountPath: /etc/cryptos/fleet/tls
@@ -63,6 +98,9 @@ spec:
         - name: config
           configMap:
             name: {{ include "fleet-manager.name" . }}-config
+        - name: node-creds
+          persistentVolumeClaim:
+            claimName: {{ .Values.nodeCreds.existingClaim | default (printf "%s-node-creds" (include "fleet-manager.name" .)) }}
         {{- if not .Values.authBypass }}
         - name: tls
           secret:
