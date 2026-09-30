@@ -19,6 +19,7 @@ limitations under the License.
 */
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -27,6 +28,8 @@ import (
 	"crypto/x509"
 	"encoding/hex"
 	"errors"
+	"log"
+	"strings"
 	"testing"
 )
 
@@ -90,5 +93,70 @@ func TestVerifyAttestation_NonECDSAKey(t *testing.T) {
 
 	if _, err := verifyAttestation(context.Background(), conn); err == nil {
 		t.Fatal("verifyAttestation: error = nil, want a parse error for an empty identity key")
+	}
+}
+
+// TestAttestationMessage_KnownAnswer is the same vector as the node's
+// TestAttestationMessage_KnownAnswer in cryptos, so the bytes the manager
+// verifies are pinned to the bytes the node signs.
+func TestAttestationMessage_KnownAnswer(t *testing.T) {
+	got := attestationMessage([]byte{0xde, 0xad, 0xbe, 0xef})
+	want := append([]byte("CryptOS-PKI attestation v1\x00"), 0x00, 0x00, 0x00, 0x04, 0xde, 0xad, 0xbe, 0xef)
+	if !bytes.Equal(got, want) {
+		t.Fatalf("attestationMessage = %x, want %x", got, want)
+	}
+}
+
+// captureLog redirects the standard logger for the duration of the test.
+func captureLog(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	prev, flags := log.Writer(), log.Flags()
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(prev); log.SetFlags(flags) })
+	return &buf
+}
+
+func TestVerifyAttestation_VersionedMessageDoesNotWarn(t *testing.T) {
+	logs := captureLog(t)
+	conn := &fakeConn{attestKey: mustKey(t)}
+
+	if _, err := verifyAttestation(context.Background(), conn); err != nil {
+		t.Fatalf("verifyAttestation: %v", err)
+	}
+	if strings.Contains(logs.String(), "WARNING") {
+		t.Errorf("unexpected warning for a versioned attestation: %q", logs.String())
+	}
+}
+
+// A node that predates the versioned message signs the bare nonce. It is
+// still accepted, so the manager can ship before the node change, but loudly.
+func TestVerifyAttestation_LegacyBareNonceAcceptedWithWarning(t *testing.T) {
+	logs := captureLog(t)
+	key := mustKey(t)
+	conn := &fakeConn{attestKey: key, attestLegacy: true}
+
+	fp, err := verifyAttestation(context.Background(), conn)
+	if err != nil {
+		t.Fatalf("verifyAttestation: %v", err)
+	}
+	der, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(der)
+	if want := hex.EncodeToString(sum[:]); fp != want {
+		t.Fatalf("fingerprint = %s, want %s", fp, want)
+	}
+	if !strings.Contains(logs.String(), "WARNING") || !strings.Contains(logs.String(), "bare nonce") {
+		t.Errorf("want a warning naming the bare-nonce format, got %q", logs.String())
+	}
+}
+
+func TestVerifyAttestation_LegacyBadSignature(t *testing.T) {
+	conn := &fakeConn{attestKey: mustKey(t), attestLegacy: true, attestBadSig: true}
+
+	if _, err := verifyAttestation(context.Background(), conn); err == nil {
+		t.Fatal("verifyAttestation: error = nil, want a signature-verification error")
 	}
 }

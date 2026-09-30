@@ -49,9 +49,13 @@ type fakeConn struct {
 	err         error
 	closed      bool
 
-	// attestKey, when set, makes Attest sign the nonce for real (mirroring
-	// the node's CA-identity signer) instead of returning a zero response.
+	// attestKey, when set, makes Attest sign for real (mirroring the node's
+	// CA-identity signer, which signs attestationMessage(nonce)) instead of
+	// returning a zero response.
 	attestKey *ecdsa.PrivateKey
+	// attestLegacy makes Attest sign the bare nonce, as nodes did before the
+	// versioned attestation message.
+	attestLegacy bool
 	// attestBadSig makes Attest sign a digest that does NOT match the
 	// nonce it was given, so verifyAttestation must reject the signature.
 	attestBadSig bool
@@ -212,7 +216,10 @@ func (f *fakeConn) Attest(_ context.Context, nonce []byte) (*cryptosv1.AttestRes
 	if f.attestKey == nil {
 		return &cryptosv1.AttestResponse{}, nil
 	}
-	signed := nonce
+	signed := attestationMessage(nonce)
+	if f.attestLegacy {
+		signed = nonce
+	}
 	if f.attestBadSig {
 		// Sign different bytes than the nonce so the signature is valid
 		// ASN.1 but does not verify against the nonce's digest.
