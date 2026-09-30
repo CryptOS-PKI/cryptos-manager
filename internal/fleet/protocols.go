@@ -106,11 +106,12 @@ func (s *Service) SetNodeProtocol(ctx context.Context, req *connect.Request[flee
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("fleet: protocol %s cannot be switched", p))
 	}
 
-	node, ok := s.store.Node(name)
-	if !ok {
+	node, err := s.resolveNode("SetNodeProtocol", "", name, currentNames)
+	if err != nil {
 		l.Warn("set node protocol: node not in inventory")
-		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("fleet: node %q not found", name))
+		return nil, err
 	}
+	l = l.With(log.F("node_id", node.ID))
 
 	conn, err := s.dial(node)
 	if err != nil {
@@ -166,10 +167,10 @@ func (s *Service) SetNodeProtocol(ctx context.Context, req *connect.Request[flee
 		log.F("elapsed_ms", time.Since(started).Milliseconds()))
 
 	if applied.GetRequiresReboot() {
-		s.reboots.record(name, p, enabled)
+		s.reboots.record(node.ID, p, enabled)
 		l.Info("set node protocol: reboot required before the switch takes effect")
 	}
-	s.auditProtocol(ctx, name, p, enabled, applied.GetRequiresReboot(), "")
+	s.auditProtocol(ctx, node, p, enabled, applied.GetRequiresReboot(), "")
 
 	return connect.NewResponse(&fleetv1.SetNodeProtocolResponse{
 		Generation:     applied.GetGeneration(),
@@ -217,14 +218,15 @@ func carriesProtocolBlock(cfg *cryptosv1.MachineConfig) bool {
 	return false
 }
 
-// auditProtocol appends one protocol switch event against the node. via names
-// the path when it is not SetNodeProtocol.
-func (s *Service) auditProtocol(ctx context.Context, nodeName string, p cryptosv1.ServiceProtocol, enabled, rebootRequired bool, via string) {
+// auditProtocol appends one protocol switch event against the node's stable
+// ID, so the entry keeps pointing at the node after a rename. via names the
+// path when it is not SetNodeProtocol.
+func (s *Service) auditProtocol(ctx context.Context, node store.Node, p cryptosv1.ServiceProtocol, enabled, rebootRequired bool, via string) {
 	kind, verb := "protocol-disabled", "Disabled"
 	if enabled {
 		kind, verb = "protocol-enabled", "Enabled"
 	}
-	summary := fmt.Sprintf("%s %s on %s", verb, protocolLabel(p), nodeName)
+	summary := fmt.Sprintf("%s %s on %s", verb, protocolLabel(p), node.Name)
 	if via != "" {
 		summary += " via " + via
 	}
@@ -237,7 +239,7 @@ func (s *Service) auditProtocol(ctx context.Context, nodeName string, p cryptosv
 		Kind:       kind,
 		Summary:    summary,
 		TargetKind: "node",
-		TargetPath: "/nodes/" + nodeName,
+		TargetPath: nodeTarget(node),
 	})
 }
 
@@ -256,7 +258,7 @@ func nodeError(op string, err error) error {
 	return connect.NewError(code, fmt.Errorf("fleet: %s: %s", op, st.Message()))
 }
 
-// rebootTracker holds, per node, the protocol switches a node accepted with
+// rebootTracker holds, per node ID, the protocol switches a node accepted with
 // requires_reboot and has not yet shown running. It lives in memory: the
 // node's own config_reboot_pending and per-protocol reboot_pending carry the
 // same fact across a manager restart, so losing the record loses nothing the
@@ -270,7 +272,8 @@ func newRebootTracker() *rebootTracker {
 	return &rebootTracker{pending: map[string]map[cryptosv1.ServiceProtocol]bool{}}
 }
 
-// record notes that node accepted switching p to enabled and needs a reboot.
+// record notes that the node with ID node accepted switching p to enabled and
+// needs a reboot. Keying by ID keeps the record through a rename.
 func (r *rebootTracker) record(node string, p cryptosv1.ServiceProtocol, enabled bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -280,18 +283,18 @@ func (r *rebootTracker) record(node string, p cryptosv1.ServiceProtocol, enabled
 	r.pending[node][p] = enabled
 }
 
-// pendingFor returns how many switches are recorded against node.
+// pendingFor returns how many switches are recorded against the node ID.
 func (r *rebootTracker) pendingFor(node string) int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return len(r.pending[node])
 }
 
-// reconcile folds node's reported status into its recorded switches. A
-// recorded switch is confirmed, and dropped, once the node reports the
-// protocol running in the switched state with nothing pending. It returns the
-// node's protocol list with reboot_pending also set for every switch still
-// recorded, and whether the node needs a reboot at all.
+// reconcile folds the reported status of the node with ID node into its
+// recorded switches. A recorded switch is confirmed, and dropped, once the
+// node reports the protocol running in the switched state with nothing
+// pending. It returns the node's protocol list with reboot_pending also set
+// for every switch still recorded, and whether the node needs a reboot at all.
 func (r *rebootTracker) reconcile(l log.Logger, node string, st *cryptosv1.NodeStatus) ([]*cryptosv1.ProtocolStatus, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -330,8 +333,8 @@ func (r *rebootTracker) reconcile(l log.Logger, node string, st *cryptosv1.NodeS
 // withProtocolState fills summary's protocol state from the node's status and
 // the recorded switches.
 func (s *Service) withProtocolState(ctx context.Context, summary *fleetv1.NodeSummary, st *cryptosv1.NodeStatus) *fleetv1.NodeSummary {
-	l := s.log.Ctx(ctx).With(log.F("node", summary.GetName()))
-	summary.Protocols, summary.RebootRequired = s.reboots.reconcile(l, summary.GetName(), st)
+	l := s.log.Ctx(ctx).With(log.F("node", summary.GetName()), log.F("node_id", summary.GetId()))
+	summary.Protocols, summary.RebootRequired = s.reboots.reconcile(l, summary.GetId(), st)
 	l.Debug("node protocol state", log.F("protocols", len(summary.GetProtocols())), log.F("reboot_required", summary.GetRebootRequired()))
 	return summary
 }

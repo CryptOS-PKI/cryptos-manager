@@ -124,9 +124,9 @@ func (s *Service) ApplyNodeConfig(ctx context.Context, req *connect.Request[flee
 
 	for _, sw := range switches {
 		if applied.GetRequiresReboot() {
-			s.reboots.record(name, sw.protocol, sw.enabled)
+			s.reboots.record(node.ID, sw.protocol, sw.enabled)
 		}
-		s.auditProtocol(ctx, name, sw.protocol, sw.enabled, applied.GetRequiresReboot(), "config apply")
+		s.auditProtocol(ctx, node, sw.protocol, sw.enabled, applied.GetRequiresReboot(), "config apply")
 	}
 
 	auditlog.Record(ctx, s.store, store.AuditEvent{

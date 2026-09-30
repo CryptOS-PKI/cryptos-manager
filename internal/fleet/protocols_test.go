@@ -146,8 +146,9 @@ func TestSetNodeProtocol_EnableACME_FlipsOnlyThatBlock(t *testing.T) {
 		t.Fatalf("audit len = %d, want 1", len(audit))
 	}
 	e := audit[0]
-	if e.Kind != "protocol-enabled" || e.ActorCN != "admin@acme.example" || e.TargetPath != "/nodes/issuing-1" {
-		t.Errorf("audit = %+v, want protocol-enabled by admin@acme.example on /nodes/issuing-1", e)
+	target := "/nodes/" + nodeID(t, st, "issuing-1")
+	if e.Kind != "protocol-enabled" || e.ActorCN != "admin@acme.example" || e.TargetPath != target {
+		t.Errorf("audit = %+v, want protocol-enabled by admin@acme.example on %s", e, target)
 	}
 	if !strings.Contains(e.Summary, "ACME") || !strings.Contains(e.Summary, "issuing-1") {
 		t.Errorf("audit summary = %q, want it to name the protocol and the node", e.Summary)
@@ -229,7 +230,7 @@ func TestSetNodeProtocol_NodeRefusal_KeepsItsCodeAndReason(t *testing.T) {
 	if len(st.Audit()) != 0 {
 		t.Errorf("audit len = %d, want 0 when the node refuses", len(st.Audit()))
 	}
-	if svc.reboots.pendingFor("issuing-1") != 0 {
+	if svc.reboots.pendingFor(nodeID(t, st, "issuing-1")) != 0 {
 		t.Error("a refused switch was recorded as waiting for a reboot")
 	}
 }
@@ -258,7 +259,8 @@ func TestSetNodeProtocol_RebootRequiredUntilTheNodeRunsIt(t *testing.T) {
 		// A node that predates the protocol report says nothing either way.
 		status: protocolStatusResp(nil, false),
 	}
-	svc := New(protocolTestStore(), dialFor(map[string]*fakeConn{"issuing-1": conn}))
+	st := protocolTestStore()
+	svc := New(st, dialFor(map[string]*fakeConn{"issuing-1": conn}))
 
 	if _, err := setProtocol(t, svc, authz.LevelAdmin, acme, true); err != nil {
 		t.Fatalf("SetNodeProtocol: %v", err)
@@ -299,7 +301,7 @@ func TestSetNodeProtocol_RebootRequiredUntilTheNodeRunsIt(t *testing.T) {
 	if s.GetRebootRequired() || s.GetProtocols()[0].GetRebootPending() {
 		t.Errorf("summary = %v, want the reboot confirmed and cleared", s)
 	}
-	if svc.reboots.pendingFor("issuing-1") != 0 {
+	if svc.reboots.pendingFor(nodeID(t, st, "issuing-1")) != 0 {
 		t.Error("the confirmed switch is still recorded")
 	}
 }
@@ -351,7 +353,7 @@ func TestApplyNodeConfig_ProtocolSwitch_AuditedPerProtocolAndTracked(t *testing.
 	if strings.Join(kinds, ",") != "protocol-enabled,config-applied" {
 		t.Errorf("audit kinds = %v, want protocol-enabled then config-applied (EST only changed settings)", kinds)
 	}
-	if svc.reboots.pendingFor("issuing-1") != 1 {
+	if svc.reboots.pendingFor(nodeID(t, st, "issuing-1")) != 1 {
 		t.Error("the ACME switch was not recorded as waiting for a reboot")
 	}
 }
@@ -372,5 +374,75 @@ func TestApplyNodeConfig_ProtocolBlock_BaselineUnreadable_NoApply(t *testing.T) 
 	}
 	if len(st.Audit()) != 0 {
 		t.Errorf("audit len = %d, want 0", len(st.Audit()))
+	}
+}
+
+func TestSetNodeProtocol_AuditsAgainstTheNodeID(t *testing.T) {
+	st := protocolTestStore()
+	conn := &fakeConn{
+		getConfigResp:   &cryptosv1.GetConfigResponse{Config: protocolConfigFixture()},
+		applyConfigResp: &cryptosv1.ApplyConfigResponse{Generation: 3},
+	}
+	svc := New(st, dialFor(map[string]*fakeConn{"issuing-1": conn}))
+
+	if _, err := setProtocol(t, svc, authz.LevelAdmin, acme, true); err != nil {
+		t.Fatalf("SetNodeProtocol: %v", err)
+	}
+	events := st.Audit()
+	if len(events) != 1 {
+		t.Fatalf("audit len = %d, want 1", len(events))
+	}
+	if want := "/nodes/" + nodeID(t, st, "issuing-1"); events[0].TargetPath != want {
+		t.Errorf("target path = %q, want %q so the entry survives a rename", events[0].TargetPath, want)
+	}
+}
+
+func TestApplyNodeConfig_ProtocolSwitch_AuditsAgainstTheNodeID(t *testing.T) {
+	st := protocolTestStore()
+	conn := &fakeConn{
+		getConfigResp:   &cryptosv1.GetConfigResponse{Config: protocolConfigFixture()},
+		applyConfigResp: &cryptosv1.ApplyConfigResponse{Generation: 4},
+	}
+	svc := New(st, dialFor(map[string]*fakeConn{"issuing-1": conn}))
+
+	sent := protocolConfigFixture()
+	sent.Pki.Acme.Enabled = true
+	if _, err := svc.ApplyNodeConfig(operatorCtx("admin@acme.example", authz.LevelAdmin), connect.NewRequest(&fleetv1.ApplyNodeConfigRequest{
+		NodeId: nodeID(t, st, "issuing-1"), Config: sent,
+	})); err != nil {
+		t.Fatalf("ApplyNodeConfig: %v", err)
+	}
+	want := "/nodes/" + nodeID(t, st, "issuing-1")
+	for _, e := range st.Audit() {
+		if e.TargetPath != want {
+			t.Errorf("%s target path = %q, want %q", e.Kind, e.TargetPath, want)
+		}
+	}
+}
+
+func TestSetNodeProtocol_RebootRecordSurvivesARename(t *testing.T) {
+	st := protocolTestStore()
+	conn := &fakeConn{
+		getConfigResp:   &cryptosv1.GetConfigResponse{Config: protocolConfigFixture()},
+		applyConfigResp: &cryptosv1.ApplyConfigResponse{Generation: 6, RequiresReboot: true},
+		status:          protocolStatusResp(nil, false),
+	}
+	svc := New(st, dialFor(map[string]*fakeConn{"issuing-1": conn, "issuing-east": conn}))
+	id := nodeID(t, st, "issuing-1")
+
+	if _, err := setProtocol(t, svc, authz.LevelAdmin, acme, true); err != nil {
+		t.Fatalf("SetNodeProtocol: %v", err)
+	}
+	rename(t, svc, id, "issuing-east")
+
+	resp, err := svc.GetNode(operatorCtx("viewer@acme.example", authz.LevelViewer), connect.NewRequest(&fleetv1.GetNodeRequest{NodeId: id}))
+	if err != nil {
+		t.Fatalf("GetNode: %v", err)
+	}
+	if !resp.Msg.GetNode().GetSummary().GetRebootRequired() {
+		t.Error("reboot_required = false after a rename, want the recorded switch kept against the node")
+	}
+	if svc.reboots.pendingFor(id) != 1 {
+		t.Errorf("switches recorded against %s = %d, want 1", id, svc.reboots.pendingFor(id))
 	}
 }
