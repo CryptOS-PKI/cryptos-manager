@@ -22,10 +22,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/CryptOS-PKI/manager/internal/store"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -67,10 +69,19 @@ func (s *Store) Close() {
 // match store.Store; Postgres calls always need one.
 func bg() context.Context { return context.Background() }
 
+// selectNode is the shared column list for reading a node; append a WHERE or
+// ORDER BY clause as needed.
+const selectNode = `SELECT id::text, name, endpoint, role, admin_cert, admin_key, ca_cert FROM nodes`
+
+func scanNode(row pgx.Row) (store.Node, error) {
+	var n store.Node
+	err := row.Scan(&n.ID, &n.Name, &n.Endpoint, &n.Role, &n.AdminCert, &n.AdminKey, &n.CACert)
+	return n, err
+}
+
 // Nodes returns every node in the inventory.
 func (s *Store) Nodes() []store.Node {
-	rows, err := s.pool.Query(bg(),
-		`SELECT name, endpoint, role, admin_cert, admin_key, ca_cert FROM nodes ORDER BY name`)
+	rows, err := s.pool.Query(bg(), selectNode+` ORDER BY name`)
 	if err != nil {
 		panic(fmt.Sprintf("postgres: query nodes: %v", err))
 	}
@@ -78,8 +89,8 @@ func (s *Store) Nodes() []store.Node {
 
 	out := make([]store.Node, 0)
 	for rows.Next() {
-		var n store.Node
-		if err := rows.Scan(&n.Name, &n.Endpoint, &n.Role, &n.AdminCert, &n.AdminKey, &n.CACert); err != nil {
+		n, err := scanNode(rows)
+		if err != nil {
 			panic(fmt.Sprintf("postgres: scan node: %v", err))
 		}
 		out = append(out, n)
@@ -92,10 +103,7 @@ func (s *Store) Nodes() []store.Node {
 
 // Node returns the node with the given name, and whether it was found.
 func (s *Store) Node(name string) (store.Node, bool) {
-	var n store.Node
-	err := s.pool.QueryRow(bg(),
-		`SELECT name, endpoint, role, admin_cert, admin_key, ca_cert FROM nodes WHERE name = $1`, name).
-		Scan(&n.Name, &n.Endpoint, &n.Role, &n.AdminCert, &n.AdminKey, &n.CACert)
+	n, err := scanNode(s.pool.QueryRow(bg(), selectNode+` WHERE name = $1`, name))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return store.Node{}, false
 	}
@@ -105,19 +113,164 @@ func (s *Store) Node(name string) (store.Node, bool) {
 	return n, true
 }
 
-// AddNode inserts n into the inventory, replacing any node with the same name
-// (an adopted node re-registering keeps the latest endpoint/role).
+// NodeByID returns the node with the given stable ID, and whether it was
+// found. A string that is not a node ID matches nothing.
+func (s *Store) NodeByID(id string) (store.Node, bool) {
+	if !store.IsNodeID(id) {
+		return store.Node{}, false
+	}
+	n, err := scanNode(s.pool.QueryRow(bg(), selectNode+` WHERE id = $1::uuid`, id))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return store.Node{}, false
+	}
+	if err != nil {
+		panic(fmt.Sprintf("postgres: query node by id %q: %v", id, err))
+	}
+	return n, true
+}
+
+// NodeByFormerName returns the node that most recently gave up name in a
+// rename, and whether there is one.
+func (s *Store) NodeByFormerName(name string) (store.Node, bool) {
+	n, err := scanNode(s.pool.QueryRow(bg(), `SELECT n.id::text, n.name, n.endpoint, n.role, n.admin_cert, n.admin_key, n.ca_cert
+		FROM node_names h JOIN nodes n ON n.id = h.node_id
+		WHERE h.name = $1 AND h.valid_until IS NOT NULL
+		ORDER BY h.valid_until DESC, h.seq DESC LIMIT 1`, name))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return store.Node{}, false
+	}
+	if err != nil {
+		panic(fmt.Sprintf("postgres: query node by former name %q: %v", name, err))
+	}
+	return n, true
+}
+
+// NodeNames returns every node's name history in the order it was recorded.
+func (s *Store) NodeNames() []store.NodeName {
+	rows, err := s.pool.Query(bg(),
+		`SELECT node_id::text, name, valid_from, valid_until FROM node_names ORDER BY seq`)
+	if err != nil {
+		panic(fmt.Sprintf("postgres: query node names: %v", err))
+	}
+	defer rows.Close()
+
+	out := make([]store.NodeName, 0)
+	for rows.Next() {
+		var h store.NodeName
+		var from, until *time.Time
+		if err := rows.Scan(&h.NodeID, &h.Name, &from, &until); err != nil {
+			panic(fmt.Sprintf("postgres: scan node name: %v", err))
+		}
+		if from != nil {
+			h.From = from.UTC()
+		}
+		if until != nil {
+			h.Until = until.UTC()
+		}
+		out = append(out, h)
+	}
+	if err := rows.Err(); err != nil {
+		panic(fmt.Sprintf("postgres: iterate node names: %v", err))
+	}
+	return out
+}
+
+// AddNode inserts n into the inventory. A node with the same name keeps its ID
+// and takes n's other fields (an adopted node re-registering keeps the latest
+// endpoint/role); a new node keeps n.ID or gets a fresh one, and starts its
+// name history.
 func (s *Store) AddNode(n store.Node) {
-	if _, err := s.pool.Exec(bg(),
-		`INSERT INTO nodes (name, endpoint, role, admin_cert, admin_key, ca_cert)
-		 VALUES ($1, $2, $3, $4, $5, $6)
-		 ON CONFLICT (name) DO UPDATE SET
-		   endpoint = EXCLUDED.endpoint, role = EXCLUDED.role,
-		   admin_cert = EXCLUDED.admin_cert, admin_key = EXCLUDED.admin_key,
-		   ca_cert = EXCLUDED.ca_cert`,
-		n.Name, n.Endpoint, n.Role, n.AdminCert, n.AdminKey, n.CACert); err != nil {
+	ctx := bg()
+	if n.ID == "" {
+		n.ID = store.NewNodeID()
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		panic(fmt.Sprintf("postgres: begin add node %q: %v", n.Name, err))
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	tag, err := tx.Exec(ctx,
+		`INSERT INTO nodes (id, name, endpoint, role, admin_cert, admin_key, ca_cert)
+		 VALUES ($1::uuid, $2, $3, $4, $5, $6, $7)
+		 ON CONFLICT (name) DO NOTHING`,
+		n.ID, n.Name, n.Endpoint, n.Role, n.AdminCert, n.AdminKey, n.CACert)
+	if err != nil {
 		panic(fmt.Sprintf("postgres: insert node %q: %v", n.Name, err))
 	}
+	if tag.RowsAffected() == 1 {
+		if err := insertNodeName(ctx, tx, n.ID, n.Name, nil); err != nil {
+			panic(fmt.Sprintf("postgres: start name history for node %q: %v", n.Name, err))
+		}
+		log.Printf("postgres: node %s joined the inventory with id %s", n.Name, n.ID)
+	} else {
+		if _, err := tx.Exec(ctx,
+			`UPDATE nodes SET endpoint = $2, role = $3, admin_cert = $4, admin_key = $5, ca_cert = $6
+			 WHERE name = $1`,
+			n.Name, n.Endpoint, n.Role, n.AdminCert, n.AdminKey, n.CACert); err != nil {
+			panic(fmt.Sprintf("postgres: update node %q: %v", n.Name, err))
+		}
+		log.Printf("postgres: node %s re-registered, keeping its id", n.Name)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		panic(fmt.Sprintf("postgres: commit add node %q: %v", n.Name, err))
+	}
+}
+
+// insertNodeName opens a name span for a node. A nil from marks the name the
+// node joined with.
+func insertNodeName(ctx context.Context, tx pgx.Tx, id, name string, from *time.Time) error {
+	_, err := tx.Exec(ctx,
+		`INSERT INTO node_names (node_id, name, valid_from) VALUES ($1::uuid, $2, $3)`, id, name, from)
+	return err
+}
+
+// RenameNode changes the name of the node with the given ID and records the
+// change in the name history, in one transaction.
+func (s *Store) RenameNode(id, newName string, at time.Time) (store.Node, error) {
+	if !store.IsNodeID(id) {
+		return store.Node{}, fmt.Errorf("postgres: rename %q: %w", id, store.ErrNodeNotFound)
+	}
+	ctx := bg()
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return store.Node{}, fmt.Errorf("postgres: begin rename: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	n, err := scanNode(tx.QueryRow(ctx, selectNode+` WHERE id = $1::uuid FOR UPDATE`, id))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return store.Node{}, fmt.Errorf("postgres: rename %s: %w", id, store.ErrNodeNotFound)
+	}
+	if err != nil {
+		return store.Node{}, fmt.Errorf("postgres: load node %s for rename: %w", id, err)
+	}
+	if n.Name == newName {
+		return n, nil
+	}
+
+	oldName := n.Name
+	if _, err := tx.Exec(ctx, `UPDATE nodes SET name = $2 WHERE id = $1::uuid`, id, newName); err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return store.Node{}, fmt.Errorf("postgres: rename %s to %q: %w", id, newName, store.ErrNodeNameTaken)
+		}
+		return store.Node{}, fmt.Errorf("postgres: rename %s: %w", id, err)
+	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE node_names SET valid_until = $2 WHERE node_id = $1::uuid AND valid_until IS NULL`, id, at); err != nil {
+		return store.Node{}, fmt.Errorf("postgres: close name span for %s: %w", id, err)
+	}
+	if err := insertNodeName(ctx, tx, id, newName, &at); err != nil {
+		return store.Node{}, fmt.Errorf("postgres: open name span for %s: %w", id, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return store.Node{}, fmt.Errorf("postgres: commit rename: %w", err)
+	}
+	log.Printf("postgres: node %s renamed from %q to %q", id, oldName, newName)
+
+	n.Name = newName
+	return n, nil
 }
 
 // Profiles returns every certificate issuance profile.
@@ -458,12 +611,19 @@ func (s *Store) SeedIfEmpty(ctx context.Context, nodes []store.Node, profiles []
 	}
 
 	for _, n := range nodes {
+		if n.ID == "" {
+			n.ID = store.NewNodeID()
+		}
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO nodes (name, endpoint, role, admin_cert, admin_key, ca_cert)
-			 VALUES ($1, $2, $3, $4, $5, $6)`,
-			n.Name, n.Endpoint, n.Role, n.AdminCert, n.AdminKey, n.CACert); err != nil {
+			`INSERT INTO nodes (id, name, endpoint, role, admin_cert, admin_key, ca_cert)
+			 VALUES ($1::uuid, $2, $3, $4, $5, $6, $7)`,
+			n.ID, n.Name, n.Endpoint, n.Role, n.AdminCert, n.AdminKey, n.CACert); err != nil {
 			return fmt.Errorf("postgres: seed node %q: %w", n.Name, err)
 		}
+		if err := insertNodeName(ctx, tx, n.ID, n.Name, nil); err != nil {
+			return fmt.Errorf("postgres: seed name history for node %q: %w", n.Name, err)
+		}
+		log.Printf("postgres: seeded node %s with id %s", n.Name, n.ID)
 	}
 	for _, p := range profiles {
 		if _, err := tx.Exec(ctx,
@@ -529,20 +689,20 @@ func nonNil(s []string) []string {
 const selectEnrollment = `SELECT id, proposed_name, role, parent_cn, address, status,
 	attestation_summary, attestation_node_id, csr_key_type, csr_subject_cn,
 	requested_at, rejection_reason, admitted_node_name, kind, pinned_key_sha256,
-	attestation_ok, profile FROM enrollments`
+	attestation_ok, profile, admitted_node_id FROM enrollments`
 
 const insertEnrollment = `INSERT INTO enrollments (
 	id, proposed_name, role, parent_cn, address, status,
 	attestation_summary, attestation_node_id, csr_key_type, csr_subject_cn,
 	requested_at, rejection_reason, admitted_node_name, kind, pinned_key_sha256,
-	attestation_ok, profile
-) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`
+	attestation_ok, profile, admitted_node_id
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`
 
 const updateEnrollment = `UPDATE enrollments SET
 	proposed_name=$2, role=$3, parent_cn=$4, address=$5, status=$6,
 	attestation_summary=$7, attestation_node_id=$8, csr_key_type=$9, csr_subject_cn=$10,
 	requested_at=$11, rejection_reason=$12, admitted_node_name=$13, kind=$14,
-	pinned_key_sha256=$15, attestation_ok=$16, profile=$17
+	pinned_key_sha256=$15, attestation_ok=$16, profile=$17, admitted_node_id=$18
 WHERE id=$1`
 
 // enrollmentArgs lays out an Enrollment in the column order used by both the
@@ -552,7 +712,7 @@ func enrollmentArgs(e store.Enrollment) []any {
 		e.ID, e.ProposedName, e.Role, e.ParentCN, e.Address, e.Status,
 		e.AttestationSummary, e.AttestationNodeID, e.CSRKeyType, e.CSRSubjectCN,
 		e.RequestedAt, e.RejectionReason, e.AdmittedNodeName, e.Kind, e.PinnedKeySHA256,
-		e.AttestationOK, e.Profile,
+		e.AttestationOK, e.Profile, e.AdmittedNodeID,
 	}
 }
 
@@ -575,7 +735,7 @@ func scanEnrollment(r rowScanner) (store.Enrollment, error) {
 		&e.ID, &e.ProposedName, &e.Role, &e.ParentCN, &e.Address, &e.Status,
 		&e.AttestationSummary, &e.AttestationNodeID, &e.CSRKeyType, &e.CSRSubjectCN,
 		&e.RequestedAt, &e.RejectionReason, &e.AdmittedNodeName, &e.Kind, &e.PinnedKeySHA256,
-		&e.AttestationOK, &e.Profile,
+		&e.AttestationOK, &e.Profile, &e.AdmittedNodeID,
 	)
 	return e, err
 }

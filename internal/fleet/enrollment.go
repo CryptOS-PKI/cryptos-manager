@@ -24,6 +24,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	connect "connectrpc.com/connect"
@@ -114,15 +115,26 @@ func (s *Service) createLinkEnrollment(ctx context.Context, msg *fleetv1.CreateE
 // the given child node, parent CA, and issuing profile. No node is dialed
 // here: the CSR/sign/submit ferry runs only once the request is approved.
 func (s *Service) createSubordinateEnrollment(msg *fleetv1.CreateEnrollmentRequest) (*connect.Response[fleetv1.CreateEnrollmentResponse], error) {
-	if msg.GetChildNode() == "" || msg.GetParentCn() == "" || msg.GetProfile() == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("fleet: child_node, parent_cn, profile are required"))
+	if (msg.GetChildNode() == "" && msg.GetChildNodeId() == "") || msg.GetParentCn() == "" || msg.GetProfile() == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("fleet: child_node_id (or child_node), parent_cn, profile are required"))
+	}
+
+	// A child named only by child_node is recorded as given, as before; a
+	// child_node_id must name a node in the inventory.
+	child := msg.GetChildNode()
+	if msg.GetChildNodeId() != "" {
+		n, err := s.resolveNode("CreateEnrollment", msg.GetChildNodeId(), msg.GetChildNode(), currentNames)
+		if err != nil {
+			return nil, err
+		}
+		child = n.Name
 	}
 
 	e := store.Enrollment{
 		ID:           newEnrollmentID(),
 		Kind:         "SUBORDINATE",
 		Status:       "PENDING",
-		ProposedName: msg.GetChildNode(),
+		ProposedName: child,
 		ParentCN:     msg.GetParentCn(),
 		Profile:      msg.GetProfile(),
 		RequestedAt:  time.Now().UTC().Format(time.RFC3339),
@@ -219,9 +231,20 @@ func (s *Service) approveLinkEnrollment(ctx context.Context, id authz.Identity, 
 		return connect.NewError(connect.CodeInternal, fmt.Errorf("fleet: set management: %w", err))
 	}
 
+	// A linked node already in the inventory keeps its ID. One that is not
+	// gets its ID now, the moment it is admitted to the fleet.
+	nodeID := store.NewNodeID()
+	if n, ok := s.store.Node(e.ProposedName); ok && e.ProposedName != "" {
+		nodeID = n.ID
+		log.Printf("fleet: LINK approval %s: admitted node %q is inventory node %s", e.ID, e.ProposedName, nodeID)
+	} else {
+		log.Printf("fleet: LINK approval %s: admitted node %q is not in the inventory, assigned id %s", e.ID, e.ProposedName, nodeID)
+	}
+
 	if err := s.store.UpdateEnrollment(e.ID, func(en *store.Enrollment) {
 		en.Status = "APPROVED"
 		en.AdmittedNodeName = en.ProposedName
+		en.AdmittedNodeID = nodeID
 	}); err != nil {
 		return connect.NewError(connect.CodeInternal, fmt.Errorf("fleet: update enrollment: %w", err))
 	}
@@ -238,6 +261,14 @@ func (s *Service) approveSubordinateEnrollment(ctx context.Context, id authz.Ide
 
 	child, ok := s.store.Node(e.ProposedName)
 	if !ok {
+		// The request records the child's name; the child may have been
+		// renamed while the request waited.
+		child, ok = s.store.NodeByFormerName(e.ProposedName)
+		if ok {
+			log.Printf("fleet: SUBORDINATE approval %s: child %q was renamed to %q (node %s)", e.ID, e.ProposedName, child.Name, child.ID)
+		}
+	}
+	if !ok {
 		return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("fleet: child node %q not in inventory", e.ProposedName))
 	}
 
@@ -252,7 +283,8 @@ func (s *Service) approveSubordinateEnrollment(ctx context.Context, id authz.Ide
 
 	if err := s.store.UpdateEnrollment(e.ID, func(en *store.Enrollment) {
 		en.Status = "APPROVED"
-		en.AdmittedNodeName = en.ProposedName
+		en.AdmittedNodeName = child.Name
+		en.AdmittedNodeID = child.ID
 	}); err != nil {
 		return connect.NewError(connect.CodeInternal, fmt.Errorf("fleet: update enrollment: %w", err))
 	}

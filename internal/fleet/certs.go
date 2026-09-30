@@ -31,7 +31,6 @@ import (
 
 	connect "connectrpc.com/connect"
 	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
-	"github.com/CryptOS-PKI/manager/internal/apperr"
 	"github.com/CryptOS-PKI/manager/internal/auditlog"
 	"github.com/CryptOS-PKI/manager/internal/authz"
 	"github.com/CryptOS-PKI/manager/internal/store"
@@ -54,19 +53,16 @@ var rfc5280CRLReasons = map[int32]string{
 }
 
 // ListCertificates returns the aggregated certificate set across nodes,
-// optionally scoped to a single node by req.Msg.Node. A node that fails to
-// dial or list is skipped and logged rather than failing the whole request;
-// the one exception is an explicitly named node that the store does not
-// know about, which is a NotFound error.
+// optionally scoped to a single node by req.Msg.NodeId or req.Msg.Node. A
+// node that fails to dial or list is skipped and logged rather than failing
+// the whole request; the one exception is an explicitly named node that the
+// store does not know about, which is a NotFound error.
 func (s *Service) ListCertificates(ctx context.Context, req *connect.Request[fleetv1.ListCertificatesRequest]) (*connect.Response[fleetv1.ListCertificatesResponse], error) {
-	name := req.Msg.GetNode()
-
 	var nodes []store.Node
-	if name != "" {
-		n, ok := s.store.Node(name)
-		if !ok {
-			return nil, apperr.Coded(apperr.CodeNodeNotFound,
-				connect.NewError(connect.CodeNotFound, errors.New("fleet: node not found: "+name)))
+	if req.Msg.GetNodeId() != "" || req.Msg.GetNode() != "" {
+		n, err := s.resolveNode("ListCertificates", req.Msg.GetNodeId(), req.Msg.GetNode(), currentNames)
+		if err != nil {
+			return nil, err
 		}
 		nodes = []store.Node{n}
 	} else {
@@ -120,11 +116,11 @@ func (s *Service) RevokeCertificate(ctx context.Context, req *connect.Request[fl
 		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("fleet: operator level required"))
 	}
 
-	name := req.Msg.GetNodeName()
-	node, ok := s.store.Node(name)
-	if !ok {
-		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("fleet: node %q not found", name))
+	node, err := s.resolveNode("RevokeCertificate", req.Msg.GetNodeId(), req.Msg.GetNodeName(), currentNames)
+	if err != nil {
+		return nil, err
 	}
+	name := node.Name
 
 	conn, err := s.dial(node)
 	if err != nil {
@@ -148,7 +144,7 @@ func (s *Service) RevokeCertificate(ctx context.Context, req *connect.Request[fl
 		Kind:       "revoked",
 		Summary:    fmt.Sprintf("Revoked %s on %s (reason %d)", req.Msg.GetSerialHex(), name, req.Msg.GetReasonCode()),
 		TargetKind: "cert",
-		TargetPath: "/nodes/" + name + "/certs/" + req.Msg.GetSerialHex(),
+		TargetPath: nodeTarget(node) + "/certs/" + req.Msg.GetSerialHex(),
 	})
 
 	return connect.NewResponse(&fleetv1.RevokeCertificateResponse{
@@ -178,11 +174,11 @@ func (s *Service) IssueLeaf(ctx context.Context, req *connect.Request[fleetv1.Is
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("fleet: csr_der is required"))
 	}
 
-	name := req.Msg.GetNodeName()
-	node, ok := s.store.Node(name)
-	if !ok {
-		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("fleet: node %q not found", name))
+	node, err := s.resolveNode("IssueLeaf", req.Msg.GetNodeId(), req.Msg.GetNodeName(), currentNames)
+	if err != nil {
+		return nil, err
 	}
+	name := node.Name
 
 	profile := req.Msg.GetProfileName()
 
@@ -203,7 +199,7 @@ func (s *Service) IssueLeaf(ctx context.Context, req *connect.Request[fleetv1.Is
 		Kind:       "issued",
 		Summary:    fmt.Sprintf("Issued leaf via %s on %s", profile, name),
 		TargetKind: "cert",
-		TargetPath: "/nodes/" + name + "/certs",
+		TargetPath: nodeTarget(node) + "/certs",
 	})
 
 	return connect.NewResponse(&fleetv1.IssueLeafResponse{CertDer: issued.GetCertDer()}), nil
@@ -233,14 +229,15 @@ func (s *Service) certsForNode(ctx context.Context, n store.Node) ([]*fleetv1.Ce
 	bySerial := make(map[string]*fleetv1.Certificate, len(issuedResp.GetIssued()))
 	for _, ic := range issuedResp.GetIssued() {
 		bySerial[ic.GetSerialHex()] = &fleetv1.Certificate{
-			Serial:     ic.GetSerialHex(),
-			SubjectCn:  ic.GetSubjectDn(),
-			IssuerNode: n.Name,
-			Kind:       certKind(ic.GetProfileName()),
-			Status:     statusForNotAfter(ic.GetNotAfter().AsTime()),
-			NotBefore:  formatTimestamp(ic.GetNotBefore()),
-			NotAfter:   formatTimestamp(ic.GetNotAfter()),
-			Profile:    ic.GetProfileName(),
+			Serial:       ic.GetSerialHex(),
+			SubjectCn:    ic.GetSubjectDn(),
+			IssuerNode:   n.Name,
+			IssuerNodeId: n.ID,
+			Kind:         certKind(ic.GetProfileName()),
+			Status:       statusForNotAfter(ic.GetNotAfter().AsTime()),
+			NotBefore:    formatTimestamp(ic.GetNotBefore()),
+			NotAfter:     formatTimestamp(ic.GetNotAfter()),
+			Profile:      ic.GetProfileName(),
 		}
 	}
 
@@ -250,9 +247,10 @@ func (s *Service) certsForNode(ctx context.Context, n store.Node) ([]*fleetv1.Ce
 			// A revocation with no matching issued entry: still worth
 			// surfacing, so keep the fields we have.
 			c = &fleetv1.Certificate{
-				Serial:     rv.GetSerialHex(),
-				IssuerNode: n.Name,
-				Kind:       certKind(""),
+				Serial:       rv.GetSerialHex(),
+				IssuerNode:   n.Name,
+				IssuerNodeId: n.ID,
+				Kind:         certKind(""),
 			}
 			bySerial[rv.GetSerialHex()] = c
 		}

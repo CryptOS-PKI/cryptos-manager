@@ -143,9 +143,21 @@ func (s *Service) AdoptNode(ctx context.Context, req *connect.Request[fleetv1.Ad
 		return err
 	}
 	sink := func(phase, detail string, done bool) error {
-		return stream.Send(&fleetv1.AdoptNodeResponse{Phase: phase, Detail: detail, Done: done})
+		return stream.Send(s.adoptResponse(req.Msg, phase, detail, done))
 	}
 	return s.runAdoption(ctx, req.Msg, sink)
+}
+
+// adoptResponse builds one streamed adoption message. The final message of a
+// successful adoption carries the ID of the node it registered.
+func (s *Service) adoptResponse(msg *fleetv1.AdoptNodeRequest, phase, detail string, done bool) *fleetv1.AdoptNodeResponse {
+	resp := &fleetv1.AdoptNodeResponse{Phase: phase, Detail: detail, Done: done}
+	if done && phase != phaseError {
+		if n, ok := s.store.Node(adoptedNodeName(msg.GetConfig(), msg.GetEndpoint())); ok {
+			resp.NodeId = n.ID
+		}
+	}
+	return resp
 }
 
 // runAdoption is the transport-independent adoption orchestration, driving the
@@ -272,8 +284,8 @@ func (s *Service) runAdoption(ctx context.Context, msg *fleetv1.AdoptNodeRequest
 	// Register the node with the manager-held bootstrap admin credentials so
 	// managed operations can dial its mTLS endpoint immediately (Option A: the
 	// manager minted and kept this node's admin key).
-	s.registerAdoptedNode(cfg, endpoint, adminCertPath, adminKeyPath)
-	log.Printf("fleet: adopt %s: registered in the inventory", nodeName)
+	adopted := s.registerAdoptedNode(cfg, endpoint, adminCertPath, adminKeyPath)
+	log.Printf("fleet: adopt %s: registered in the inventory as node %s", nodeName, adopted.ID)
 
 	summary := fmt.Sprintf("Adopted node %s at %s", nodeName, endpoint)
 	if installed {
@@ -285,7 +297,7 @@ func (s *Service) runAdoption(ctx context.Context, msg *fleetv1.AdoptNodeRequest
 		Kind:       "node-adopted",
 		Summary:    summary,
 		TargetKind: "node",
-		TargetPath: "/nodes/" + adoptedNodeName(cfg, endpoint),
+		TargetPath: nodeTarget(adopted),
 	})
 
 	if !isRootRole(cfg) {
@@ -382,22 +394,30 @@ func ceremonyEventDetail(kind cryptosv1.CeremonyEventKind) string {
 	}
 }
 
-// registerAdoptedNode adds the adopted node to the inventory if it is not
-// already present, keyed by the config's metadata name (falling back to the
-// endpoint). It carries the endpoint and role; managed mTLS material is
-// attached later via the LINK enrollment path.
-func (s *Service) registerAdoptedNode(cfg *cryptosv1.MachineConfig, endpoint, adminCertPath, adminKeyPath string) {
+// registerAdoptedNode adds the adopted node to the inventory under a new ID
+// if it is not already present, keyed by the config's metadata name (falling
+// back to the endpoint), and returns the inventory node. It carries the
+// endpoint and role; managed mTLS material is attached later via the LINK
+// enrollment path. A retried adoption finds the node already registered and
+// keeps its ID.
+func (s *Service) registerAdoptedNode(cfg *cryptosv1.MachineConfig, endpoint, adminCertPath, adminKeyPath string) store.Node {
 	name := adoptedNodeName(cfg, endpoint)
-	if _, ok := s.store.Node(name); ok {
-		return
+	if n, ok := s.store.Node(name); ok {
+		log.Printf("fleet: adopt %s: already in the inventory as node %s", name, n.ID)
+		return n
 	}
+	id := store.NewNodeID()
+	log.Printf("fleet: adopt %s: assigning node id %s", name, id)
 	s.store.AddNode(store.Node{
+		ID:        id,
 		Name:      name,
 		Endpoint:  endpoint,
 		Role:      adoptedNodeRole(cfg),
 		AdminCert: adminCertPath,
 		AdminKey:  adminKeyPath,
 	})
+	n, _ := s.store.Node(name)
+	return n
 }
 
 // adoptedNodeName derives the inventory name for an adopted node from its

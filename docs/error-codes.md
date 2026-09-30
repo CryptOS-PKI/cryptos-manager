@@ -23,7 +23,11 @@ The manager owns the 1000-1999 block; another service takes its own first digit.
 | 1013 | Authorization | over MCP, the approval was denied, has expired or was already used; call the tool without approval_id to request a new one |
 | 1014 | Authorization | the approval status filter is not pending, approved, denied, expired or used |
 | 1100 | Fleet | the node could not be dialled or did not answer |
-| 1101 | Fleet | no node of that name is in the inventory |
+| 1101 | Fleet | no node with that name or ID is in the inventory |
+| 1102 | Fleet | another node already has that name |
+| 1103 | Fleet | the node name is not an RFC 1123 label (1 to 63 lowercase letters, digits and hyphens, starting and ending with a letter or digit), or has the form of a node ID |
+| 1104 | Fleet | the request's node_id and node name point at different nodes; send node_id alone |
+| 1105 | Fleet | the node is the configured operator_ca_node, which the manager finds by name, so renaming it would cut off operator credentials |
 | 1200 | Catalog | no certificate profile of that name is known |
 | 1300 | Certificates | the issuing node refused to sign the request |
 | 1301 | Certificates | the request needs human step-up approval (a CA profile or the root node) |

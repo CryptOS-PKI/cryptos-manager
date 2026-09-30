@@ -45,10 +45,9 @@ func (s *Service) GetNodeConfig(ctx context.Context, req *connect.Request[fleetv
 		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("fleet: operator level required"))
 	}
 
-	name := req.Msg.GetNodeName()
-	node, ok := s.store.Node(name)
-	if !ok {
-		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("fleet: node %q not found", name))
+	node, err := s.resolveNode("GetNodeConfig", req.Msg.GetNodeId(), req.Msg.GetNodeName(), currentNames)
+	if err != nil {
+		return nil, err
 	}
 
 	conn, err := s.dial(node)
@@ -87,11 +86,11 @@ func (s *Service) ApplyNodeConfig(ctx context.Context, req *connect.Request[flee
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("fleet: config is required"))
 	}
 
-	name := req.Msg.GetNodeName()
-	node, ok := s.store.Node(name)
-	if !ok {
-		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("fleet: node %q not found", name))
+	node, err := s.resolveNode("ApplyNodeConfig", req.Msg.GetNodeId(), req.Msg.GetNodeName(), currentNames)
+	if err != nil {
+		return nil, err
 	}
+	name := node.Name
 
 	conn, err := s.dial(node)
 	if err != nil {
@@ -110,7 +109,7 @@ func (s *Service) ApplyNodeConfig(ctx context.Context, req *connect.Request[flee
 		Kind:       "config-applied",
 		Summary:    fmt.Sprintf("Applied config to %s (gen %d)", name, applied.GetGeneration()),
 		TargetKind: "node",
-		TargetPath: "/nodes/" + name,
+		TargetPath: nodeTarget(node),
 	})
 
 	return connect.NewResponse(&fleetv1.ApplyNodeConfigResponse{
