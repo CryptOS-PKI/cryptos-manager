@@ -39,6 +39,7 @@ import (
 	"github.com/CryptOS-PKI/manager/internal/apperr"
 	"github.com/CryptOS-PKI/manager/internal/approval"
 	"github.com/CryptOS-PKI/manager/internal/authz"
+	"github.com/CryptOS-PKI/manager/internal/bootstrap"
 	"github.com/CryptOS-PKI/manager/internal/config"
 	"github.com/CryptOS-PKI/manager/internal/fleet"
 	"github.com/CryptOS-PKI/manager/internal/mcpauth"
@@ -89,6 +90,7 @@ func main() {
 	var (
 		st         store.Store
 		trustStore store.OperatorTrust
+		bootStore  bootstrap.Store
 		certStore  serverCertStore
 		storeCheck func(context.Context) error
 	)
@@ -122,7 +124,7 @@ func main() {
 		if err := pg.SeedIfEmpty(ctx, nodes, nil, nil, nil, nil); err != nil {
 			log.Fatalf("manager: seed postgres: %v", err)
 		}
-		st, trustStore, certStore = pg, pg, pg
+		st, trustStore, bootStore, certStore = pg, pg, pg, pg
 		storeCheck = pg.Ping
 		log.Printf("manager: using postgres store")
 	}
@@ -206,8 +208,9 @@ func main() {
 	b := currentBuild()
 
 	var (
-		tlsCfg *tls.Config
-		trust  *operatorTrust
+		tlsCfg    *tls.Config
+		trust     *operatorTrust
+		bootMount func(*http.ServeMux)
 	)
 	if cfg.AuthBypass {
 		log.Printf("manager: authBypass is set, so first run is disabled and no operator CA is used")
@@ -223,13 +226,26 @@ func main() {
 		}
 		trust.refreshCRLs(ctx, log.Printf)
 		trust.run(ctx, log.Printf)
-		svc = svc.WithOperatorTrust(trust.trust, trust.rev)
+		svc = svc.WithOperatorTrust(trust.trust, trust.rev).
+			WithNodeCAWatch(operatorca.NewNodeCAWatch(trust.trust, log.Printf))
 		tlsCfg = serverTLSConfig(base, trust.trust)
-		authMW = authz.ClientCertMiddlewareWith(trust.web)
+		boot, mount, err := setupBootstrap(ctx, cfg, st, bootStore, trust, base, log.Printf)
+		if err != nil {
+			log.Fatalf("manager: first run: %v", err)
+		}
+		bootMount = mount
+		// The latch sees every request that passed the certificate and
+		// revocation checks, from either operator CA source.
+		authMW = authz.ClientCertMiddlewareWith(trust.web, boot.Latch().Observe)
 		mcpKeys.Admit = trust.auth.AdmitMCP
 	}
 
 	mounts := []func(*http.ServeMux){healthMount(storeCheck)}
+	// BootstrapService only ever joins the TLS server: bootMount is nil
+	// under authBypass, whose listener is plaintext.
+	if bootMount != nil {
+		mounts = append(mounts, bootMount)
+	}
 	if cfg.MCP.Enabled {
 		mount, err := mcpMount(cfg.MCP.PublicURL, svc, st, mcpKeys, approvals, trust.trust.Roots, trust.rev, authMW, b.Version)
 		if err != nil {
@@ -457,7 +473,7 @@ func withCORS(origins []string, next http.Handler) http.Handler {
 		if r.Method == http.MethodOptions {
 			w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers",
-				"Content-Type, Connect-Protocol-Version, Connect-Timeout-Ms, Grpc-Timeout, X-Grpc-Web, X-User-Agent")
+				"Content-Type, Connect-Protocol-Version, Connect-Timeout-Ms, Grpc-Timeout, X-Grpc-Web, X-User-Agent, "+bootstrap.SessionHeader)
 			w.WriteHeader(http.StatusNoContent)
 
 			return
