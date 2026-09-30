@@ -186,6 +186,12 @@ PersistentVolumeClaim (`fleet-manager-node-creds`, or `nodeCreds.existingClaim`)
 > manager out of those nodes until each one is reset from its console, so back it up with
 > the database.
 
+Nodes listed in `nodes` can take their admin credentials from a Secret: set a node's
+`adminCredsSecret` to a Secret holding `admin.crt`, `admin.key` and `ca.pem`, and the chart
+mounts it read-only at `/etc/cryptos/fleet/node-admin/<name>` and points the node's
+`adminCertPath`, `adminKeyPath` and `caCertPath` there. See `nodes` in
+[`values.yaml`](chart/fleet-manager/values.yaml).
+
 The chart runs one pod by default, with a `Recreate` rollout, because the default claim is
 `ReadWriteOnce`. More replicas need `nodeCreds.accessModes` to include `ReadWriteMany`, so
 every pod sees every node's key; the chart refuses to render otherwise. The pod runs as
