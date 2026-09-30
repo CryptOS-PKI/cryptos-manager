@@ -408,9 +408,16 @@ address the published ports in every command above:
 
 ```sh
 docker run -p 443:8443 -p 80:8080 \
+  --read-only --cap-drop ALL --security-opt no-new-privileges:true \
   -v /etc/cryptos/fleet:/etc/cryptos/fleet:ro \
+  -v fleet-node-creds:/var/lib/cryptos-manager/node-creds \
   ghcr.io/cryptos-pki/manager:vX.Y.Z
 ```
+
+The `node-creds` volume holds the admin key minted for each adopted node and is the only
+path the container writes; see the README. `docker ps` reports the image's own health
+check, which probes `/healthz` from inside the container, so you can also check it from
+outside with `curl -sk https://fm.acme.example/healthz`.
 
 If you publish HTTPS on anything other than 443, set `httpsPublicPort` to the published
 port as well. The redirect names the port clients reach, not the one the process bound,
