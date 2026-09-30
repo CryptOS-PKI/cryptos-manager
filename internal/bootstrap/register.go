@@ -239,8 +239,8 @@ func (s *Service) check(ctx context.Context, m *fleetv1.BootstrapServiceRegister
 		if err := operatorca.ValidateFetchURL(reg.ocspURL); err != nil {
 			return nil, caRejected(connect.CodeInvalidArgument, fleetv1.ErrorReason_ERROR_REASON_OCSP_UNREACHABLE, "OCSP URL refused: %v", err)
 		}
-		// The OCSP client supplies the probe. Until it is wired in, the
-		// url mode and its URL are stored without one.
+		// The probe is nil only when the manager runs without an OCSP
+		// client.
 		if s.probe != nil {
 			reg.probe, err = s.probe(ctx, cert, reg.ocspURL)
 			if err != nil {

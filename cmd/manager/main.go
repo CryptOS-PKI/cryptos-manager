@@ -240,12 +240,7 @@ func main() {
 		mcpKeys.Admit = trust.auth.AdmitMCP
 	}
 
-	mounts := []func(*http.ServeMux){healthMount(storeCheck)}
-	// BootstrapService only ever joins the TLS server: bootMount is nil
-	// under authBypass, whose listener is plaintext.
-	if bootMount != nil {
-		mounts = append(mounts, bootMount)
-	}
+	mounts := rootMounts(cfg, []func(*http.ServeMux){healthMount(storeCheck)}, bootMount)
 	if cfg.MCP.Enabled {
 		mount, err := mcpMount(cfg.MCP.PublicURL, svc, st, mcpKeys, approvals, trust.trust.Roots, trust.rev, authMW, b.Version)
 		if err != nil {

@@ -24,11 +24,13 @@ import (
 	"strings"
 	"testing"
 
+	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
 	"github.com/CryptOS-PKI/api/go/cryptos/fleet/v1/fleetv1connect"
 	"github.com/CryptOS-PKI/manager/internal/apperr"
 	"github.com/CryptOS-PKI/manager/internal/authz"
 	"github.com/CryptOS-PKI/manager/internal/bootstrap"
 	"github.com/CryptOS-PKI/manager/internal/config"
+	"github.com/CryptOS-PKI/manager/internal/operatorca"
 	"github.com/CryptOS-PKI/manager/internal/store/memory"
 )
 
@@ -108,5 +110,58 @@ func TestSessionSecretOpensNothingElse(t *testing.T) {
 		if rec.Code != http.StatusUnauthorized {
 			t.Errorf("%s with only a session secret = %d, want 401", target, rec.Code)
 		}
+	}
+}
+
+// Registration probes a url-mode OCSP responder through the running
+// revocation engine's OCSP client; a responder that doesn't answer is 1605
+// OCSP_UNREACHABLE.
+func TestOCSPProbe_UsesTheRevocationEnginesClient(t *testing.T) {
+	if ocspProbe(operatorca.NewRevocations(operatorca.RevocationOptions{Store: memory.New(nil)})) != nil {
+		t.Fatal("a probe was built without an OCSP client")
+	}
+	probe := ocspProbe(operatorca.NewRevocations(operatorca.RevocationOptions{Store: memory.New(nil), OCSPFetcher: operatorca.NewOCSPFetcher()}))
+	if probe == nil {
+		t.Fatal("no probe with an OCSP client")
+	}
+	dead := httptest.NewServer(http.NotFoundHandler())
+	dead.Close()
+	_, ca, _ := writeOperatorCA(t, t.TempDir())
+	_, err := probe(context.Background(), ca, dead.URL)
+	if r, ok := apperr.ReasonOf(err); !ok || r != fleetv1.ErrorReason_ERROR_REASON_OCSP_UNREACHABLE {
+		t.Fatalf("probe of a dead responder = %v, want 1605 OCSP_UNREACHABLE", err)
+	}
+}
+
+// BootstrapService never joins the plaintext listener authBypass serves,
+// even if a mount for it were built; on the TLS server it is there.
+func TestRootMounts_BootstrapOnlyOnTheTLSServer(t *testing.T) {
+	_, boot := testBootstrap(t)
+	serve := func(bypass bool) string {
+		mounts := rootMounts(config.Config{AuthBypass: bypass}, nil, boot)
+		h := newRootHandler("/cryptos.fleet.v1.FleetService/", stubHandler(http.StatusOK, "api"), stubHandler(http.StatusOK, "spa"),
+			authz.BypassMiddleware, nil, mounts...)
+		req := httptest.NewRequest(http.MethodPost, fleetv1connect.BootstrapServiceGetBootstrapStateProcedure, strings.NewReader(`{}`))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec.Body.String()
+	}
+	if got := serve(true); got != "spa" {
+		t.Fatalf("under authBypass the bootstrap path reached %q, want the SPA", got)
+	}
+	if got := serve(false); got == "spa" {
+		t.Fatal("on the TLS server the bootstrap path didn't reach BootstrapService")
+	}
+}
+
+// The HTTP redirect listener, the only other plaintext server, never
+// reaches BootstrapService: a POST gets 405 and nothing else is served.
+func TestRedirectListener_NeverServesBootstrap(t *testing.T) {
+	h := httpsRedirectHandler("443")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "http://fleet.example.org"+fleetv1connect.BootstrapServiceStartBootstrapSessionProcedure, strings.NewReader(`{"token":"x"}`)))
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("POST to the redirect listener = %d, want 405", rec.Code)
 	}
 }

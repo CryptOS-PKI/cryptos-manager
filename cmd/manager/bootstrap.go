@@ -23,11 +23,36 @@ import (
 	"net/http"
 	"os"
 
+	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
 	"github.com/CryptOS-PKI/manager/internal/bootstrap"
 	"github.com/CryptOS-PKI/manager/internal/config"
 	"github.com/CryptOS-PKI/manager/internal/operatorca"
 	"github.com/CryptOS-PKI/manager/internal/store"
 )
+
+// rootMounts is the optional route sets for the root handler: base, plus
+// BootstrapService only when the manager serves TLS. Under authBypass the
+// listener is plaintext, so the bootstrap mount is never added there.
+func rootMounts(cfg config.Config, base []func(*http.ServeMux), boot func(*http.ServeMux)) []func(*http.ServeMux) {
+	if cfg.AuthBypass || boot == nil {
+		return base
+	}
+	return append(base, boot)
+}
+
+// ocspProbe is the registration probe for a url-mode OCSP responder, run by
+// the revocation engine's OCSP client. It is nil when there is no client.
+// The client reports only whether the responder gave a validly signed
+// answer, so the probe returns no details for the preview.
+func ocspProbe(rev *operatorca.Revocations) bootstrap.OCSPProbe {
+	client := rev.OCSP()
+	if client == nil {
+		return nil
+	}
+	return func(ctx context.Context, anchor *x509.Certificate, url string) (*fleetv1.OcspProbeResult, error) {
+		return nil, client.Probe(ctx, anchor, url)
+	}
+}
 
 // setupBootstrap builds the first-run service over the running operator
 // trust, prints the first token when first run is open, and returns the
@@ -49,6 +74,7 @@ func setupBootstrap(ctx context.Context, cfg config.Config, st store.Store, bs b
 		NodeCAs: func() []*x509.Certificate {
 			return operatorca.NodeCAs(st.Nodes(), os.ReadFile, logf)
 		},
+		OCSPProbe:      ocspProbe(trust.rev),
 		FetchCRL:       operatorca.NewFetcher(operatorca.FetchLimits{Timeout: operatorca.DefaultFetchTimeout, MaxBytes: operatorca.MaxCRLSize}).Fetch,
 		TrustedOrigins: cfg.CORSOrigins,
 		Server:         server,

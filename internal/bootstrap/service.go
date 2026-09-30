@@ -111,8 +111,9 @@ type Options struct {
 	NodeCAs func() []*x509.Certificate
 	// FetchCRL fetches a CRL URL with the manager's fetch limits.
 	FetchCRL func(ctx context.Context, url string) ([]byte, error)
-	// OCSPProbe checks a url-mode OCSP responder at registration. When it is
-	// nil the mode and URL are stored without a probe.
+	// OCSPProbe checks a url-mode OCSP responder at registration. It is nil
+	// only without an OCSP client; the mode and URL are then stored
+	// unprobed.
 	OCSPProbe OCSPProbe
 	// TrustedOrigins are extra origins allowed to POST cross-origin (the
 	// configured CORS origins).
