@@ -548,8 +548,8 @@ func (s *Store) AddAuditEvent(e store.AuditEvent) store.AuditEvent {
 // OperatorCredentials returns every issued operator credential, oldest first.
 func (s *Store) OperatorCredentials() []store.OperatorCredential {
 	rows, err := s.pool.Query(bg(),
-		`SELECT common_name, serial_hex, level, not_after, revoked
-		 FROM operator_credentials ORDER BY issued_at, serial_hex`)
+		`SELECT common_name, serial_hex, level, not_after, revoked, issuer_sha256, kind, email, full_name, leaf_sha256
+		 FROM operator_credentials ORDER BY issued_at, issuer_sha256, serial_hex`)
 	if err != nil {
 		panic(fmt.Sprintf("postgres: query operator_credentials: %v", err))
 	}
@@ -558,7 +558,8 @@ func (s *Store) OperatorCredentials() []store.OperatorCredential {
 	out := make([]store.OperatorCredential, 0)
 	for rows.Next() {
 		var c store.OperatorCredential
-		if err := rows.Scan(&c.CommonName, &c.SerialHex, &c.Level, &c.NotAfter, &c.Revoked); err != nil {
+		if err := rows.Scan(&c.CommonName, &c.SerialHex, &c.Level, &c.NotAfter, &c.Revoked,
+			&c.IssuerSHA256, &c.Kind, &c.Email, &c.FullName, &c.LeafSHA256); err != nil {
 			panic(fmt.Sprintf("postgres: scan operator credential: %v", err))
 		}
 		out = append(out, c)
@@ -569,14 +570,20 @@ func (s *Store) OperatorCredentials() []store.OperatorCredential {
 	return out
 }
 
-// AddOperatorCredential records a newly issued operator credential. A serial
-// collision is a hard error (serials are unique per operator CA), surfaced via
-// the store's panic-on-error contract.
+// AddOperatorCredential records an operator credential. A collision on
+// (issuer, serial) is a hard error (serials are unique per operator CA),
+// surfaced via the store's panic-on-error contract.
 func (s *Store) AddOperatorCredential(c store.OperatorCredential) {
+	kind := c.Kind
+	if kind == "" {
+		kind = store.OperatorCredentialRecorded
+	}
 	if _, err := s.pool.Exec(bg(),
-		`INSERT INTO operator_credentials (serial_hex, common_name, level, not_after, revoked)
-		 VALUES ($1, $2, $3, $4, $5)`,
-		c.SerialHex, c.CommonName, c.Level, c.NotAfter, c.Revoked); err != nil {
+		`INSERT INTO operator_credentials (serial_hex, common_name, level, not_after, revoked,
+		   issuer_sha256, kind, email, full_name, leaf_sha256)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+		c.SerialHex, c.CommonName, c.Level, c.NotAfter, c.Revoked,
+		c.IssuerSHA256, kind, c.Email, c.FullName, c.LeafSHA256); err != nil {
 		panic(fmt.Sprintf("postgres: insert operator credential %q: %v", c.SerialHex, err))
 	}
 }

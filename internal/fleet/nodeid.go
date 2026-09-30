@@ -142,12 +142,6 @@ func (s *Service) RenameNode(ctx context.Context, req *connect.Request[fleetv1.R
 		log.Printf("fleet: RenameNode: node %s is already named %q, nothing to do", current.ID, newName)
 		return connect.NewResponse(&fleetv1.RenameNodeResponse{Node: storedSummary(current)}), nil
 	}
-	if s.operatorCANodeName != "" && current.Name == s.operatorCANodeName {
-		log.Printf("fleet: RenameNode: refused, node %s (%q) is the configured operator CA node", current.ID, current.Name)
-		return nil, apperr.Coded(apperr.CodeNodeRenameRefused, connect.NewError(connect.CodeFailedPrecondition,
-			fmt.Errorf("fleet: node %q is the configured operator_ca_node, which the manager finds by name; it cannot be renamed", current.Name)))
-	}
-
 	renamed, err := s.store.RenameNode(current.ID, newName, time.Now().UTC())
 	switch {
 	case errors.Is(err, store.ErrNodeNameTaken):

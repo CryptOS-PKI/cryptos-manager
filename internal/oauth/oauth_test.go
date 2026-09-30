@@ -386,7 +386,7 @@ func TestToken_FullFlowMintsABoundKey(t *testing.T) {
 		}
 	}
 
-	r := &mcpauth.Resolver{Store: f.st, Roots: f.caPool, Revoked: revokedNone{}}
+	r := &mcpauth.Resolver{Store: f.st, Roots: func() *x509.CertPool { return f.caPool }, Revoked: revokedNone{}}
 	id, err := r.Resolve(context.Background(), key)
 	if err != nil || id.Serial != "0A:BC" || id.Level != authz.LevelOperator {
 		t.Fatalf("minted key resolves to %+v, %v", id, err)
@@ -440,4 +440,4 @@ func TestToken_Refusals(t *testing.T) {
 
 type revokedNone struct{}
 
-func (revokedNone) IsRevoked(string) bool { return false }
+func (revokedNone) CheckMCP(string, string) error { return nil }

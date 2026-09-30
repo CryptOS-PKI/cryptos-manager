@@ -26,19 +26,20 @@ authBypass: false
 tlsCert: /etc/cryptos/fleet/tls/tls.crt
 tlsKey: /etc/cryptos/fleet/tls/tls.key
 
-# The client-auth trust anchor. Any certificate this CA issued may open a TLS
-# session to the management plane, so keep it separate from the fleet
-# intermediate rather than reusing it. See docs/deploying-standalone.md section 3.
+# The client-auth trust anchor: your external operator CA. Any certificate it
+# issued may open a TLS session to the management plane. It can't be a CryptOS
+# node's CA; the manager refuses to start if it is. See docs/operator-ca.md.
 operatorCAPath: /etc/cryptos/fleet/operator-ca/operator-ca.pem
 
 # The password must match POSTGRES_PASSWORD in
 # /etc/cryptos/fleet/secrets/postgres.env. The host is the compose service name.
 database_url: "postgres://manager:CHANGEME@postgres:5432/manager"
 
-# Names the node that issues and revokes operator credentials. Leaving it unset
-# means a revoked operator certificate keeps working, which the manager warns
-# about at startup.
-# operator_ca_node: pki-root
+# Where your operator CA publishes its CRL, so revocations made at the CA are
+# enforced (docs/operator-ca.md). Revocations made in the Fleet Manager go on
+# its denylist in Postgres either way.
+# operatorCRL:
+#   - url: "http://pki.example.org/fleetos-operator.crl"
 
 # Each node's admin credential drives that node's management API, so this host
 # holds CA-admin authority. Treat it as a tier-0 asset.

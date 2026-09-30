@@ -22,7 +22,6 @@ import (
 	"net/http"
 
 	"github.com/CryptOS-PKI/manager/internal/approval"
-	"github.com/CryptOS-PKI/manager/internal/authz"
 	"github.com/CryptOS-PKI/manager/internal/fleet"
 	"github.com/CryptOS-PKI/manager/internal/mcpauth"
 	"github.com/CryptOS-PKI/manager/internal/mcpserver"
@@ -31,17 +30,18 @@ import (
 )
 
 // mcpMount builds the routes for the MCP endpoint and its login. It refuses
-// to build them without the operator CA pool and the revocation cache: every
-// key is re-validated against both on each request, and serving /mcp without
-// them would accept keys whose operator can no longer log in.
+// to build them without the live operator CA pool and the revocation
+// checker: every key is re-validated against both on each request, and
+// serving /mcp without them would accept keys whose operator can no longer
+// log in.
 func mcpMount(
 	publicURL string,
 	svc *fleet.Service,
 	st store.Store,
 	keys *mcpauth.Keys,
 	approvals *approval.Service,
-	roots *x509.CertPool,
-	revocations *authz.RevocationCache,
+	roots func() *x509.CertPool,
+	revocations mcpauth.MCPChecker,
 	certMW func(http.Handler) http.Handler,
 	version string,
 ) (func(*http.ServeMux), error) {
@@ -49,7 +49,7 @@ func mcpMount(
 		return nil, errors.New("mcp: no operator CA pool to re-validate keys against")
 	}
 	if revocations == nil {
-		return nil, errors.New("mcp: no operator revocation cache; set operator_ca_node")
+		return nil, errors.New("mcp: no operator revocation checker")
 	}
 
 	login := &oauth.Server{Store: st, Keys: keys, PublicURL: publicURL}

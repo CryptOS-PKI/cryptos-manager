@@ -94,19 +94,14 @@ only source of truth. Never hand-build an `apply` payload from memory.
 > the hot-apply normaliser zeroes the `Profiles` field. `ca list-issued` is the
 > only evidence a profile took effect.
 
-## 3. The operator CA does not have to be a CryptOS node
+## 3. The operator CA is an external CA
 
-[`operator-pki.md`](operator-pki.md) walks through provisioning a **dedicated
-CryptOS node** as the operator CA, then a three-command CSR ferry to chain it
-under the fleet root. That is the dogfooding path and it is correct, but it
-assumes you have a spare node.
-
-For a two-node fleet (one root, one intermediate) there is no third node, and
-standing one up means a new machine plus a subordinate ceremony. You usually
-don't need it: **`operatorCAPath` is just the client-auth trust anchor.** The
-manager accepts any certificate issued by that CA at the handshake and then
-reads the level extension to decide privilege. Nothing requires the operator CA
-to be CryptOS-issued.
+The operator CA is always external to the fleet: **a CryptOS node can't be the
+operator CA**, and the manager refuses to start if `operatorCAPath` holds a
+node's CA certificate or its public key. **`operatorCAPath` is the client-auth
+trust anchor.** The manager accepts a certificate issued by that CA at the
+handshake, re-checks it on every request, and reads the level extension to
+decide privilege. See [operator-ca.md](operator-ca.md) for revocation.
 
 A plain OpenSSL operator CA is sufficient, and it has a real advantage: it needs
 **no `config apply` against a production CA node at all**.
@@ -176,44 +171,25 @@ the manager's handshake.
 
 ## 4. Config key casing is not uniform
 
-Most keys are camelCase, but three are snake_case. A camelCase spelling of any
-of them is not an error — it is silently ignored, which reads as "the feature
-doesn't work":
+Most keys are camelCase, but two are snake_case:
 
-| snake_case (required) | Not `database_url` → `databaseUrl` |
+| snake_case | Meaning |
 | --- | --- |
 | `database_url` | selects the Postgres store |
-| `operator_ca_node` | enables operator-cert revocation checking |
 | `mcp.public_url` | the origin the MCP endpoint is served at ([mcp.md](mcp.md)) |
 
 Everything else — `listen`, `corsOrigins`, `authBypass`, `tlsCert`, `tlsKey`,
-`operatorCAPath`, `httpRedirectListen`, `httpsPublicPort`, `mcp.enabled`, `nodes[].adminCertPath`,
-`nodes[].adminKeyPath`, `nodes[].caCertPath` — is camelCase.
+`operatorCAPath`, `operatorCRL`, `operatorOCSP`, `operatorRevocationPolicy`,
+`firstRun`, `httpRedirectListen`, `httpsPublicPort`, `mcp.enabled`,
+`nodes[].adminCertPath`, `nodes[].adminKeyPath`, `nodes[].caCertPath` — is
+camelCase. The manager refuses an unknown key at load, so a wrong spelling stops
+the start with the key's name instead of being ignored.
 
-If `operator_ca_node` is unset the manager starts and logs:
-
-```
-manager: no operator_ca_node configured, operator-cert revocation not enforced
-```
-
-That is a real gap, not a cosmetic warning: a revoked operator certificate keeps
-working until you set it.
-
-The API reports the same gap. Without `operator_ca_node`,
-`ListOperatorCredentials` fails with error [1400](error-codes.md) instead of
-returning an empty list, because the manager can neither list, issue nor revoke
-operator credentials. An empty list would have read as "this fleet has no
-operators" while someone was signed in with a credential minted by hand as in §3.
-Rows the manager recorded earlier stay in the store and list again once the key
-is set.
-
-Setting it is a two-part change. The manager issues operator credentials from
-the named node's CA, but its client-auth anchor is `operatorCAPath`. If the two
-differ, the manager issues credentials that its own handshake then refuses.
-Set `operator_ca_node` first and issue replacement credentials from the
-operators page while your hand-minted one still gets you in. Then point
-`operatorCAPath` at that node's CA. From that restart on, every credential
-minted against the old anchor is refused.
+`operator_ca_node` is no longer supported: a CryptOS node can't be the operator
+CA, and the manager refuses to start with it. Revocation for the operator CA
+from §3 is the Fleet Manager's denylist plus the CA's CRL (`operatorCRL`). See
+[operator-ca.md](operator-ca.md) for the keys and for migrating off
+`operator_ca_node`.
 
 ## 5. A worked `config.yaml`
 
@@ -232,8 +208,12 @@ operatorCAPath: "/etc/cryptos/fleet/operator-ca.crt"
 
 database_url: "postgres://manager:CHANGEME@127.0.0.1:5432/manager"
 
-# Optional: the MCP endpoint for AI agents (docs/mcp.md). It also needs
-# operator_ca_node; the manager refuses to start with it enabled otherwise.
+# Optional: the CRL your operator CA publishes (docs/operator-ca.md).
+# operatorCRL:
+#   - url: "http://pki.example.org/fleetos-operator.crl"
+
+# Optional: the MCP endpoint for AI agents (docs/mcp.md). It needs
+# database_url, and keys need the operator CA to have a fresh CRL.
 # mcp:
 #   enabled: true
 #   public_url: "https://fm.acme.example"

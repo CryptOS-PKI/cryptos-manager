@@ -35,15 +35,14 @@ tls:
 operatorCA:
   configMap: ""      # ConfigMap with operator-ca.pem (client-auth trust anchor)
 
-# Name of the node in `nodes` that acts as the operator CA. The manager routes
-# operator-credential issuance and revocation there and polls its revoked
-# serials to enforce operator-certificate revocation. Empty disables both.
-# Required when mcp.enabled is true.
+# Removed: a CryptOS node can't be the operator CA. Setting it fails the
+# render with the migration steps; use an external operator CA instead.
 operatorCANode: ""
 
 # Model Context Protocol endpoint for AI agents, served at /mcp on the same
 # listener (see docs/mcp.md). Off by default. Enabling it needs
-# authBypass: false and operatorCANode, or the chart refuses to render.
+# authBypass: false (and so the database), or the chart refuses to render.
+# Keys only work for operator certificates whose operator CA has a fresh CRL.
 mcp:
   enabled: false
   # External https origin clients reach, with no path, for example

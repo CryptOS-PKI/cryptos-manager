@@ -301,7 +301,7 @@ func loadYAML(t *testing.T, body string) (Config, error) {
 const mcpReady = `
 listen: ":8443"
 operatorCAPath: /etc/fleet/operator-ca.pem
-operator_ca_node: pki-operator
+database_url: "postgres://manager@db:5432/manager"
 mcp:
   enabled: true
   public_url: "https://fleetos.example.org"
@@ -348,13 +348,9 @@ func TestLoad_MCPFailsClosed(t *testing.T) {
 			body: mcpReady + "authBypass: true\n",
 			want: "authBypass",
 		},
-		"no operator_ca_node": {
-			body: strings.Replace(mcpReady, "operator_ca_node: pki-operator\n", "", 1),
-			want: "operator_ca_node",
-		},
-		"no operatorCAPath": {
-			body: strings.Replace(mcpReady, "operatorCAPath: /etc/fleet/operator-ca.pem\n", "", 1),
-			want: "operatorCAPath",
+		"no database_url": {
+			body: strings.Replace(mcpReady, "database_url: \"postgres://manager@db:5432/manager\"\n", "", 1),
+			want: "database_url",
 		},
 		"no public_url": {
 			body: strings.Replace(mcpReady, `  public_url: "https://fleetos.example.org"`+"\n", "", 1),

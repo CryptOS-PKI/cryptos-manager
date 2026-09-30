@@ -62,6 +62,9 @@ func withCode(ctx context.Context, err error) error {
 
 	out := connect.NewError(connectCodeOf(err), errors.New(clientMsg))
 	out.Meta().Set(MetadataKey, strconv.Itoa(code))
+	if r, ok := ReasonOf(err); ok {
+		out.Meta().Set(ReasonKey, ReasonName(r))
+	}
 
 	return out
 }

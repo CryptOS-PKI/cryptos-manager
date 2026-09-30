@@ -4,6 +4,9 @@
 
 Every failure leaving the web-facing API carries one of these numbers, on the
 `x-cryptos-error-code` error metadata and quoted in the message an operator sees.
+A 16xx failure usually also names a sub-reason on `x-cryptos-error-reason`, for example
+`STALE_CRL` under 1608. The 16xx block is defined by the api contract
+(`cryptos.fleet.v1.ErrorCode` and `ErrorReason`).
 The manager owns the 1000-1999 block; another service takes its own first digit.
 
 | Code | Area | Cause |
@@ -27,12 +30,24 @@ The manager owns the 1000-1999 block; another service takes its own first digit.
 | 1102 | Fleet | another node already has that name |
 | 1103 | Fleet | the node name is not an RFC 1123 label (1 to 63 lowercase letters, digits and hyphens, starting and ending with a letter or digit), or has the form of a node ID |
 | 1104 | Fleet | the request's node_id and node name point at different nodes; send node_id alone |
-| 1105 | Fleet | the node is the configured operator_ca_node, which the manager finds by name, so renaming it would cut off operator credentials |
+| 1105 | Fleet | no longer returned: it refused renaming the node that was the operator CA, and a CryptOS node can't be the operator CA any more |
 | 1200 | Catalog | no certificate profile of that name is known |
 | 1300 | Certificates | the issuing node refused to sign the request |
 | 1301 | Certificates | the request needs human step-up approval (a CA profile or the root node) |
 | 1302 | Certificates | the node has no issued certificate with that serial |
-| 1400 | Operators | no operator_ca_node is configured, so operator credentials cannot be listed, issued or revoked, and operator-cert revocation is not enforced |
+| 1400 | Operators | no operator CA is configured (operatorCAPath, or one registered at first run), so operator credentials cannot be listed or denied |
 | 1401 | Operators | no operator credential with that serial is recorded |
 | 1500 | Configuration | the node rejected the configuration as invalid |
+| 1600 | First run | the bootstrap token is wrong, expired or already used |
+| 1601 | First run | first run is closed |
+| 1602 | First run | too many failures from this client; wait and try again |
+| 1603 | First run | first run or the denylist can't run here (DATABASE_REQUIRED: no Postgres; FIRST_RUN_DISABLED: firstRun is disabled) |
+| 1604 | First run | the bootstrap session is unknown, expired or ended |
+| 1605 | Operator CAs | the operator CA, or its CRL or OCSP settings, were refused; the sub-reason says why |
+| 1606 | Operator CAs | the CSR was refused (SIZE, SIGNATURE, SUBJECT_MISMATCH or KEY_TYPE) |
+| 1607 | Operator CAs | the operator CA comes from operatorCAPath in the config file, so it can't be changed through the API |
+| 1608 | Operator CAs | no fresh revocation data for the certificate (STALE_CRL, STALE_OCSP, STALE_DENYLIST, NO_CRL or DATABASE_REQUIRED) |
+| 1609 | Operator CAs | retiring this operator CA would leave no trusted active operator CA |
+| 1610 | Operator CAs | the operator certificate was refused; the sub-reason says why (for example REVOKED or NOT_CHAINED) |
+| 1611 | Operator CAs | the credential request can't be used (NOT_FOUND, EXPIRED or NOT_PENDING) |
 | 1900 | Unclassified | a failure with no registered code |

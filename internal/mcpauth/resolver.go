@@ -18,11 +18,14 @@ limitations under the License.
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/x509"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"time"
 
+	"github.com/CryptOS-PKI/manager/internal/apperr"
 	"github.com/CryptOS-PKI/manager/internal/auditlog"
 	"github.com/CryptOS-PKI/manager/internal/authz"
 	"github.com/CryptOS-PKI/manager/internal/store"
@@ -39,22 +42,30 @@ var (
 	ErrCertExpired   = errors.New("mcpauth: bound certificate is outside its validity period")
 	ErrCertRevoked   = errors.New("mcpauth: bound certificate is revoked")
 	ErrCertNoLevel   = errors.New("mcpauth: bound certificate carries no access level")
+	// ErrRevocationStale means the bound certificate's operator CA has no
+	// fresh revocation data: no CRL source, a CRL past nextUpdate, or a
+	// denylist poll more than 5 minutes old.
+	ErrRevocationStale = errors.New("mcpauth: no fresh revocation data for the bound certificate")
 )
 
-// Revoker reports whether an operator certificate serial is revoked. The
-// operator revocation cache satisfies it.
-type Revoker interface {
-	IsRevoked(serial string) bool
+// MCPChecker applies the MCP revocation rules to a certificate under an
+// operator CA, named by its SHA-256. A refusal carries its 16xx code and
+// sub-reason: 1610 for a revoked certificate, 1608 for missing or stale
+// revocation data. operatorca.Revocations satisfies it.
+type MCPChecker interface {
+	CheckMCP(anchorSHA256, serial string) error
 }
 
 // Resolver turns a bearer key into the live identity of the operator
 // certificate it is bound to. Nothing is cached: every request re-checks the
-// key row and re-validates the certificate against the current operator CA
-// pool and revocation set.
+// key row and re-validates the certificate against the operator CAs trusted
+// now and their revocation data.
 type Resolver struct {
-	Store   store.Store
-	Roots   *x509.CertPool
-	Revoked Revoker
+	Store store.Store
+	// Roots returns the operator CA pool trusted now; it changes when an
+	// operator CA is registered or retired.
+	Roots   func() *x509.CertPool
+	Revoked MCPChecker
 	// Now defaults to time.Now.
 	Now func() time.Time
 }
@@ -116,11 +127,12 @@ func (r *Resolver) validate(key store.McpKey, now time.Time) (authz.Identity, er
 	if now.Before(cert.NotBefore) || now.After(cert.NotAfter) {
 		return authz.Identity{}, ErrCertExpired
 	}
-	if _, err := cert.Verify(x509.VerifyOptions{
-		Roots:       r.Roots,
+	chains, err := cert.Verify(x509.VerifyOptions{
+		Roots:       r.Roots(),
 		CurrentTime: now,
 		KeyUsages:   []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
-	}); err != nil {
+	})
+	if err != nil {
 		return authz.Identity{}, fmt.Errorf("%w: %v", ErrCertUntrusted, err)
 	}
 
@@ -128,8 +140,14 @@ func (r *Resolver) validate(key store.McpKey, now time.Time) (authz.Identity, er
 	if err != nil {
 		return authz.Identity{}, ErrCertNoLevel
 	}
-	if r.Revoked.IsRevoked(id.Serial) {
-		return authz.Identity{}, ErrCertRevoked
+	anchor := chains[0][len(chains[0])-1]
+	sum := sha256.Sum256(anchor.Raw)
+	id.IssuerSHA256 = hex.EncodeToString(sum[:])
+	if err := r.Revoked.CheckMCP(id.IssuerSHA256, fmt.Sprintf("%x", cert.SerialNumber)); err != nil {
+		if code, _ := apperr.Code(err); code == apperr.CodeNoRevocationSource {
+			return authz.Identity{}, fmt.Errorf("%w: %w", ErrRevocationStale, err)
+		}
+		return authz.Identity{}, fmt.Errorf("%w: %w", ErrCertRevoked, err)
 	}
 
 	if key.LevelCeiling != "" {

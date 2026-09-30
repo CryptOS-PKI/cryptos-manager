@@ -227,7 +227,7 @@ func TestApproveEnrollment_Subordinate_RecordsChildCAChain(t *testing.T) {
 		}
 		return nil, errors.New("no fake conn for " + n.Name)
 	}
-	svc := New(st, dial).WithEnrollment(dialPEMFakeFor(&fakeConn{}), testOperatorCAPEM)
+	svc := New(st, dial).WithEnrollment(dialPEMFakeFor(&fakeConn{}))
 
 	if _, err := svc.ApproveEnrollment(operatorCtx("op@example.org", authz.LevelOperator),
 		connect.NewRequest(&fleetv1.ApproveEnrollmentRequest{Id: "enr-1"})); err != nil {

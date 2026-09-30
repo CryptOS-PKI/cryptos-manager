@@ -17,6 +17,7 @@ limitations under the License.
 */
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -24,16 +25,90 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"fmt"
+	"log"
 	"math/big"
 	"net"
 	"os"
 	"time"
+
+	"github.com/CryptOS-PKI/manager/internal/store"
 )
 
 // selfSignedValidity is the lifetime of a generated bootstrap certificate. It
-// is regenerated on every start, so this only has to outlast the window between
-// first boot and an operator installing real material.
+// only has to outlast the window between first boot and an operator
+// installing real material; with Postgres it is replaced once it is within
+// bootstrapCertRenewBefore of expiring.
 const selfSignedValidity = 90 * 24 * time.Hour
+
+// bootstrapCertRenewBefore is how close to expiry a stored bootstrap
+// certificate is replaced.
+const bootstrapCertRenewBefore = 7 * 24 * time.Hour
+
+// bootstrapCertLock serialises generating the shared bootstrap certificate,
+// so two replicas starting together don't each store their own.
+const bootstrapCertLock = "fleetos.bootstrap_cert"
+
+// serverCertStore keeps the bootstrap certificate in Postgres so every
+// replica serves the same one. nil means no Postgres: generate per start.
+type serverCertStore interface {
+	WithAdvisoryLock(ctx context.Context, name string, fn func(context.Context) error) error
+	BootstrapServerCert(ctx context.Context) (store.ServerCert, bool, error)
+	PutBootstrapServerCert(ctx context.Context, c store.ServerCert) error
+	DeleteBootstrapServerCert(ctx context.Context) error
+}
+
+// bootstrapServerCert returns the stored self-signed certificate while it
+// has more than bootstrapCertRenewBefore left, and otherwise generates and
+// stores a new one, all under bootstrapCertLock.
+func bootstrapServerCert(ctx context.Context, certs serverCertStore, hosts []string, now time.Time) (tls.Certificate, error) {
+	if certs == nil {
+		return generateServerCert(hosts)
+	}
+	var out tls.Certificate
+	err := certs.WithAdvisoryLock(ctx, bootstrapCertLock, func(ctx context.Context) error {
+		stored, ok, err := certs.BootstrapServerCert(ctx)
+		if err != nil {
+			return err
+		}
+		if ok && stored.NotAfter.Sub(now) > bootstrapCertRenewBefore {
+			c, err := certFromStored(stored)
+			if err == nil {
+				out = c
+				return nil
+			}
+			log.Printf("manager: the stored bootstrap certificate doesn't load, generating a new one: %v", err)
+		}
+		c, err := generateServerCert(hosts)
+		if err != nil {
+			return err
+		}
+		keyDER, err := x509.MarshalPKCS8PrivateKey(c.PrivateKey)
+		if err != nil {
+			return fmt.Errorf("marshal bootstrap key: %w", err)
+		}
+		if err := certs.PutBootstrapServerCert(ctx, store.ServerCert{CertDER: c.Leaf.Raw, KeyDER: keyDER, NotAfter: c.Leaf.NotAfter}); err != nil {
+			return err
+		}
+		out = c
+		return nil
+	})
+	if err != nil {
+		return tls.Certificate{}, fmt.Errorf("bootstrap server cert: %w", err)
+	}
+	return out, nil
+}
+
+func certFromStored(s store.ServerCert) (tls.Certificate, error) {
+	leaf, err := x509.ParseCertificate(s.CertDER)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+	key, err := x509.ParsePKCS8PrivateKey(s.KeyDER)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+	return tls.Certificate{Certificate: [][]byte{s.CertDER}, Leaf: leaf, PrivateKey: key}, nil
+}
 
 // generateServerCert mints an ephemeral self-signed server certificate so the
 // site can be served before any certificate material exists (#78).

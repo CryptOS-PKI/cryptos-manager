@@ -22,6 +22,8 @@ Adopting a fresh node from its maintenance endpoint is safe to retry. The manage
 
 The node always checks the manager's admin credential, and the manager always checks the node's server certificate: against the node's recorded CA chain once the node signs its management certificate with its CA, or against a pinned `server.crt` before that. A node it can't verify is refused. `manager -check-node-trust` lists how each node is verified. See [`docs/node-trust.md`](docs/node-trust.md).
 
+Operators sign in with a client certificate from an **external operator CA**, never a CryptOS node; the manager never signs an operator credential. It re-checks the certificate on every request and refuses revoked ones from its own denylist and the CA's CRL. See [`docs/operator-ca.md`](docs/operator-ca.md).
+
 Once linked, the node's embedded operator surface becomes read-only and FM owns day-to-day operations. Unlinking is a config change + reboot. A node that has never been linked is managed via [`cryptosctl`](https://github.com/CryptOS-PKI/cryptos) only — no web UI in that case (by design — there's no web frontend on the CA image).
 
 ## 🧱 Stack
@@ -33,7 +35,7 @@ Once linked, the node's embedded operator surface becomes read-only and FM owns 
 
 ## 🚀 Deploying
 
-The manager ships as a **single self-contained image**: the Go binary with the `web` bundle embedded (`go:embed`), serving the SPA and the Connect API on **one** listener. In a real deployment that listener does mTLS client-cert auth (`authBypass: false`), so operators authenticate with a browser-installed client certificate — see [`docs/operator-pki.md`](docs/operator-pki.md) for minting an operator cert.
+The manager ships as a **single self-contained image**: the Go binary with the `web` bundle embedded (`go:embed`), serving the SPA and the Connect API on **one** listener. In a real deployment that listener does mTLS client-cert auth (`authBypass: false`), so operators authenticate with a browser-installed client certificate — see [`docs/operator-ca.md`](docs/operator-ca.md) for the external operator CA that signs them and how revocation works.
 
 Bring your own trust material: a **server TLS cert** (`tlsCert`/`tlsKey`, any public or CryptOS-issued cert) and the **operator CA** (`operatorCAPath`, the client-auth trust anchor). No usernames or passwords are stored.
 
@@ -205,20 +207,20 @@ uid 65532 with a read-only root filesystem and every capability dropped. Readine
 `/healthz`, so a pod whose database is down leaves the Service. Startup and liveness only
 check that the listener accepts connections, so a database outage does not restart it.
 
-The MCP endpoint is off in the chart too. `mcp.enabled`, `mcp.publicURL` and `operatorCANode` turn it on; the chart refuses to render it without `operatorCANode` or with `authBypass`. See [`docs/mcp.md`](docs/mcp.md#with-the-helm-chart).
+The MCP endpoint is off in the chart too. `mcp.enabled` and `mcp.publicURL` turn it on; the chart refuses to render it with `authBypass`. See [`docs/mcp.md`](docs/mcp.md#with-the-helm-chart).
 
 ## 🔌 MCP endpoint
 
 The manager can serve a [Model Context Protocol](https://modelcontextprotocol.io) endpoint at `/mcp` for AI agents. It is off by default.
 
 - 🔑 **Logged in with your operator certificate.** An MCP client such as the `claude` CLI runs a one-time OAuth login; the consent page in the web UI needs your operator certificate, and the client receives a long-lived `fos_mcp_` key bound to that certificate's serial. Clients without OAuth use a key from the Agent keys page.
-- 🧮 **Checked live on every call.** The key's certificate is re-validated against the operator CA and the revocation cache each time, and the key never acts above the certificate's level or its own ceiling.
+- 🧮 **Checked live on every call.** The key's certificate is re-validated against the operator CAs trusted now, the denylist and its CA's CRL each time, and its CA must have a fresh CRL, and the key never acts above the certificate's level or its own ceiling.
 - 🛑 **Narrow by design.** Agents get read tools and non-CA leaf issuance on intermediate or issuing nodes. CA key material, node provisioning and operator credentials are not exposed.
 - ✋ **A person approves the risky calls.** Revocation, profile and adapter changes, and CA or root issuance only raise an approval; they run when the agent calls again after a person approves it in the web UI with their operator certificate. An approval covers one exact request, runs once and lapses after 15 minutes.
 - 🧾 **Audited.** Every MCP call, reads included, is in the hash-chained audit log with the operator, key and tool.
 
 ```yaml
-# config.yaml (also needs authBypass: false, operatorCAPath and operator_ca_node)
+# config.yaml (also needs authBypass: false and database_url)
 mcp:
   enabled: true
   public_url: "https://fleetos.example.org"

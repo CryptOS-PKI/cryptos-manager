@@ -125,6 +125,120 @@ UPDATE enrollments e SET admitted_node_id = n.id::text
   FROM nodes n WHERE e.admitted_node_name <> '' AND e.admitted_node_name = n.name AND e.admitted_node_id = '';
 INSERT INTO node_names (node_id, name) SELECT id, name FROM nodes ORDER BY name;`
 
+// v7OperatorTrustSQL moves operator trust off the CryptOS nodes. The operator
+// CA is external: its certificate is registered in operator_cas (or read from
+// the config file), revocation is the manager's denylist plus the CA's own
+// CRL, and nothing here holds a CA key. operator_credentials is keyed by
+// issuer and serial, because serials are unique per issuer only; rows from
+// before this step were issued by a node and become legacy_node with no
+// issuer, which can never be a trusted operator CA. The bootstrap tables hold
+// day-zero state so every replica shares it: token and session hashes, the
+// one-way first-run latch, and the self-signed server certificate.
+const v7OperatorTrustSQL = `ALTER TABLE operator_credentials
+  ADD COLUMN IF NOT EXISTS issuer_sha256 text NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'legacy_node',
+  ADD COLUMN IF NOT EXISTS email text NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS full_name text NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS leaf_sha256 text NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS request_id uuid,
+  ADD COLUMN IF NOT EXISTS revoked_at timestamptz,
+  ADD COLUMN IF NOT EXISTS revocation_reason integer,
+  ADD COLUMN IF NOT EXISTS first_seen_at timestamptz,
+  ADD COLUMN IF NOT EXISTS last_seen_at timestamptz;
+ALTER TABLE operator_credentials DROP CONSTRAINT IF EXISTS operator_credentials_pkey;
+ALTER TABLE operator_credentials ADD PRIMARY KEY (issuer_sha256, serial_hex);
+CREATE TABLE IF NOT EXISTS operator_cas (
+  id bigserial PRIMARY KEY,
+  cert_der bytea NOT NULL,
+  sha256 text NOT NULL UNIQUE,
+  state text NOT NULL CHECK (state IN ('active', 'retiring', 'retired')),
+  crl_source text NOT NULL CHECK (crl_source IN ('none', 'url', 'upload')),
+  crl_url text NOT NULL DEFAULT '',
+  ocsp_mode text NOT NULL DEFAULT 'aia' CHECK (ocsp_mode IN ('off', 'aia', 'url')),
+  ocsp_url text,
+  acknowledgements text[] NOT NULL DEFAULT '{}',
+  warnings text[] NOT NULL DEFAULT '{}',
+  registered_at timestamptz NOT NULL DEFAULT now(),
+  registered_by text NOT NULL DEFAULT '',
+  confirmed_session_hash text,
+  retired_at timestamptz,
+  retired_reason text NOT NULL DEFAULT '',
+  updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  CONSTRAINT operator_cas_ocsp_url_required CHECK (ocsp_mode <> 'url' OR coalesce(ocsp_url, '') <> ''),
+  CONSTRAINT operator_cas_crl_url_required CHECK (crl_source <> 'url' OR crl_url <> '')
+);
+CREATE UNIQUE INDEX IF NOT EXISTS operator_cas_one_active ON operator_cas (state) WHERE state = 'active';
+CREATE UNIQUE INDEX IF NOT EXISTS operator_cas_one_retiring ON operator_cas (state) WHERE state = 'retiring';
+CREATE TABLE IF NOT EXISTS operator_crls (
+  issuer_sha256 text PRIMARY KEY,
+  crl_der bytea,
+  crl_number numeric,
+  this_update timestamptz,
+  next_update timestamptz,
+  fetched_at timestamptz,
+  source text NOT NULL DEFAULT '',
+  last_error text NOT NULL DEFAULT '',
+  last_attempt_at timestamptz
+);
+CREATE TABLE IF NOT EXISTS operator_denylist (
+  issuer_sha256 text NOT NULL,
+  serial_hex text NOT NULL,
+  reason integer NOT NULL DEFAULT 0,
+  revoked_at timestamptz NOT NULL DEFAULT now(),
+  revoked_by_cn text NOT NULL DEFAULT '',
+  revoked_by_serial text NOT NULL DEFAULT '',
+  note text NOT NULL DEFAULT '',
+  PRIMARY KEY (issuer_sha256, serial_hex)
+);
+CREATE TABLE IF NOT EXISTS operator_credential_requests (
+  id uuid PRIMARY KEY,
+  level text NOT NULL,
+  email text NOT NULL,
+  full_name text NOT NULL,
+  csr_der bytea,
+  state text NOT NULL CHECK (state IN ('pending', 'completed', 'cancelled', 'expired')),
+  created_by_cn text NOT NULL,
+  created_at timestamptz NOT NULL,
+  expires_at timestamptz NOT NULL,
+  completed_serial text NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS operator_revocation_epoch (
+  id boolean PRIMARY KEY DEFAULT true CHECK (id),
+  epoch bigint NOT NULL DEFAULT 0
+);
+INSERT INTO operator_revocation_epoch (id) VALUES (true) ON CONFLICT DO NOTHING;
+CREATE TABLE IF NOT EXISTS bootstrap_state (
+  id boolean PRIMARY KEY DEFAULT true CHECK (id),
+  closed_at timestamptz,
+  closed_by_serial text NOT NULL DEFAULT '',
+  closed_by_cn text NOT NULL DEFAULT '',
+  closed_by_issuer_sha256 text NOT NULL DEFAULT ''
+);
+INSERT INTO bootstrap_state (id) VALUES (true) ON CONFLICT DO NOTHING;
+CREATE TABLE IF NOT EXISTS bootstrap_tokens (
+  id bigserial PRIMARY KEY,
+  token_hash text NOT NULL UNIQUE,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  expires_at timestamptz NOT NULL,
+  used_at timestamptz
+);
+CREATE TABLE IF NOT EXISTS bootstrap_sessions (
+  id bigserial PRIMARY KEY,
+  session_hash text NOT NULL UNIQUE,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  last_used_at timestamptz NOT NULL DEFAULT now(),
+  expires_at timestamptz NOT NULL,
+  ended_at timestamptz,
+  ended_reason text NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS bootstrap_server_cert (
+  id boolean PRIMARY KEY DEFAULT true CHECK (id),
+  cert_der bytea NOT NULL,
+  key_der bytea NOT NULL,
+  not_after timestamptz NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);`
+
 // backfillNodeIDs mints a UUIDv7 for every node that has no ID yet.
 func backfillNodeIDs(ctx context.Context, tx pgx.Tx) error {
 	rows, err := tx.Query(ctx, `SELECT name FROM nodes WHERE id IS NULL ORDER BY name`)
@@ -166,6 +280,7 @@ var migrations = []migration{
 	{version: "v4", sql: v4McpSQL},
 	{version: "v5", sql: v5ApprovalsSQL},
 	{version: "v6", sql: v6NodeIDsSQL, apply: backfillNodeIDs},
+	{version: "v7", sql: v7OperatorTrustSQL},
 }
 
 // migrate applies every not-yet-applied migration in order, each tracked in a

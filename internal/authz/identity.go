@@ -45,6 +45,9 @@ type Identity struct {
 	// KeyID names the MCP key that authenticated the request; empty for a
 	// client certificate.
 	KeyID string
+	// IssuerSHA256 is the operator CA the certificate chains to, set when the
+	// request was re-checked against the current operator CA trust.
+	IssuerSHA256 string
 }
 
 // ActorKind reports how the identity authenticated, for the audit trail.

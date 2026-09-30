@@ -37,6 +37,8 @@ limitations under the License.
 //	1300-1399  certificates and issuance
 //	1400-1499  operator credentials
 //	1500-1599  configuration and apply
+//	1600-1699  first run, operator CAs and operator-certificate revocation;
+//	           defined by the api contract (cryptos.fleet.v1.ErrorCode)
 //	1900-1999  unclassified, including the catch-all
 //
 // A failure with no registered code still reaches the client as CodeUnknown
@@ -47,6 +49,7 @@ import (
 	"fmt"
 
 	apperr "github.com/Bugs5382/go-apperr"
+	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
 )
 
 // Codes the web-facing surface returns. Each one is a promise: the number is
@@ -90,6 +93,23 @@ const (
 	CodeConfigRejected = 1500
 )
 
+// The 1600-1699 block comes from the api contract, because the web branches
+// on it. A failure in it usually carries a sub-reason as well; see Reasoned.
+const (
+	CodeTokenInvalid              = int(fleetv1.ErrorCode_ERROR_CODE_TOKEN_INVALID)
+	CodeFirstRunClosed            = int(fleetv1.ErrorCode_ERROR_CODE_CLOSED)
+	CodeRateLimited               = int(fleetv1.ErrorCode_ERROR_CODE_RATE_LIMITED)
+	CodeUnavailable               = int(fleetv1.ErrorCode_ERROR_CODE_UNAVAILABLE)
+	CodeSessionInvalid            = int(fleetv1.ErrorCode_ERROR_CODE_SESSION_INVALID)
+	CodeOperatorCARejected        = int(fleetv1.ErrorCode_ERROR_CODE_OPERATOR_CA_REJECTED)
+	CodeCSRRejected               = int(fleetv1.ErrorCode_ERROR_CODE_CSR_REJECTED)
+	CodeOperatorCAManagedByConfig = int(fleetv1.ErrorCode_ERROR_CODE_OPERATOR_CA_MANAGED_BY_CONFIG)
+	CodeNoRevocationSource        = int(fleetv1.ErrorCode_ERROR_CODE_NO_REVOCATION_SOURCE)
+	CodeOperatorCAInUse           = int(fleetv1.ErrorCode_ERROR_CODE_OPERATOR_CA_IN_USE)
+	CodeCertRejected              = int(fleetv1.ErrorCode_ERROR_CODE_CERT_REJECTED)
+	CodeRequestInvalid            = int(fleetv1.ErrorCode_ERROR_CODE_REQUEST_INVALID)
+)
+
 // entries carry the internal description and the area label. Neither is ever
 // shown to a client -- they exist so Markdown() can generate the code table an
 // operator or a maintainer reads.
@@ -114,14 +134,26 @@ var entries = []apperr.Entry{
 	{Code: CodeNodeNameTaken, Title: "Fleet", Cause: "another node already has that name"},
 	{Code: CodeNodeNameInvalid, Title: "Fleet", Cause: "the node name is not an RFC 1123 label (1 to 63 lowercase letters, digits and hyphens, starting and ending with a letter or digit), or has the form of a node ID"},
 	{Code: CodeNodeRefMismatch, Title: "Fleet", Cause: "the request's node_id and node name point at different nodes; send node_id alone"},
-	{Code: CodeNodeRenameRefused, Title: "Fleet", Cause: "the node is the configured operator_ca_node, which the manager finds by name, so renaming it would cut off operator credentials"},
+	{Code: CodeNodeRenameRefused, Title: "Fleet", Cause: "no longer returned: it refused renaming the node that was the operator CA, and a CryptOS node can't be the operator CA any more"},
 	{Code: CodeProfileNotFound, Title: "Catalog", Cause: "no certificate profile of that name is known"},
 	{Code: CodeIssuanceRefused, Title: "Certificates", Cause: "the issuing node refused to sign the request"},
 	{Code: CodeIssuanceNeedsApproval, Title: "Certificates", Cause: "the request needs human step-up approval (a CA profile or the root node)"},
 	{Code: CodeCertificateNotFound, Title: "Certificates", Cause: "the node has no issued certificate with that serial"},
-	{Code: CodeOperatorCAUnconfigured, Title: "Operators", Cause: "no operator_ca_node is configured, so operator credentials cannot be listed, issued or revoked, and operator-cert revocation is not enforced"},
+	{Code: CodeOperatorCAUnconfigured, Title: "Operators", Cause: "no operator CA is configured (operatorCAPath, or one registered at first run), so operator credentials cannot be listed or denied"},
 	{Code: CodeOperatorNotFound, Title: "Operators", Cause: "no operator credential with that serial is recorded"},
 	{Code: CodeConfigRejected, Title: "Configuration", Cause: "the node rejected the configuration as invalid"},
+	{Code: CodeTokenInvalid, Title: "First run", Cause: "the bootstrap token is wrong, expired or already used"},
+	{Code: CodeFirstRunClosed, Title: "First run", Cause: "first run is closed"},
+	{Code: CodeRateLimited, Title: "First run", Cause: "too many failures from this client; wait and try again"},
+	{Code: CodeUnavailable, Title: "First run", Cause: "first run or the denylist can't run here (DATABASE_REQUIRED: no Postgres; FIRST_RUN_DISABLED: firstRun is disabled)"},
+	{Code: CodeSessionInvalid, Title: "First run", Cause: "the bootstrap session is unknown, expired or ended"},
+	{Code: CodeOperatorCARejected, Title: "Operator CAs", Cause: "the operator CA, or its CRL or OCSP settings, were refused; the sub-reason says why"},
+	{Code: CodeCSRRejected, Title: "Operator CAs", Cause: "the CSR was refused (SIZE, SIGNATURE, SUBJECT_MISMATCH or KEY_TYPE)"},
+	{Code: CodeOperatorCAManagedByConfig, Title: "Operator CAs", Cause: "the operator CA comes from operatorCAPath in the config file, so it can't be changed through the API"},
+	{Code: CodeNoRevocationSource, Title: "Operator CAs", Cause: "no fresh revocation data for the certificate (STALE_CRL, STALE_OCSP, STALE_DENYLIST, NO_CRL or DATABASE_REQUIRED)"},
+	{Code: CodeOperatorCAInUse, Title: "Operator CAs", Cause: "retiring this operator CA would leave no trusted active operator CA"},
+	{Code: CodeCertRejected, Title: "Operator CAs", Cause: "the operator certificate was refused; the sub-reason says why (for example REVOKED or NOT_CHAINED)"},
+	{Code: CodeRequestInvalid, Title: "Operator CAs", Cause: "the credential request can't be used (NOT_FOUND, EXPIRED or NOT_PENDING)"},
 }
 
 // registry is built once at package init. A malformed entry set is a
@@ -161,6 +193,9 @@ func Doc() string {
 		"# Manager error codes\n\n" +
 		"Every failure leaving the web-facing API carries one of these numbers, on the\n" +
 		"`" + MetadataKey + "` error metadata and quoted in the message an operator sees.\n" +
+		"A 16xx failure usually also names a sub-reason on `" + ReasonKey + "`, for example\n" +
+		"`STALE_CRL` under 1608. The 16xx block is defined by the api contract\n" +
+		"(`cryptos.fleet.v1.ErrorCode` and `ErrorReason`).\n" +
 		"The manager owns the 1000-1999 block; another service takes its own first digit.\n\n" +
 		registry.Markdown()
 }

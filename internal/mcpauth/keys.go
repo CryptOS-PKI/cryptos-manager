@@ -36,6 +36,9 @@ var (
 	ErrCeilingTooHigh = errors.New("mcpauth: level ceiling exceeds the operator's level")
 	ErrForbidden      = errors.New("mcpauth: not permitted for this operator")
 	ErrNotFound       = errors.New("mcpauth: no such key")
+	// ErrNotAdmitted wraps the admission check's refusal, which carries its
+	// 16xx code and sub-reason.
+	ErrNotAdmitted = errors.New("mcpauth: the operator certificate can't hold an MCP key")
 )
 
 // Audit kinds and target for key lifecycle events.
@@ -51,6 +54,10 @@ const (
 // CreateMcpKey RPC share Mint, so both logins bind a key the same way.
 type Keys struct {
 	Store store.Store
+	// Admit, when set, decides whether the operator certificate may hold a
+	// key at all, before one is minted: it must chain to a trusted operator
+	// CA whose revocation data meets the MCP rules.
+	Admit func(certDER []byte) error
 	// Now defaults to time.Now.
 	Now func() time.Time
 }
@@ -74,6 +81,12 @@ func (k *Keys) Mint(ctx context.Context, owner authz.Identity, certDER []byte, l
 		}
 		if l > owner.Level {
 			return "", store.McpKey{}, ErrCeilingTooHigh
+		}
+	}
+
+	if k.Admit != nil {
+		if err := k.Admit(certDER); err != nil {
+			return "", store.McpKey{}, fmt.Errorf("%w: %w", ErrNotAdmitted, err)
 		}
 	}
 

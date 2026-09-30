@@ -124,6 +124,9 @@ func mcpKeyError(err error) error {
 		return apperr.Coded(apperr.CodeMcpCeilingTooHigh, connect.NewError(connect.CodeInvalidArgument, err))
 	case errors.Is(err, mcpauth.ErrForbidden):
 		return apperr.Coded(apperr.CodeForbidden, connect.NewError(connect.CodePermissionDenied, err))
+	case errors.Is(err, mcpauth.ErrNotAdmitted):
+		// The admission refusal already carries its 16xx code and reason.
+		return connect.NewError(connect.CodeFailedPrecondition, err)
 	case errors.Is(err, mcpauth.ErrNotFound):
 		return apperr.Coded(apperr.CodeMcpKeyNotFound, connect.NewError(connect.CodeNotFound, err))
 	default:

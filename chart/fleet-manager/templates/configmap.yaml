@@ -19,14 +19,11 @@ data:
     operatorCAPath: /etc/cryptos/fleet/operator-ca/operator-ca.pem
     {{- end }}
     {{- if .Values.operatorCANode }}
-    operator_ca_node: {{ .Values.operatorCANode | quote }}
+    {{- fail "operatorCANode is no longer supported: CryptOS nodes can't be the operator CA. Use an external operator CA (operatorCA.configMap) and, for revocation, a CRL and the Fleet Manager denylist. See docs: migrating from operator_ca_node" }}
     {{- end }}
     {{- if .Values.mcp.enabled }}
     {{- if .Values.authBypass }}
     {{- fail "mcp.enabled requires authBypass: false" }}
-    {{- end }}
-    {{- if not .Values.operatorCANode }}
-    {{- fail "mcp.enabled requires operatorCANode (the operator-certificate revocation source)" }}
     {{- end }}
     mcp:
       enabled: true
