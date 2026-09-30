@@ -247,16 +247,3 @@ func TestSubmit_RefusesAMalformedUpload(t *testing.T) {
 		wantCode(t, err, apperr.CodeCertRejected, "")
 	}
 }
-
-// Protobuf refuses invalid UTF-8 in a string field before the handler runs,
-// so the name check's UTF-8 rule is exercised directly.
-func TestValidFullName(t *testing.T) {
-	for s, want := range map[string]bool{
-		"Ada Example": true, "": false, string([]byte{0xff, 0xfe}): false, "Ada\tExample": false,
-		strings.Repeat("a", 128): true, strings.Repeat("a", 129): false,
-	} {
-		if got := validFullName(s); got != want {
-			t.Errorf("validFullName(%q) = %v, want %v", s, got, want)
-		}
-	}
-}

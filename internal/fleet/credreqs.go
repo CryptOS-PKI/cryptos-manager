@@ -263,7 +263,7 @@ func (s *Service) RecordOperatorCredential(ctx context.Context, req *connect.Req
 	}
 
 	now := time.Now().UTC()
-	check := operatorca.CertCheck{Now: now, Revoked: s.revocations.IsRevoked}
+	check := operatorca.CertCheck{Now: now, Revoked: s.revocations.IsRevoked, CheckRevocation: s.revocations.CheckWebCert}
 	var request store.OperatorCredentialRequest
 	if rid := req.Msg.GetRequestId(); rid != "" {
 		request, err = cs.OperatorCredentialRequest(ctx, rid, now)
@@ -294,6 +294,11 @@ func (s *Service) RecordOperatorCredential(ctx context.Context, req *connect.Req
 	}
 	res, err := operatorca.CheckOperatorCert(cert, anchor.Cert, check)
 	if err != nil {
+		// No fresh revocation data (1608) is the deployment's state, not a
+		// problem with the certificate.
+		if code, _ := apperr.Code(err); code == apperr.CodeNoRevocationSource {
+			return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+		}
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 

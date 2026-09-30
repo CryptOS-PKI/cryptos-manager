@@ -59,6 +59,11 @@ type CertCheck struct {
 	CSR *x509.CertificateRequest
 	// Revoked reports whether the anchor's denylist or CRL lists the serial.
 	Revoked func(anchorSHA256, serial string) bool
+	// CheckRevocation, when set, is the live revocation decision for the
+	// certificate (Revocations.CheckWebCert): the denylist and CRL, the CA's
+	// OCSP responder where one is configured, and operatorRevocationPolicy.
+	// Its refusal is returned as is.
+	CheckRevocation func(anchorSHA256 string, leaf *x509.Certificate) error
 }
 
 // CertResult is what a certificate that passed the check carries.
@@ -80,7 +85,9 @@ func rejectCert(reason fleetv1.ErrorReason, format string, args ...any) error {
 // non-critical, have EKU exactly clientAuth, key usage digitalSignature
 // without certificate or CRL signing, basicConstraints CA:FALSE, subject
 // exactly CN=<email>, a P-384 or RSA 3072+ key, at least a day left, and not
-// be revoked. More than 400 days of validity is a warning.
+// be revoked: by the denylist or CRL through Revoked, and by the live
+// decision, OCSP included, through CheckRevocation. More than 400 days of
+// validity is a warning.
 func CheckOperatorCert(cert, anchor *x509.Certificate, c CertCheck) (CertResult, error) {
 	levelExt, hasLevel := findExtension(cert, oidAccessLevel)
 	if hasLevel && levelExt.Critical {
@@ -147,6 +154,11 @@ func CheckOperatorCert(cert, anchor *x509.Certificate, c CertCheck) (CertResult,
 	if c.Revoked != nil && c.Revoked(Fingerprint(anchor), serial) {
 		return CertResult{}, rejectCert(fleetv1.ErrorReason_ERROR_REASON_REVOKED,
 			"serial %s under %s is on the denylist or in the CRL", serial, anchor.Subject)
+	}
+	if c.CheckRevocation != nil {
+		if err := c.CheckRevocation(Fingerprint(anchor), cert); err != nil {
+			return CertResult{}, err
+		}
 	}
 
 	res := CertResult{Level: level, Email: email, Serial: serial}

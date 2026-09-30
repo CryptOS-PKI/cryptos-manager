@@ -67,7 +67,8 @@ func newHarness(t *testing.T, opts ...harnessOpt) *harness {
 	t.Helper()
 	ctx := context.Background()
 	h := &harness{t: t, ctx: ctx, clock: &fakeClock{t: testNow}, st: newFakeStore(), audit: memory.New(nil), logs: &logSink{}}
-	h.rev = operatorca.NewRevocations(operatorca.RevocationOptions{Store: h.st, Now: h.clock.Now, Logf: h.logs.Logf})
+	h.rev = operatorca.NewRevocations(operatorca.RevocationOptions{Store: h.st, Now: h.clock.Now, Logf: h.logs.Logf,
+		OCSPFetcher: operatorca.NewOCSPFetcher()})
 	var err error
 	h.trust, err = operatorca.NewTrustStore(ctx, operatorca.Source{Kind: operatorca.KindRegistered}, h.st, h.rev, &tls.Config{}, h.logs.Logf)
 	if err != nil {

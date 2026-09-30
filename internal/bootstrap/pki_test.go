@@ -118,6 +118,7 @@ type leafOpts struct {
 	key      crypto.Signer
 	notAfter time.Time
 	critical bool
+	ocsp     []string
 }
 
 func (ca testCA) leaf(t *testing.T, o leafOpts) *x509.Certificate {
@@ -147,6 +148,7 @@ func (ca testCA) leaf(t *testing.T, o leafOpts) *x509.Certificate {
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
 		BasicConstraintsValid: true,
 		ExtraExtensions:       []pkix.Extension{{Id: oidLevel, Critical: o.critical, Value: lvl}},
+		OCSPServer:            o.ocsp,
 	}
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, ca.cert, o.key.Public(), ca.key)
 	if err != nil {

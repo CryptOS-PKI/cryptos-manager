@@ -22,8 +22,6 @@ import (
 	"errors"
 	"fmt"
 	"time"
-	"unicode"
-	"unicode/utf8"
 
 	connect "connectrpc.com/connect"
 	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
@@ -31,9 +29,6 @@ import (
 	"github.com/CryptOS-PKI/manager/internal/operatorca"
 	"github.com/CryptOS-PKI/manager/internal/store"
 )
-
-// maxFullName bounds the first admin's name, in characters.
-const maxFullName = 128
 
 // reasonSuperseded is the RFC 5280 CRLReason superseded(4), recorded on the
 // denylist entry of a first-admin certificate a later one replaced.
@@ -45,24 +40,6 @@ func certRejected(reason fleetv1.ErrorReason, format string, args ...any) error 
 		return connect.NewError(connect.CodeInvalidArgument, apperr.Coded(apperr.CodeCertRejected, cause))
 	}
 	return connect.NewError(connect.CodeInvalidArgument, apperr.Reasoned(apperr.CodeCertRejected, reason, cause))
-}
-
-// validFullName accepts 1 to 128 characters of UTF-8 with no control
-// characters.
-func validFullName(s string) bool {
-	if !utf8.ValidString(s) {
-		return false
-	}
-	n := utf8.RuneCountInString(s)
-	if n < 1 || n > maxFullName {
-		return false
-	}
-	for _, r := range s {
-		if unicode.IsControl(r) {
-			return false
-		}
-	}
-	return true
 }
 
 // parseLeaf reads exactly one DER certificate of at most MaxCertSize bytes.
@@ -116,13 +93,12 @@ func (s *Service) SubmitFirstAdminCertificate(ctx context.Context, req *connect.
 	m := req.Msg
 	res, cert, err := s.checkFirstAdmin(m, anchor)
 	if err != nil {
-		return nil, s.fail(ctx, rejected(err))
-	}
-	if err := s.rev.CheckWeb(row.SHA256, res.Serial); err != nil {
-		if code, _ := apperr.Code(err); code == apperr.CodeCertRejected {
-			return nil, s.fail(ctx, rejected(err))
+		// No fresh revocation data under a hard policy is the deployment's
+		// state, not the caller's mistake, so it isn't counted as a failure.
+		if code, _ := apperr.Code(err); code == apperr.CodeNoRevocationSource {
+			return nil, connect.NewError(connect.CodeFailedPrecondition, err)
 		}
-		return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+		return nil, s.fail(ctx, rejected(err))
 	}
 
 	now := s.now().UTC()
@@ -158,8 +134,8 @@ func (s *Service) SubmitFirstAdminCertificate(ctx context.Context, req *connect.
 // the upload, the CSR when there is one, and the admin profile against the
 // active anchor.
 func (s *Service) checkFirstAdmin(m *fleetv1.SubmitFirstAdminCertificateRequest, anchor *x509.Certificate) (operatorca.CertResult, *x509.Certificate, error) {
-	if !validFullName(m.GetFullName()) {
-		return operatorca.CertResult{}, nil, certRejected(0, "full_name must be 1 to %d characters of UTF-8 with no control characters", maxFullName)
+	if err := operatorca.ValidateFullName(m.GetFullName()); err != nil {
+		return operatorca.CertResult{}, nil, certRejected(0, "full_name: %v", err)
 	}
 	cert, err := parseLeaf(m.GetCertDer())
 	if err != nil {
@@ -173,7 +149,7 @@ func (s *Service) checkFirstAdmin(m *fleetv1.SubmitFirstAdminCertificateRequest,
 		}
 		csr = &c
 	}
-	check := operatorca.CertCheck{Now: s.now(), WantLevel: "admin", Revoked: s.rev.IsRevoked}
+	check := operatorca.CertCheck{Now: s.now(), WantLevel: "admin", Revoked: s.rev.IsRevoked, CheckRevocation: s.rev.CheckWebCert}
 	if csr != nil {
 		check.CSR = csr.CSR
 	}
