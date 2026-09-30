@@ -19,14 +19,12 @@ limitations under the License.
 import (
 	"context"
 	"log"
-	"net"
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/CryptOS-PKI/manager/internal/authz"
+	"github.com/CryptOS-PKI/manager/internal/ratelimit"
 	"github.com/modelcontextprotocol/go-sdk/auth"
-	"golang.org/x/time/rate"
 )
 
 const identityExtra = "fleetos.identity"
@@ -38,11 +36,11 @@ const identityExtra = "fleetos.identity"
 // the reason goes only to the log. A client that keeps presenting bad keys is
 // throttled with 429.
 func Middleware(r *Resolver, resourceMetadataURL string) func(http.Handler) http.Handler {
-	limiter := newFailureLimiter()
+	limiter := ratelimit.NewFailures(failureBurst, failureRefill)
 	verify := func(ctx context.Context, token string, req *http.Request) (*auth.TokenInfo, error) {
 		id, err := r.Resolve(ctx, token)
 		if err != nil {
-			limiter.fail(clientIP(req))
+			limiter.Fail(ratelimit.ClientIP(req))
 			log.Printf("mcpauth: refused %s %q from %s: %v", req.Method, req.URL.Path, req.RemoteAddr, err)
 			return nil, auth.ErrInvalidToken
 		}
@@ -63,7 +61,7 @@ func Middleware(r *Resolver, resourceMetadataURL string) func(http.Handler) http
 		guarded := bearer(withIdentity)
 
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			if limiter.blocked(clientIP(req)) {
+			if limiter.Blocked(ratelimit.ClientIP(req)) {
 				http.Error(w, "too many failed attempts", http.StatusTooManyRequests)
 				return
 			}
@@ -72,58 +70,12 @@ func Middleware(r *Resolver, resourceMetadataURL string) func(http.Handler) http
 	}
 }
 
-func clientIP(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
-}
-
-// failureLimiter allows each client a burst of failed keys that refills
-// slowly. Only failures spend tokens, so a client with a good key is never
-// slowed down.
-type failureLimiter struct {
-	mu      sync.Mutex
-	clients map[string]*rate.Limiter
-}
-
+// MCP keys are long-lived, so a client may retry a few bad ones; each
+// failure comes back after failureRefill.
 const (
-	failureBurst     = 10
-	failureRefill    = 6 * time.Second
-	maxTrackedClient = 10000
+	failureBurst  = 10
+	failureRefill = 6 * time.Second
 )
-
-func newFailureLimiter() *failureLimiter {
-	return &failureLimiter{clients: map[string]*rate.Limiter{}}
-}
-
-func (f *failureLimiter) limiter(ip string) *rate.Limiter {
-	l, ok := f.clients[ip]
-	if !ok {
-		// A bounded map is enough: forgetting every client at once only
-		// restores their burst.
-		if len(f.clients) >= maxTrackedClient {
-			f.clients = map[string]*rate.Limiter{}
-		}
-		l = rate.NewLimiter(rate.Every(failureRefill), failureBurst)
-		f.clients[ip] = l
-	}
-	return l
-}
-
-func (f *failureLimiter) fail(ip string) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.limiter(ip).Allow()
-}
-
-func (f *failureLimiter) blocked(ip string) bool {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	l, ok := f.clients[ip]
-	return ok && l.Tokens() < 1
-}
 
 // IdentityFromTokenInfo returns the identity Middleware resolved for the
 // request that carried ti. MCP tool handlers read it from the request's
