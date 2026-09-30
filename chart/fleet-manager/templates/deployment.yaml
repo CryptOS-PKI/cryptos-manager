@@ -86,6 +86,13 @@ spec:
               subPath: config.yaml
             - name: node-creds
               mountPath: /var/lib/cryptos-manager/node-creds
+            {{- range $i, $n := .Values.nodes }}
+            {{- if $n.adminCredsSecret }}
+            - name: node-admin-{{ $i }}
+              mountPath: {{ include "fleet-manager.nodeAdminDir" $n.name }}
+              readOnly: true
+            {{- end }}
+            {{- end }}
             {{- if not .Values.authBypass }}
             - name: tls
               mountPath: /etc/cryptos/fleet/tls
@@ -101,6 +108,15 @@ spec:
         - name: node-creds
           persistentVolumeClaim:
             claimName: {{ .Values.nodeCreds.existingClaim | default (printf "%s-node-creds" (include "fleet-manager.name" .)) }}
+        {{- range $i, $n := .Values.nodes }}
+        {{- if $n.adminCredsSecret }}
+        - name: node-admin-{{ $i }}
+          secret:
+            secretName: {{ $n.adminCredsSecret | quote }}
+            # Group-readable for the pod's fsGroup; the manager runs as 65532.
+            defaultMode: 0440
+        {{- end }}
+        {{- end }}
         {{- if not .Values.authBypass }}
         - name: tls
           secret:

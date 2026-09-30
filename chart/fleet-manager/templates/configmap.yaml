@@ -32,4 +32,4 @@ data:
       enabled: true
       public_url: {{ required "mcp.publicURL is required when mcp.enabled is true" .Values.mcp.publicURL | quote }}
     {{- end }}
-    nodes: {{ toJson .Values.nodes }}
+    nodes: {{ include "fleet-manager.nodes" . }}
