@@ -636,7 +636,8 @@ func TestRunAdoption_RegistersANodeIDAndReturnsIt(t *testing.T) {
 	st := memory.New(nil)
 	mconn := &fakeConn{applyConfigResp: &cryptosv1.ApplyConfigResponse{RequiresReboot: true, Generation: 1}}
 	running := &fakeConn{
-		status: &cryptosv1.GetStatusResponse{},
+		identity: rootIdentity(t),
+		status:   &cryptosv1.GetStatusResponse{},
 		ceremonyStream: &scriptedCeremony{kinds: []cryptosv1.CeremonyEventKind{
 			cryptosv1.CeremonyEventKind_CEREMONY_EVENT_KIND_COMPLETE,
 		}},

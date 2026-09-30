@@ -22,11 +22,15 @@ Where a node's admin credentials Secret is mounted.
 {{/*
 The nodes list for config.yaml. A node with adminCredsSecret gets its
 adminCertPath, adminKeyPath and caCertPath pointed at that Secret's mount, and
-the chart-only key is dropped.
+the chart-only key is dropped. insecureSkipNodeVerify passes through and must
+be a boolean.
 */}}
 {{- define "fleet-manager.nodes" -}}
 {{- $nodes := list }}
 {{- range $i, $n := .Values.nodes }}
+{{- if and (hasKey $n "insecureSkipNodeVerify") (not (kindIs "bool" $n.insecureSkipNodeVerify)) }}
+{{- fail (printf "nodes[%d] (%s): insecureSkipNodeVerify must be true or false" $i ($n.name | default "")) }}
+{{- end }}
 {{- if $n.adminCredsSecret }}
 {{- $name := required (printf "nodes[%d].name is required when adminCredsSecret is set" $i) $n.name }}
 {{- range $k := list "adminCertPath" "adminKeyPath" "caCertPath" }}

@@ -226,17 +226,6 @@ func TestDial_PinnedServerCert_AcrossNodeReboot(t *testing.T) {
 	}
 }
 
-func TestDial_UnpinnedNodeStillConnects(t *testing.T) {
-	clientCA := newTestCA(t, "fake-node-client-ca")
-	lis := listenLocal(t, "127.0.0.1:0")
-	stop := startBootedNode(t, lis, bootServerCert(t, "127.0.0.1"), clientCA)
-	defer stop()
-
-	if err := getStatus(t, pinnedNode(t, lis.Addr().String(), t.TempDir(), clientCA)); err != nil {
-		t.Fatalf("GetStatus() with no server.crt: error = %v, want nil", err)
-	}
-}
-
 func TestDial_PinnedServerCert_UnreadableFileFailsDial(t *testing.T) {
 	clientCA := newTestCA(t, "fake-node-client-ca")
 	dir := t.TempDir()

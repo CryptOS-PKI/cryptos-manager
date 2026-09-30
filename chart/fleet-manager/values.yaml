@@ -74,9 +74,9 @@ nodeCreds:
 
 # Fleet node inventory. With Postgres it is copied into the database on the
 # first start only, while the database is empty. For each node, either name a
-# Secret in adminCredsSecret or give adminCertPath, adminKeyPath and caCertPath
-# for files already in the pod (for example on the node-creds volume), not
-# both.
+# Secret in adminCredsSecret or give adminCertPath, adminKeyPath and (optional)
+# caCertPath for files already in the pod (for example on the node-creds
+# volume), not both.
 #
 # adminCredsSecret names a Secret in the release namespace with the keys
 # admin.crt, admin.key and ca.pem. The chart mounts it read-only at
@@ -88,4 +88,16 @@ nodeCreds:
 #     endpoint: "pki-root.example.org:443"
 #     role: root
 #     adminCredsSecret: pki-root-admin
+#
+# The manager verifies every node's server certificate and refuses a node it
+# cannot verify. It accepts a certificate that chains to the node's CA chain
+# (caCertPath, or ca.pem in the Secret) and is valid for the endpoint's host, or
+# one that matches the pinned server.crt next to the admin certificate. With
+# adminCredsSecret, add the pin to the Secret under the key server.crt. See
+# docs/node-trust.md.
+#
+# insecureSkipNodeVerify: true turns verification off for one node. It is for
+# lab testing only and must never be used in production: the manager logs a
+# warning on every connection to the node and the fleet view shows it as not
+# verified. There is no switch that turns verification off for every node.
 nodes: []

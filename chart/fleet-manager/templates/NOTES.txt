@@ -1,0 +1,19 @@
+The Fleet Manager verifies every node's server certificate and refuses a node
+that has neither a pinned server certificate nor a recorded CA chain. To list
+how each node is verified:
+
+  kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "fleet-manager.name" . }} -- /manager -config /etc/cryptos/fleet/config.yaml -check-node-trust
+{{- $insecure := list }}
+{{- range .Values.nodes }}
+{{- if .insecureSkipNodeVerify }}
+{{- $insecure = append $insecure .name }}
+{{- end }}
+{{- end }}
+{{- if $insecure }}
+
+WARNING: server certificate verification is OFF (insecureSkipNodeVerify) for:
+{{ join ", " $insecure }}.
+This is for lab testing only and must never be used in production. The manager
+logs a warning on every connection to these nodes. Remove insecureSkipNodeVerify
+and pin each node or record its CA chain instead.
+{{- end }}

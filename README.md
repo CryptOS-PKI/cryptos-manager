@@ -20,7 +20,7 @@ A node is linked to the FM via **mutual consent**: the operator declares the FM'
 
 Adopting a fresh node from its maintenance endpoint is safe to retry. The manager mints a bootstrap admin credential per node name and stores it under `MANAGER_NODE_CREDS_DIR` (default `/var/lib/cryptos-manager/node-creds`). A retry reuses it, because a node that got as far as installing trusts only that credential. When the node reports it has already booted its installed system, the retry skips the install, runs the first-boot ceremony only if a Root has not finished it, and registers the node. If the stored credential is gone, the node refuses the handshake and the adoption fails with a hint to reset the node from its console and adopt it again.
 
-The node always checks the manager's admin credential. The manager checks the node's server certificate when you pin it with a `server.crt` next to the node's admin certificate; the node makes a new one every boot, so the pin is renewed after each reboot. See [`docs/node-trust.md`](docs/node-trust.md).
+The node always checks the manager's admin credential, and the manager always checks the node's server certificate: against the node's recorded CA chain once the node signs its management certificate with its CA, or against a pinned `server.crt` before that. A node it can't verify is refused. `manager -check-node-trust` lists how each node is verified. See [`docs/node-trust.md`](docs/node-trust.md).
 
 Once linked, the node's embedded operator surface becomes read-only and FM owns day-to-day operations. Unlinking is a config change + reboot. A node that has never been linked is managed via [`cryptosctl`](https://github.com/CryptOS-PKI/cryptos) only — no web UI in that case (by design — there's no web frontend on the CA image).
 
@@ -194,7 +194,8 @@ PersistentVolumeClaim (`fleet-manager-node-creds`, or `nodeCreds.existingClaim`)
 Nodes listed in `nodes` can take their admin credentials from a Secret: set a node's
 `adminCredsSecret` to a Secret holding `admin.crt`, `admin.key` and `ca.pem`, and the chart
 mounts it read-only at `/etc/cryptos/fleet/node-admin/<name>` and points the node's
-`adminCertPath`, `adminKeyPath` and `caCertPath` there. See `nodes` in
+`adminCertPath`, `adminKeyPath` and `caCertPath` there. A `server.crt` key in the same Secret
+pins the node's server certificate. See `nodes` in
 [`values.yaml`](chart/fleet-manager/values.yaml).
 
 The chart runs one pod by default, with a `Recreate` rollout, because the default claim is

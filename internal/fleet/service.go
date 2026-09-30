@@ -22,6 +22,7 @@ limitations under the License.
 
 import (
 	"context"
+	"crypto/x509"
 
 	log "github.com/Bugs5382/go-log"
 	fleetv1connect "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1/fleetv1connect"
@@ -79,6 +80,12 @@ type Service struct {
 	// instead of reaching a real node; production wires nodeclient.
 	previewCert     func(endpoint string) (certSHA256, subject string, err error)
 	dialMaintenance func(endpoint, pinnedSHA256, clientCertPEM, clientKeyPEM string) (NodeConn, error)
+
+	// captureServerCert reads the certificate an installed node presents, so
+	// adoption can pin it before dialing the node. unverified names the nodes
+	// dialed with insecureSkipNodeVerify.
+	captureServerCert func(store.Node) (*x509.Certificate, error)
+	unverified        func(store.Node) bool
 
 	// mcpKeys backs the MCP key management RPCs. mcpEnabled gates minting:
 	// listing and revoking keep working with the endpoint switched off, so an

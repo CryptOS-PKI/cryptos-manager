@@ -85,7 +85,7 @@ func (s *Service) GetNode(ctx context.Context, req *connect.Request[fleetv1.GetN
 
 	return connect.NewResponse(&fleetv1.GetNodeResponse{
 		Node: &fleetv1.NodeDetail{
-			Summary:      s.withProtocolState(ctx, upSummary(n, status, cn, issuer), status),
+			Summary:      s.withProtocolState(ctx, s.withTrustState(n, upSummary(n, status, cn, issuer)), status),
 			Identity:     mapIdentity(identityResp.GetIdentity()),
 			TpmAvailable: status.GetTpmState() == cryptosv1.TpmState_TPM_STATE_OK,
 			BootCount:    status.GetBootCount(),
@@ -114,7 +114,7 @@ func (s *Service) summarize(ctx context.Context, n store.Node) *fleetv1.NodeSumm
 		cn, issuer = leafCNs(identityResp.GetIdentity())
 	}
 
-	return s.withProtocolState(ctx, upSummary(n, statusResp.GetStatus(), cn, issuer), statusResp.GetStatus())
+	return s.withProtocolState(ctx, s.withTrustState(n, upSummary(n, statusResp.GetStatus(), cn, issuer)), statusResp.GetStatus())
 }
 
 // upSummary maps a successfully probed node's status to a NodeSummary. cn and
