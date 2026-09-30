@@ -23,6 +23,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/sha512"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
@@ -242,4 +243,109 @@ func csrFor(t *testing.T, key crypto.Signer, cn string, extraRDN bool) *x509.Cer
 		t.Fatalf("parse CSR: %v", err)
 	}
 	return csr
+}
+
+var (
+	oidDeltaCRL   = asn1.ObjectIdentifier{2, 5, 29, 27}
+	oidIDP        = asn1.ObjectIdentifier{2, 5, 29, 28}
+	oidCertIssuer = asn1.ObjectIdentifier{2, 5, 29, 29}
+)
+
+type crlOpts struct {
+	revoked    []*big.Int
+	number     *big.Int // nil means no cRLNumber
+	thisUpdate time.Time
+	nextUpdate time.Time
+	noNext     bool
+	extensions []pkix.Extension
+	entryExt   []pkix.Extension
+	signer     *testCA
+	issuerName *pkix.Name
+}
+
+// crl builds a CRL for ca. It is assembled by hand rather than with
+// x509.CreateRevocationList so a test can leave out nextUpdate or cRLNumber,
+// which the standard library insists on.
+func (ca testCA) crl(t *testing.T, o crlOpts) []byte {
+	t.Helper()
+	if o.thisUpdate.IsZero() {
+		o.thisUpdate = testNow.Add(-time.Hour)
+	}
+	if o.nextUpdate.IsZero() && !o.noNext {
+		o.nextUpdate = testNow.Add(7 * 24 * time.Hour)
+	}
+	signer := ca
+	if o.signer != nil {
+		signer = *o.signer
+	}
+
+	var entries []pkix.RevokedCertificate
+	for _, s := range o.revoked {
+		entries = append(entries, pkix.RevokedCertificate{SerialNumber: s, RevocationTime: o.thisUpdate, Extensions: o.entryExt})
+	}
+	exts := []pkix.Extension{}
+	if len(ca.cert.SubjectKeyId) > 0 {
+		aki, err := asn1.Marshal(struct {
+			ID []byte `asn1:"optional,tag:0"`
+		}{ca.cert.SubjectKeyId})
+		if err != nil {
+			t.Fatalf("marshal AKI: %v", err)
+		}
+		exts = append(exts, pkix.Extension{Id: asn1.ObjectIdentifier{2, 5, 29, 35}, Value: aki})
+	}
+	if o.number != nil {
+		n, err := asn1.Marshal(o.number)
+		if err != nil {
+			t.Fatalf("marshal number: %v", err)
+		}
+		exts = append(exts, pkix.Extension{Id: asn1.ObjectIdentifier{2, 5, 29, 20}, Value: n})
+	}
+	exts = append(exts, o.extensions...)
+
+	issuer := asn1.RawValue{FullBytes: ca.cert.RawSubject}
+	if o.issuerName != nil {
+		raw, err := asn1.Marshal(o.issuerName.ToRDNSequence())
+		if err != nil {
+			t.Fatalf("marshal issuer: %v", err)
+		}
+		issuer = asn1.RawValue{FullBytes: raw}
+	}
+	sigAlg := pkix.AlgorithmIdentifier{Algorithm: asn1.ObjectIdentifier{1, 2, 840, 10045, 4, 3, 3}} // ecdsa-with-SHA384
+	tbs := struct {
+		Version             int `asn1:"optional,default:0"`
+		Signature           pkix.AlgorithmIdentifier
+		Issuer              asn1.RawValue
+		ThisUpdate          time.Time
+		NextUpdate          time.Time                 `asn1:"optional"`
+		RevokedCertificates []pkix.RevokedCertificate `asn1:"optional"`
+		Extensions          []pkix.Extension          `asn1:"tag:0,optional,explicit"`
+	}{Version: 1, Signature: sigAlg, Issuer: issuer, ThisUpdate: o.thisUpdate.UTC(), NextUpdate: o.nextUpdate.UTC(),
+		RevokedCertificates: entries, Extensions: exts}
+	tbsDER, err := asn1.Marshal(tbs)
+	if err != nil {
+		t.Fatalf("marshal TBS: %v", err)
+	}
+	digest := sha512.Sum384(tbsDER)
+	sig, err := signer.key.Sign(rand.Reader, digest[:], crypto.SHA384)
+	if err != nil {
+		t.Fatalf("sign CRL: %v", err)
+	}
+	der, err := asn1.Marshal(struct {
+		TBS    asn1.RawValue
+		SigAlg pkix.AlgorithmIdentifier
+		Sig    asn1.BitString
+	}{asn1.RawValue{FullBytes: tbsDER}, sigAlg, asn1.BitString{Bytes: sig, BitLength: len(sig) * 8}})
+	if err != nil {
+		t.Fatalf("marshal CRL: %v", err)
+	}
+	return der
+}
+
+func idpExtension(t *testing.T, critical bool, idp issuingDistributionPoint) pkix.Extension {
+	t.Helper()
+	v, err := asn1.Marshal(idp)
+	if err != nil {
+		t.Fatalf("marshal IDP: %v", err)
+	}
+	return pkix.Extension{Id: oidIDP, Critical: critical, Value: v}
 }
