@@ -221,9 +221,11 @@ func (s *Service) approveLinkEnrollment(ctx context.Context, id authz.Identity, 
 		return connect.NewError(connect.CodeFailedPrecondition, errors.New("fleet: node identity changed since enrollment"))
 	}
 
+	// trust_pem stays empty: the operator CA is never pushed to a node, so
+	// an operator certificate can't authenticate at a node directly, and
+	// nothing goes stale when the operator CA rotates.
 	if _, err := conn.SetManagement(ctx, &cryptosv1.Management{
 		ManagerCn:               id.CN,
-		TrustPem:                s.operatorCAPEM,
 		OperatorSurfaceReadonly: true,
 	}); err != nil {
 		return connect.NewError(connect.CodeInternal, fmt.Errorf("fleet: set management: %w", err))

@@ -171,15 +171,7 @@ func main() {
 	pemDial := func(endpoint, certPEM, keyPEM, caPEM string) (fleet.NodeConn, error) {
 		return nodeclient.DialPEM(endpoint, certPEM, keyPEM, caPEM)
 	}
-	var operatorCAPEM string
-	if cfg.OperatorCAPath != "" {
-		b, err := os.ReadFile(cfg.OperatorCAPath)
-		if err != nil {
-			log.Fatalf("manager: read operator CA: %v", err)
-		}
-		operatorCAPEM = string(b)
-	}
-	svc = svc.WithEnrollment(pemDial, operatorCAPEM)
+	svc = svc.WithEnrollment(pemDial)
 
 	// S10: supply the TOFU preview + pinned maintenance dial seams for node
 	// adoption.

@@ -68,8 +68,7 @@ type Service struct {
 	store store.Store
 	dial  func(store.Node) (NodeConn, error)
 
-	dialPEM       func(endpoint, certPEM, keyPEM, caPEM string) (NodeConn, error)
-	operatorCAPEM string
+	dialPEM func(endpoint, certPEM, keyPEM, caPEM string) (NodeConn, error)
 
 	// trust and revocations are the operator CA trust and revocation state;
 	// the operator credential handlers read and deny through them.
@@ -111,12 +110,10 @@ func New(st store.Store, dial func(store.Node) (NodeConn, error)) *Service {
 	return &Service{store: st, dial: dial, reboots: newRebootTracker(), log: log.NewLogger("fleet-manager")}
 }
 
-// WithEnrollment supplies the PEM dial seam (for LINK, which reaches a
-// not-yet-inventoried node) and the operator CA PEM (stamped into a linked
-// node's managed-state trust anchor). Returns s for chaining.
-func (s *Service) WithEnrollment(dialPEM func(endpoint, certPEM, keyPEM, caPEM string) (NodeConn, error), operatorCAPEM string) *Service {
+// WithEnrollment supplies the PEM dial seam for LINK, which reaches a
+// not-yet-inventoried node. Returns s for chaining.
+func (s *Service) WithEnrollment(dialPEM func(endpoint, certPEM, keyPEM, caPEM string) (NodeConn, error)) *Service {
 	s.dialPEM = dialPEM
-	s.operatorCAPEM = operatorCAPEM
 
 	return s
 }

@@ -576,7 +576,7 @@ func subordinateApprovalFixture(t *testing.T) (store.Store, *Service) {
 			return &routingConn{identity: parentID, ferry: parentConn}, nil
 		}
 		return &routingConn{identity: childID, ferry: &fakeConn{}}, nil
-	}).WithEnrollment(dialPEMFakeFor(&fakeConn{}), testOperatorCAPEM)
+	}).WithEnrollment(dialPEMFakeFor(&fakeConn{}))
 	return st, svc
 }
 
@@ -586,7 +586,7 @@ func TestApproveEnrollment_Link_RecordsAdmittedNodeID(t *testing.T) {
 			key := mustKey(t)
 			st := memory.New(nil)
 			nodeIdentity := &cryptosv1.GetIdentityResponse{Identity: &cryptosv1.Identity{ChainDer: [][]byte{issuedLeafDER(t, "node-1", "ACME Root CA")}}}
-			svc := New(st, dialFor(nil)).WithEnrollment(dialPEMFakeFor(&fakeConn{attestKey: key, identity: nodeIdentity}), testOperatorCAPEM)
+			svc := New(st, dialFor(nil)).WithEnrollment(dialPEMFakeFor(&fakeConn{attestKey: key, identity: nodeIdentity}))
 			create, err := svc.CreateEnrollment(operatorCtx("op@acme.example", authz.LevelOperator), connect.NewRequest(&fleetv1.CreateEnrollmentRequest{
 				Kind: "LINK", NodeEndpoint: "node:4443", AdminCertPem: "cert", AdminKeyPem: "key", CaPem: "ca",
 			}))

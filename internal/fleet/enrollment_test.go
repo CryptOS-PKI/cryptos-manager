@@ -33,8 +33,6 @@ import (
 	"github.com/CryptOS-PKI/manager/internal/store/memory"
 )
 
-const testOperatorCAPEM = "OPERATOR-CA-PEM"
-
 // operatorCtx returns a context carrying an authenticated identity at the
 // given level.
 func operatorCtx(cn string, level authz.Level) context.Context {
@@ -73,7 +71,7 @@ func TestCreateEnrollment_Link_Operator(t *testing.T) {
 	conn := &fakeConn{attestKey: key}
 
 	st := memory.New(nil)
-	svc := New(st, dialFor(nil)).WithEnrollment(dialPEMFakeFor(conn), testOperatorCAPEM)
+	svc := New(st, dialFor(nil)).WithEnrollment(dialPEMFakeFor(conn))
 
 	ctx := operatorCtx("op@acme.example", authz.LevelOperator)
 	resp, err := svc.CreateEnrollment(ctx, connect.NewRequest(&fleetv1.CreateEnrollmentRequest{
@@ -123,7 +121,7 @@ func TestCreateEnrollment_Link_AttestationFails(t *testing.T) {
 	conn := &fakeConn{err: errors.New("attest refused")}
 
 	st := memory.New(nil)
-	svc := New(st, dialFor(nil)).WithEnrollment(dialPEMFakeFor(conn), testOperatorCAPEM)
+	svc := New(st, dialFor(nil)).WithEnrollment(dialPEMFakeFor(conn))
 
 	ctx := operatorCtx("op@acme.example", authz.LevelOperator)
 	_, err := svc.CreateEnrollment(ctx, connect.NewRequest(&fleetv1.CreateEnrollmentRequest{
@@ -137,7 +135,7 @@ func TestCreateEnrollment_Link_AttestationFails(t *testing.T) {
 
 func TestCreateEnrollment_Subordinate_Operator(t *testing.T) {
 	st := memory.New(nil)
-	svc := New(st, dialFor(nil)).WithEnrollment(dialPEMFakeFor(&fakeConn{}), testOperatorCAPEM)
+	svc := New(st, dialFor(nil)).WithEnrollment(dialPEMFakeFor(&fakeConn{}))
 
 	ctx := operatorCtx("op@acme.example", authz.LevelOperator)
 	resp, err := svc.CreateEnrollment(ctx, connect.NewRequest(&fleetv1.CreateEnrollmentRequest{
@@ -175,7 +173,7 @@ func TestCreateEnrollment_Subordinate_Operator(t *testing.T) {
 
 func TestCreateEnrollment_Subordinate_MissingField(t *testing.T) {
 	st := memory.New(nil)
-	svc := New(st, dialFor(nil)).WithEnrollment(dialPEMFakeFor(&fakeConn{}), testOperatorCAPEM)
+	svc := New(st, dialFor(nil)).WithEnrollment(dialPEMFakeFor(&fakeConn{}))
 
 	ctx := operatorCtx("op@acme.example", authz.LevelOperator)
 	_, err := svc.CreateEnrollment(ctx, connect.NewRequest(&fleetv1.CreateEnrollmentRequest{
@@ -188,7 +186,7 @@ func TestCreateEnrollment_Subordinate_MissingField(t *testing.T) {
 
 func TestCreateEnrollment_Viewer_PermissionDenied(t *testing.T) {
 	st := memory.New(nil)
-	svc := New(st, dialFor(nil)).WithEnrollment(dialPEMFakeFor(&fakeConn{}), testOperatorCAPEM)
+	svc := New(st, dialFor(nil)).WithEnrollment(dialPEMFakeFor(&fakeConn{}))
 
 	ctx := operatorCtx("viewer@acme.example", authz.LevelViewer)
 	_, err := svc.CreateEnrollment(ctx, connect.NewRequest(&fleetv1.CreateEnrollmentRequest{
@@ -202,7 +200,7 @@ func TestCreateEnrollment_Viewer_PermissionDenied(t *testing.T) {
 
 func TestCreateEnrollment_NoIdentity_Unauthenticated(t *testing.T) {
 	st := memory.New(nil)
-	svc := New(st, dialFor(nil)).WithEnrollment(dialPEMFakeFor(&fakeConn{}), testOperatorCAPEM)
+	svc := New(st, dialFor(nil)).WithEnrollment(dialPEMFakeFor(&fakeConn{}))
 
 	_, err := svc.CreateEnrollment(context.Background(), connect.NewRequest(&fleetv1.CreateEnrollmentRequest{
 		Kind:      "SUBORDINATE",
@@ -216,7 +214,7 @@ func TestCreateEnrollment_NoIdentity_Unauthenticated(t *testing.T) {
 func TestApproveEnrollment_Link_OperatorDenied(t *testing.T) {
 	st := memory.New(nil)
 	st.AddEnrollment(store.Enrollment{ID: "enr-1", Kind: "LINK", Status: "PENDING"})
-	svc := New(st, dialFor(nil)).WithEnrollment(dialPEMFakeFor(&fakeConn{}), testOperatorCAPEM)
+	svc := New(st, dialFor(nil)).WithEnrollment(dialPEMFakeFor(&fakeConn{}))
 
 	ctx := operatorCtx("op@acme.example", authz.LevelOperator)
 	_, err := svc.ApproveEnrollment(ctx, connect.NewRequest(&fleetv1.ApproveEnrollmentRequest{Id: "enr-1"}))
@@ -231,7 +229,7 @@ func TestApproveEnrollment_Link_Admin(t *testing.T) {
 	createConn := &fakeConn{attestKey: key}
 
 	st := memory.New(nil)
-	svc := New(st, dialFor(nil)).WithEnrollment(dialPEMFakeFor(createConn), testOperatorCAPEM)
+	svc := New(st, dialFor(nil)).WithEnrollment(dialPEMFakeFor(createConn))
 
 	createCtx := operatorCtx("op@acme.example", authz.LevelOperator)
 	createResp, err := svc.CreateEnrollment(createCtx, connect.NewRequest(&fleetv1.CreateEnrollmentRequest{
@@ -271,8 +269,10 @@ func TestApproveEnrollment_Link_Admin(t *testing.T) {
 	if approveConn.gotManagement.GetManagerCn() != "admin@acme.example" {
 		t.Errorf("Management.ManagerCn = %q, want admin@acme.example", approveConn.gotManagement.GetManagerCn())
 	}
-	if approveConn.gotManagement.GetTrustPem() != testOperatorCAPEM {
-		t.Errorf("Management.TrustPem = %q, want %q", approveConn.gotManagement.GetTrustPem(), testOperatorCAPEM)
+	// The operator CA is never pushed to nodes: operator certificates must not
+	// authenticate at a node, and a pushed anchor would go stale on rotation.
+	if approveConn.gotManagement.GetTrustPem() != "" {
+		t.Errorf("Management.TrustPem = %q, want empty", approveConn.gotManagement.GetTrustPem())
 	}
 	if !approveConn.gotManagement.GetOperatorSurfaceReadonly() {
 		t.Error("Management.OperatorSurfaceReadonly = false, want true")
@@ -294,7 +294,7 @@ func TestApproveEnrollment_Link_PinMismatch_FailedPrecondition(t *testing.T) {
 	createConn := &fakeConn{attestKey: key}
 
 	st := memory.New(nil)
-	svc := New(st, dialFor(nil)).WithEnrollment(dialPEMFakeFor(createConn), testOperatorCAPEM)
+	svc := New(st, dialFor(nil)).WithEnrollment(dialPEMFakeFor(createConn))
 
 	createCtx := operatorCtx("op@acme.example", authz.LevelOperator)
 	createResp, err := svc.CreateEnrollment(createCtx, connect.NewRequest(&fleetv1.CreateEnrollmentRequest{
@@ -386,7 +386,7 @@ func TestApproveEnrollment_Subordinate_Operator(t *testing.T) {
 		return nil, errors.New("no fake conn for " + n.Name)
 	}
 
-	svc := New(st, dial).WithEnrollment(dialPEMFakeFor(&fakeConn{}), testOperatorCAPEM)
+	svc := New(st, dial).WithEnrollment(dialPEMFakeFor(&fakeConn{}))
 
 	ctx := operatorCtx("op@acme.example", authz.LevelOperator)
 	resp, err := svc.ApproveEnrollment(ctx, connect.NewRequest(&fleetv1.ApproveEnrollmentRequest{Id: "enr-1"}))
@@ -415,7 +415,7 @@ func TestApproveEnrollment_Subordinate_Operator(t *testing.T) {
 func TestApproveEnrollment_NotPending_FailedPrecondition(t *testing.T) {
 	st := memory.New(nil)
 	st.AddEnrollment(store.Enrollment{ID: "enr-1", Kind: "LINK", Status: "APPROVED"})
-	svc := New(st, dialFor(nil)).WithEnrollment(dialPEMFakeFor(&fakeConn{}), testOperatorCAPEM)
+	svc := New(st, dialFor(nil)).WithEnrollment(dialPEMFakeFor(&fakeConn{}))
 
 	ctx := operatorCtx("admin@acme.example", authz.LevelAdmin)
 	_, err := svc.ApproveEnrollment(ctx, connect.NewRequest(&fleetv1.ApproveEnrollmentRequest{Id: "enr-1"}))
@@ -424,7 +424,7 @@ func TestApproveEnrollment_NotPending_FailedPrecondition(t *testing.T) {
 
 func TestApproveEnrollment_UnknownID_NotFound(t *testing.T) {
 	st := memory.New(nil)
-	svc := New(st, dialFor(nil)).WithEnrollment(dialPEMFakeFor(&fakeConn{}), testOperatorCAPEM)
+	svc := New(st, dialFor(nil)).WithEnrollment(dialPEMFakeFor(&fakeConn{}))
 
 	ctx := operatorCtx("admin@acme.example", authz.LevelAdmin)
 	_, err := svc.ApproveEnrollment(ctx, connect.NewRequest(&fleetv1.ApproveEnrollmentRequest{Id: "missing"}))
@@ -434,7 +434,7 @@ func TestApproveEnrollment_UnknownID_NotFound(t *testing.T) {
 func TestRejectEnrollment_Operator(t *testing.T) {
 	st := memory.New(nil)
 	st.AddEnrollment(store.Enrollment{ID: "enr-1", Kind: "LINK", Status: "PENDING"})
-	svc := New(st, dialFor(nil)).WithEnrollment(dialPEMFakeFor(&fakeConn{}), testOperatorCAPEM)
+	svc := New(st, dialFor(nil)).WithEnrollment(dialPEMFakeFor(&fakeConn{}))
 
 	ctx := operatorCtx("op@acme.example", authz.LevelOperator)
 	resp, err := svc.RejectEnrollment(ctx, connect.NewRequest(&fleetv1.RejectEnrollmentRequest{Id: "enr-1", Reason: "bad key"}))
@@ -452,7 +452,7 @@ func TestRejectEnrollment_Operator(t *testing.T) {
 func TestRejectEnrollment_AppendsAuditEvent(t *testing.T) {
 	st := memory.New(nil)
 	st.AddEnrollment(store.Enrollment{ID: "enr-1", Kind: "LINK", Status: "PENDING", ProposedName: "node-1"})
-	svc := New(st, dialFor(nil)).WithEnrollment(dialPEMFakeFor(&fakeConn{}), testOperatorCAPEM)
+	svc := New(st, dialFor(nil)).WithEnrollment(dialPEMFakeFor(&fakeConn{}))
 
 	before := len(st.Audit())
 	ctx := operatorCtx("op@acme.example", authz.LevelOperator)
@@ -481,7 +481,7 @@ func TestApproveEnrollment_Link_AppendsAuditEvent(t *testing.T) {
 	createConn := &fakeConn{attestKey: key}
 
 	st := memory.New(nil)
-	svc := New(st, dialFor(nil)).WithEnrollment(dialPEMFakeFor(createConn), testOperatorCAPEM)
+	svc := New(st, dialFor(nil)).WithEnrollment(dialPEMFakeFor(createConn))
 
 	createCtx := operatorCtx("op@acme.example", authz.LevelOperator)
 	createResp, err := svc.CreateEnrollment(createCtx, connect.NewRequest(&fleetv1.CreateEnrollmentRequest{
@@ -521,7 +521,7 @@ func TestApproveEnrollment_Link_AppendsAuditEvent(t *testing.T) {
 func TestRejectEnrollment_NotPending_FailedPrecondition(t *testing.T) {
 	st := memory.New(nil)
 	st.AddEnrollment(store.Enrollment{ID: "enr-1", Kind: "LINK", Status: "REJECTED"})
-	svc := New(st, dialFor(nil)).WithEnrollment(dialPEMFakeFor(&fakeConn{}), testOperatorCAPEM)
+	svc := New(st, dialFor(nil)).WithEnrollment(dialPEMFakeFor(&fakeConn{}))
 
 	ctx := operatorCtx("op@acme.example", authz.LevelOperator)
 	_, err := svc.RejectEnrollment(ctx, connect.NewRequest(&fleetv1.RejectEnrollmentRequest{Id: "enr-1"}))
@@ -530,7 +530,7 @@ func TestRejectEnrollment_NotPending_FailedPrecondition(t *testing.T) {
 
 func TestRejectEnrollment_UnknownID_NotFound(t *testing.T) {
 	st := memory.New(nil)
-	svc := New(st, dialFor(nil)).WithEnrollment(dialPEMFakeFor(&fakeConn{}), testOperatorCAPEM)
+	svc := New(st, dialFor(nil)).WithEnrollment(dialPEMFakeFor(&fakeConn{}))
 
 	ctx := operatorCtx("op@acme.example", authz.LevelOperator)
 	_, err := svc.RejectEnrollment(ctx, connect.NewRequest(&fleetv1.RejectEnrollmentRequest{Id: "missing"}))
@@ -540,7 +540,7 @@ func TestRejectEnrollment_UnknownID_NotFound(t *testing.T) {
 func TestRejectEnrollment_Viewer_PermissionDenied(t *testing.T) {
 	st := memory.New(nil)
 	st.AddEnrollment(store.Enrollment{ID: "enr-1", Kind: "LINK", Status: "PENDING"})
-	svc := New(st, dialFor(nil)).WithEnrollment(dialPEMFakeFor(&fakeConn{}), testOperatorCAPEM)
+	svc := New(st, dialFor(nil)).WithEnrollment(dialPEMFakeFor(&fakeConn{}))
 
 	ctx := operatorCtx("viewer@acme.example", authz.LevelViewer)
 	_, err := svc.RejectEnrollment(ctx, connect.NewRequest(&fleetv1.RejectEnrollmentRequest{Id: "enr-1"}))
