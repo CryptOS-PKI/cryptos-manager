@@ -549,3 +549,20 @@ func (p *Poller) Run(ctx context.Context, interval time.Duration) {
 		}
 	}
 }
+
+// Denylisted reports whether the manager's denylist lists serial under the
+// anchor.
+func (r *Revocations) Denylisted(anchorSHA256, serial string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	_, ok := r.denylist[anchorSHA256][NormalizeSerial(serial)]
+	return ok
+}
+
+// CRLRevoked reports whether the anchor's last good CRL lists serial.
+func (r *Revocations) CRLRevoked(anchorSHA256, serial string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	st, ok := r.anchors[anchorSHA256]
+	return ok && st.crl != nil && st.crl.IsRevoked(NormalizeSerial(serial))
+}

@@ -30,6 +30,7 @@ import (
 	"github.com/CryptOS-PKI/manager/internal/approval"
 	"github.com/CryptOS-PKI/manager/internal/mcpauth"
 	"github.com/CryptOS-PKI/manager/internal/nodeclient"
+	"github.com/CryptOS-PKI/manager/internal/operatorca"
 	"github.com/CryptOS-PKI/manager/internal/store"
 )
 
@@ -70,9 +71,10 @@ type Service struct {
 	dialPEM       func(endpoint, certPEM, keyPEM, caPEM string) (NodeConn, error)
 	operatorCAPEM string
 
-	// operatorCANodeName is the inventory name of the node that acts as the
-	// operator CA: operator-credential issuance and revocation route there.
-	operatorCANodeName string
+	// trust and revocations are the operator CA trust and revocation state;
+	// the operator credential handlers read and deny through them.
+	trust       *operatorca.TrustStore
+	revocations *operatorca.Revocations
 
 	// previewCert fetches a not-yet-adopted node's maintenance cert
 	// fingerprint + subject (TOFU preview). dialMaintenance opens a
@@ -119,12 +121,11 @@ func (s *Service) WithEnrollment(dialPEM func(endpoint, certPEM, keyPEM, caPEM s
 	return s
 }
 
-// WithOperatorCA names the inventory node that serves as the operator CA. The
-// S9 operator-credential handlers route issuance and revocation to this node.
-// An empty name leaves the handlers reporting FailedPrecondition. Returns s for
-// chaining.
-func (s *Service) WithOperatorCA(nodeName string) *Service {
-	s.operatorCANodeName = nodeName
+// WithOperatorTrust supplies the operator CA trust and revocation state the
+// operator credential handlers use. Returns s for chaining.
+func (s *Service) WithOperatorTrust(trust *operatorca.TrustStore, rev *operatorca.Revocations) *Service {
+	s.trust = trust
+	s.revocations = rev
 
 	return s
 }

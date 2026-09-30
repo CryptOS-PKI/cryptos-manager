@@ -17,46 +17,26 @@ limitations under the License.
 */
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"errors"
 	"math/big"
 	"testing"
 	"time"
 
 	connect "connectrpc.com/connect"
 	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
-	cryptosv1 "github.com/CryptOS-PKI/api/go/cryptos/v1"
 	"github.com/CryptOS-PKI/manager/internal/apperr"
 	"github.com/CryptOS-PKI/manager/internal/authz"
+	"github.com/CryptOS-PKI/manager/internal/operatorca"
 	"github.com/CryptOS-PKI/manager/internal/store"
 	"github.com/CryptOS-PKI/manager/internal/store/memory"
-	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
-
-// operatorCertDER builds a self-signed DER cert with the given serial and
-// not_after, standing in for what the operator-CA node returns from IssueLeaf.
-func operatorCertDER(t *testing.T, serial *big.Int, notAfter time.Time) []byte {
-	t.Helper()
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		t.Fatalf("GenerateKey: %v", err)
-	}
-	tmpl := &x509.Certificate{
-		SerialNumber: serial,
-		Subject:      pkix.Name{CommonName: "op@acme.example"},
-		NotBefore:    time.Now().Add(-time.Hour),
-		NotAfter:     notAfter,
-	}
-	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
-	if err != nil {
-		t.Fatalf("CreateCertificate: %v", err)
-	}
-	return der
-}
 
 func operatorsStore() store.Store {
 	return memory.New([]store.Node{
@@ -64,96 +44,165 @@ func operatorsStore() store.Store {
 	})
 }
 
-func TestRevokeOperatorCredential_Admin_RevokesMarksAndAudits(t *testing.T) {
-	st := operatorsStore()
-	st.AddOperatorCredential(store.OperatorCredential{CommonName: "op@acme.example", SerialHex: "0a1b", Level: "operator", NotAfter: "later"})
-	now := time.Now().UTC()
-	conn := &fakeConn{revokeResp: &cryptosv1.RevokeCertificateResponse{
-		Revocation: &cryptosv1.Revocation{SerialHex: "0a1b", RevokedAt: timestamppb.New(now), ReasonCode: 4},
-	}}
-	svc := New(st, dialFor(map[string]*fakeConn{"opca": conn})).WithOperatorCA("opca")
+// denylistStore is the in-memory store with a working denylist, standing in
+// for Postgres.
+type denylistStore struct {
+	*memory.Store
+	entries []store.DenylistEntry
+}
 
-	ctx := operatorCtx("admin@acme.example", authz.LevelAdmin)
-	resp, err := svc.RevokeOperatorCredential(ctx, connect.NewRequest(&fleetv1.RevokeOperatorCredentialRequest{
-		SerialHex: "0a1b", ReasonCode: 4,
-	}))
+func (d *denylistStore) OperatorDenylist(context.Context) ([]store.DenylistEntry, error) {
+	return d.entries, nil
+}
+
+func (d *denylistStore) AddOperatorDenylistEntry(_ context.Context, e store.DenylistEntry) (bool, error) {
+	d.entries = append(d.entries, e)
+	return true, nil
+}
+
+func testOperatorCA(t *testing.T) *x509.Certificate {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
 	if err != nil {
-		t.Fatalf("RevokeOperatorCredential(admin) error = %v", err)
+		t.Fatal(err)
 	}
-	if conn.gotRevokeSerial != "0a1b" || conn.gotRevokeReason != 4 {
-		t.Errorf("node revoke = (%q,%d), want (0a1b,4)", conn.gotRevokeSerial, conn.gotRevokeReason)
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "Example Operator CA"},
+		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(24 * time.Hour),
+		IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
 	}
-	if resp.Msg.GetRevokedAt() != now.Format(time.RFC3339) {
-		t.Errorf("revokedAt = %q, want %q", resp.Msg.GetRevokedAt(), now.Format(time.RFC3339))
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
 	}
+	ca, _ := x509.ParseCertificate(der)
+	return ca
+}
 
-	creds := st.OperatorCredentials()
-	if len(creds) != 1 || !creds[0].Revoked {
-		t.Errorf("store credential not marked revoked: %+v", creds)
+// withOperatorTrust wires a config-file operator CA over ot into svc.
+func withOperatorTrust(t *testing.T, svc *Service, ot store.OperatorTrust, kind operatorca.Kind, ca *x509.Certificate) *Service {
+	t.Helper()
+	var anchors []operatorca.Anchor
+	if ca != nil {
+		anchors = []operatorca.Anchor{{Cert: ca, SHA256: operatorca.Fingerprint(ca), State: store.OperatorCAActive, FromConfig: true, CRLSource: store.CRLSourceNone}}
 	}
-	audit := st.Audit()
+	rev := operatorca.NewRevocations(operatorca.RevocationOptions{Store: ot})
+	trust, err := operatorca.NewTrustStore(context.Background(), operatorca.Source{Kind: kind, File: anchors}, ot, rev, &tls.Config{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := rev.Reload(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	return svc.WithOperatorTrust(trust, rev)
+}
+
+func noDial(t *testing.T) func(store.Node) (NodeConn, error) {
+	return func(n store.Node) (NodeConn, error) {
+		t.Errorf("dialled node %s", n.Name)
+		return nil, errors.New("no dial")
+	}
+}
+
+// Revoking puts the serial on the manager's denylist under the operator CA,
+// dials no node, warns that the CA itself isn't revoked, and audits.
+func TestRevokeOperatorCredential_WritesTheDenylist(t *testing.T) {
+	ds := &denylistStore{Store: memory.New(nil)}
+	ca := testOperatorCA(t)
+	svc := withOperatorTrust(t, New(ds, noDial(t)), ds, operatorca.KindFile, ca)
+
+	resp, err := svc.RevokeOperatorCredential(operatorCtx("admin@example.org", authz.LevelAdmin),
+		connect.NewRequest(&fleetv1.RevokeOperatorCredentialRequest{SerialHex: "0A:1B", ReasonCode: 4, Note: "left"}))
+	if err != nil {
+		t.Fatalf("RevokeOperatorCredential = %v", err)
+	}
+	fp := operatorca.Fingerprint(ca)
+	if len(ds.entries) != 1 || ds.entries[0].IssuerSHA256 != fp || ds.entries[0].SerialHex != "a1b" ||
+		ds.entries[0].Reason != 4 || ds.entries[0].Note != "left" || ds.entries[0].RevokedByCN != "admin@example.org" {
+		t.Fatalf("denylist = %+v", ds.entries)
+	}
+	if resp.Msg.GetIssuerSha256() != fp || resp.Msg.GetSerialHex() != "a1b" || len(resp.Msg.GetWarnings()) != 1 || resp.Msg.GetRevokedAt() == "" {
+		t.Fatalf("response = %+v", resp.Msg)
+	}
+	audit := ds.Audit()
 	if len(audit) != 1 || audit[0].Kind != "operator-revoked" {
-		t.Fatalf("audit = %+v, want one operator-revoked event", audit)
+		t.Fatalf("audit = %+v", audit)
+	}
+}
+
+func TestRevokeOperatorCredential_NeedsPostgres(t *testing.T) {
+	st := memory.New(nil)
+	svc := withOperatorTrust(t, New(st, noDial(t)), st, operatorca.KindFile, testOperatorCA(t))
+	_, err := svc.RevokeOperatorCredential(operatorCtx("admin@example.org", authz.LevelAdmin),
+		connect.NewRequest(&fleetv1.RevokeOperatorCredentialRequest{SerialHex: "0a1b"}))
+	if code, _ := apperr.Code(err); code != apperr.CodeUnavailable {
+		t.Fatalf("error = %v, want 1603", err)
+	}
+}
+
+func TestRevokeOperatorCredential_NoOperatorCA(t *testing.T) {
+	svc := New(operatorsStore(), noDial(t))
+	_, err := svc.RevokeOperatorCredential(operatorCtx("admin@example.org", authz.LevelAdmin),
+		connect.NewRequest(&fleetv1.RevokeOperatorCredentialRequest{SerialHex: "0a1b"}))
+	if code, _ := apperr.Code(err); code != apperr.CodeOperatorCAUnconfigured {
+		t.Fatalf("error = %v, want 1400", err)
 	}
 }
 
 func TestRevokeOperatorCredential_ViewerDenied(t *testing.T) {
-	svc := New(operatorsStore(), dialFor(map[string]*fakeConn{"opca": {}})).WithOperatorCA("opca")
+	svc := New(operatorsStore(), noDial(t))
 	ctx := operatorCtx("viewer@acme.example", authz.LevelViewer)
 	_, err := svc.RevokeOperatorCredential(ctx, connect.NewRequest(&fleetv1.RevokeOperatorCredentialRequest{SerialHex: "0a1b"}))
 	requireConnectCode(t, err, connect.CodePermissionDenied)
 }
 
+// Listing works with any operator CA source, with no operator_ca_node, and
+// reports the denylist.
 func TestListOperatorCredentials_OperatorReadable(t *testing.T) {
-	st := operatorsStore()
-	st.AddOperatorCredential(store.OperatorCredential{CommonName: "a", SerialHex: "01", Level: "viewer", NotAfter: "t"})
-	st.AddOperatorCredential(store.OperatorCredential{CommonName: "b", SerialHex: "02", Level: "admin", NotAfter: "t", Revoked: true})
-	svc := New(st, dialFor(map[string]*fakeConn{})).WithOperatorCA("opca")
-
-	ctx := operatorCtx("op@acme.example", authz.LevelOperator)
-	resp, err := svc.ListOperatorCredentials(ctx, connect.NewRequest(&fleetv1.ListOperatorCredentialsRequest{}))
-	if err != nil {
-		t.Fatalf("ListOperatorCredentials(operator) error = %v", err)
+	ds := &denylistStore{Store: memory.New(nil)}
+	ca := testOperatorCA(t)
+	fp := operatorca.Fingerprint(ca)
+	ds.AddOperatorCredential(store.OperatorCredential{CommonName: "a@example.org", SerialHex: "1", Level: "viewer", NotAfter: "t", IssuerSHA256: fp, Kind: store.OperatorCredentialRecorded, Email: "a@example.org"})
+	ds.AddOperatorCredential(store.OperatorCredential{CommonName: "b@example.org", SerialHex: "2", Level: "admin", NotAfter: "t", Kind: store.OperatorCredentialLegacyNode})
+	svc := withOperatorTrust(t, New(ds, noDial(t)), ds, operatorca.KindFile, ca)
+	if _, err := svc.RevokeOperatorCredential(operatorCtx("admin@example.org", authz.LevelAdmin),
+		connect.NewRequest(&fleetv1.RevokeOperatorCredentialRequest{SerialHex: "1"})); err != nil {
+		t.Fatal(err)
 	}
-	if len(resp.Msg.GetItems()) != 2 {
-		t.Fatalf("len(items) = %d, want 2", len(resp.Msg.GetItems()))
+
+	resp, err := svc.ListOperatorCredentials(operatorCtx("op@example.org", authz.LevelOperator), connect.NewRequest(&fleetv1.ListOperatorCredentialsRequest{}))
+	if err != nil {
+		t.Fatalf("ListOperatorCredentials = %v", err)
+	}
+	items := resp.Msg.GetItems()
+	if len(items) != 2 {
+		t.Fatalf("items = %+v", items)
+	}
+	if a := items[0]; !a.GetDenylisted() || !a.GetRevoked() || a.GetIssuerSha256() != fp || a.GetKind() != store.OperatorCredentialRecorded || a.GetEmail() != "a@example.org" {
+		t.Fatalf("first item = %+v", a)
+	}
+	if b := items[1]; b.GetKind() != store.OperatorCredentialLegacyNode || b.GetDenylisted() {
+		t.Fatalf("legacy item = %+v", b)
 	}
 }
 
-// An empty list with no operator CA read as "this fleet has no operators" while
-// an operator was signed in: the manager can neither list, issue nor revoke
-// without one, so it must say so with the stable code the UI branches on,
-// even when the store still holds rows from an earlier configuration.
+// With no operator CA source at all the manager says so with the stable code
+// the UI branches on, even when the store still holds rows.
 func TestListOperatorCredentials_NoOperatorCA_FailedPreconditionCoded(t *testing.T) {
-	st := operatorsStore()
+	st := memory.New(nil)
 	st.AddOperatorCredential(store.OperatorCredential{CommonName: "a", SerialHex: "01", Level: "viewer", NotAfter: "t"})
-	svc := New(st, dialFor(map[string]*fakeConn{}))
-
-	ctx := operatorCtx("op@acme.example", authz.LevelOperator)
-	resp, err := svc.ListOperatorCredentials(ctx, connect.NewRequest(&fleetv1.ListOperatorCredentialsRequest{}))
-	requireConnectCode(t, err, connect.CodeFailedPrecondition)
-	if resp != nil {
-		t.Errorf("resp = %v, want nil alongside the error", resp)
-	}
-	if code, ok := apperr.Code(err); !ok || code != apperr.CodeOperatorCAUnconfigured {
-		t.Errorf("apperr code = %d (ok=%v), want %d", code, ok, apperr.CodeOperatorCAUnconfigured)
-	}
-}
-
-// A configured operator-CA name that is missing from the inventory still
-// lists: the rows are the manager's own, and reading them dials nothing.
-func TestListOperatorCredentials_OperatorCANotInInventory_StillLists(t *testing.T) {
-	st := operatorsStore()
-	st.AddOperatorCredential(store.OperatorCredential{CommonName: "a", SerialHex: "01", Level: "viewer", NotAfter: "t"})
-	svc := New(st, dialFor(map[string]*fakeConn{})).WithOperatorCA("gone")
-
-	ctx := operatorCtx("op@acme.example", authz.LevelOperator)
-	resp, err := svc.ListOperatorCredentials(ctx, connect.NewRequest(&fleetv1.ListOperatorCredentialsRequest{}))
-	if err != nil {
-		t.Fatalf("ListOperatorCredentials error = %v", err)
-	}
-	if len(resp.Msg.GetItems()) != 1 {
-		t.Fatalf("len(items) = %d, want 1", len(resp.Msg.GetItems()))
+	for name, svc := range map[string]*Service{
+		"not wired":   New(st, noDial(t)),
+		"source none": withOperatorTrust(t, New(st, noDial(t)), st, operatorca.KindNone, nil),
+	} {
+		resp, err := svc.ListOperatorCredentials(operatorCtx("op@acme.example", authz.LevelOperator), connect.NewRequest(&fleetv1.ListOperatorCredentialsRequest{}))
+		requireConnectCode(t, err, connect.CodeFailedPrecondition)
+		if resp != nil {
+			t.Errorf("%s: resp = %v, want nil alongside the error", name, resp)
+		}
+		if code, ok := apperr.Code(err); !ok || code != apperr.CodeOperatorCAUnconfigured {
+			t.Errorf("%s: apperr code = %d (ok=%v), want %d", name, code, ok, apperr.CodeOperatorCAUnconfigured)
+		}
 	}
 }
 
@@ -162,33 +211,4 @@ func TestListOperatorCredentials_ViewerDenied(t *testing.T) {
 	ctx := operatorCtx("viewer@acme.example", authz.LevelViewer)
 	_, err := svc.ListOperatorCredentials(ctx, connect.NewRequest(&fleetv1.ListOperatorCredentialsRequest{}))
 	requireConnectCode(t, err, connect.CodePermissionDenied)
-}
-
-func TestOperatorProfiles_CarryLevelExtension(t *testing.T) {
-	profiles, err := OperatorProfiles()
-	if err != nil {
-		t.Fatalf("OperatorProfiles() error = %v", err)
-	}
-	if len(profiles) != 3 {
-		t.Fatalf("got %d operator profiles, want 3", len(profiles))
-	}
-	byName := map[string]store.Profile{}
-	for _, p := range profiles {
-		byName[p.Name] = p
-	}
-	for _, level := range []string{"viewer", "operator", "admin"} {
-		p, ok := byName["operator-"+level]
-		if !ok {
-			t.Fatalf("missing profile operator-%s", level)
-		}
-		cp := &cryptosv1.CertificateProfile{}
-		if err := proto.Unmarshal(p.Spec, cp); err != nil {
-			t.Fatalf("unmarshal operator-%s: %v", level, err)
-		}
-		wantOID, wantDER, _ := authz.MarshalLevelExtension(level)
-		exts := cp.GetExtraExtensions()
-		if len(exts) != 1 || exts[0].GetOid() != wantOID || string(exts[0].GetValue()) != string(wantDER) {
-			t.Errorf("operator-%s extension = %+v, want oid %s with the level DER", level, exts, wantOID)
-		}
-	}
 }

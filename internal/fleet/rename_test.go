@@ -211,19 +211,6 @@ func TestRenameNode_SameName_NoOpNoAudit(t *testing.T) {
 	}
 }
 
-func TestRenameNode_OperatorCANode_FailedPrecondition(t *testing.T) {
-	st := certsTestStore()
-	svc := New(st, dialFor(nil)).WithOperatorCA("A")
-	id := nodeID(t, st, "A")
-
-	_, err := svc.RenameNode(operatorCtx("admin@acme.example", authz.LevelAdmin),
-		connect.NewRequest(&fleetv1.RenameNodeRequest{NodeId: id, NewName: "root-east"}))
-	requireConnectCode(t, err, connect.CodeFailedPrecondition)
-	if n, _ := st.NodeByID(id); n.Name != "A" {
-		t.Errorf("the operator CA node was renamed to %q", n.Name)
-	}
-}
-
 func TestListNodes_CarriesNodeIDs(t *testing.T) {
 	st := certsTestStore()
 	up := &fakeConn{status: &cryptosv1.GetStatusResponse{Status: &cryptosv1.NodeStatus{}}}

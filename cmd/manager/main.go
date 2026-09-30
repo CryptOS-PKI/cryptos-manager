@@ -231,6 +231,7 @@ func main() {
 		}
 		trust.refreshCRLs(ctx, log.Printf)
 		trust.run(ctx, log.Printf)
+		svc = svc.WithOperatorTrust(trust.trust, trust.rev)
 		tlsCfg = serverTLSConfig(base, trust.trust)
 		authMW = authz.ClientCertMiddlewareWith(trust.auth)
 		mcpKeys.Admit = trust.auth.AdmitMCP
