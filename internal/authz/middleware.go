@@ -27,31 +27,14 @@ import (
 	"github.com/CryptOS-PKI/manager/internal/apperr"
 )
 
-// serialRevoker reports whether a client-cert serial has been revoked. The
-// RevocationCache satisfies it; a nil revoker disables enforcement.
-type serialRevoker interface {
-	IsRevoked(serial string) bool
-}
-
 // ClientCertMiddleware extracts the operator identity from the verified TLS
-// peer certificate and puts it on the request context, with no revocation
-// enforcement. It is the plain path used where no operator-CA revocation source
-// is configured. A request with no peer cert is 401; a cert without the
-// access-level extension is 403.
+// peer certificate and puts it on the request context, trusting the TLS
+// handshake's verification alone. The serving path uses
+// ClientCertMiddlewareWith, which also re-checks trust and revocation. A
+// request with no peer cert is 401; a cert without the access-level extension
+// is 403.
 func ClientCertMiddleware(next http.Handler) http.Handler {
-	return ClientCertMiddlewareWithRevocation(nil, next)
-}
-
-// ClientCertMiddlewareWithRevocation extracts the operator identity from the
-// verified TLS peer certificate and puts it on the request context. The TLS
-// layer (RequireAndVerifyClientCert + operator CA) guarantees any presented
-// cert is trusted; this reads it and, when revoker is non-nil, additionally
-// denies a client whose serial is in the operator-CA's revoked set. A request
-// with no peer cert is 401; a cert without the access-level extension, or one
-// whose serial has been revoked, is 403. A nil revoker disables the revocation
-// check (identical to ClientCertMiddleware).
-func ClientCertMiddlewareWithRevocation(revoker serialRevoker, next http.Handler) http.Handler {
-	return clientCert(nil, revoker, next)
+	return clientCert(nil, next)
 }
 
 // PeerAuthorizer re-checks a peer certificate on every request against the
@@ -68,10 +51,10 @@ type PeerAuthorizer interface {
 // PeerAuthorizer check. A refused certificate gets 403 with the refusal's
 // code and reason headers.
 func ClientCertMiddlewareWith(auth PeerAuthorizer) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler { return clientCert(auth, nil, next) }
+	return func(next http.Handler) http.Handler { return clientCert(auth, next) }
 }
 
-func clientCert(auth PeerAuthorizer, revoker serialRevoker, next http.Handler) http.Handler {
+func clientCert(auth PeerAuthorizer, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.TLS == nil || len(r.TLS.PeerCertificates) == 0 {
 			// A connection whose handshake carried no certificate can never
@@ -90,10 +73,6 @@ func clientCert(auth PeerAuthorizer, revoker serialRevoker, next http.Handler) h
 		id, err := IdentityFromCertificate(cert)
 		if err != nil {
 			http.Error(w, "operator certificate missing access level", http.StatusForbidden)
-			return
-		}
-		if revoker != nil && revoker.IsRevoked(id.Serial) {
-			http.Error(w, "operator certificate revoked", http.StatusForbidden)
 			return
 		}
 		if auth != nil {
