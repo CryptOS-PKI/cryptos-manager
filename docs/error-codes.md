@@ -4,6 +4,9 @@
 
 Every failure leaving the web-facing API carries one of these numbers, on the
 `x-cryptos-error-code` error metadata and quoted in the message an operator sees.
+A 16xx failure usually also names a sub-reason on `x-cryptos-error-reason`, for example
+`STALE_CRL` under 1608. The 16xx block is defined by the api contract
+(`cryptos.fleet.v1.ErrorCode` and `ErrorReason`).
 The manager owns the 1000-1999 block; another service takes its own first digit.
 
 | Code | Area | Cause |
@@ -35,4 +38,16 @@ The manager owns the 1000-1999 block; another service takes its own first digit.
 | 1400 | Operators | no operator_ca_node is configured, so operator credentials cannot be listed, issued or revoked, and operator-cert revocation is not enforced |
 | 1401 | Operators | no operator credential with that serial is recorded |
 | 1500 | Configuration | the node rejected the configuration as invalid |
+| 1600 | First run | the bootstrap token is wrong, expired or already used |
+| 1601 | First run | first run is closed |
+| 1602 | First run | too many failures from this client; wait and try again |
+| 1603 | First run | first run or the denylist can't run here (DATABASE_REQUIRED: no Postgres; FIRST_RUN_DISABLED: firstRun is disabled) |
+| 1604 | First run | the bootstrap session is unknown, expired or ended |
+| 1605 | Operator CAs | the operator CA, or its CRL or OCSP settings, were refused; the sub-reason says why |
+| 1606 | Operator CAs | the CSR was refused (SIZE, SIGNATURE, SUBJECT_MISMATCH or KEY_TYPE) |
+| 1607 | Operator CAs | the operator CA comes from operatorCAPath in the config file, so it can't be changed through the API |
+| 1608 | Operator CAs | no fresh revocation data for the certificate (STALE_CRL, STALE_OCSP, STALE_DENYLIST, NO_CRL or DATABASE_REQUIRED) |
+| 1609 | Operator CAs | retiring this operator CA would leave no trusted active operator CA |
+| 1610 | Operator CAs | the operator certificate was refused; the sub-reason says why (for example REVOKED or NOT_CHAINED) |
+| 1611 | Operator CAs | the credential request can't be used (NOT_FOUND, EXPIRED or NOT_PENDING) |
 | 1900 | Unclassified | a failure with no registered code |
