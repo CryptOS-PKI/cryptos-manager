@@ -105,6 +105,9 @@ type Service struct {
 	// installed node's fingerprint.
 	adoptions adoptionWaits
 
+	// nodeCAWatch sees every CA chain a node reports.
+	nodeCAWatch *operatorca.NodeCAWatch
+
 	log log.Logger
 }
 
@@ -127,6 +130,14 @@ func (s *Service) WithEnrollment(dialPEM func(endpoint, certPEM, keyPEM, caPEM s
 func (s *Service) WithOperatorTrust(trust *operatorca.TrustStore, rev *operatorca.Revocations) *Service {
 	s.trust = trust
 	s.revocations = rev
+
+	return s
+}
+
+// WithNodeCAWatch supplies the watch that flags a trusted operator CA a
+// node's reported chain shows to be that node's CA. Returns s for chaining.
+func (s *Service) WithNodeCAWatch(w *operatorca.NodeCAWatch) *Service {
+	s.nodeCAWatch = w
 
 	return s
 }
