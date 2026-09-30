@@ -1,0 +1,18 @@
+{{- if not .Values.nodeCreds.existingClaim }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "fleet-manager.name" . }}-node-creds
+  labels: {{- include "fleet-manager.labels" . | nindent 4 }}
+  annotations:
+    # The node admin keys cannot be recreated; an uninstall must not take them.
+    helm.sh/resource-policy: keep
+spec:
+  accessModes: {{ toJson .Values.nodeCreds.accessModes }}
+  {{- with .Values.nodeCreds.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.nodeCreds.size | quote }}
+{{- end }}

@@ -23,6 +23,7 @@ limitations under the License.
 import (
 	"context"
 
+	log "github.com/Bugs5382/go-log"
 	fleetv1connect "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1/fleetv1connect"
 	cryptosv1 "github.com/CryptOS-PKI/api/go/cryptos/v1"
 	"github.com/CryptOS-PKI/manager/internal/approval"
@@ -86,12 +87,18 @@ type Service struct {
 
 	// approvals backs the step-up approval RPCs the web UI decides with.
 	approvals *approval.Service
+
+	// reboots records protocol switches a node accepted with requires_reboot
+	// until the node reports them running.
+	reboots *rebootTracker
+
+	log log.Logger
 }
 
 // New builds a Service backed by st, dialing nodes with dial. Callers in
 // production pass an adapter over nodeclient.Dial; tests pass a fake.
 func New(st store.Store, dial func(store.Node) (NodeConn, error)) *Service {
-	return &Service{store: st, dial: dial}
+	return &Service{store: st, dial: dial, reboots: newRebootTracker(), log: log.NewLogger("fleet-manager")}
 }
 
 // WithEnrollment supplies the PEM dial seam (for LINK, which reaches a

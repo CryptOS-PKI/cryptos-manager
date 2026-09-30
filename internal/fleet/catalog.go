@@ -144,9 +144,11 @@ func (s *Service) ListAdapters(_ context.Context, _ *connect.Request[fleetv1.Lis
 // is a pure Store read; no node is dialed.
 func (s *Service) ListAudit(_ context.Context, _ *connect.Request[fleetv1.ListAuditRequest]) (*connect.Response[fleetv1.ListAuditResponse], error) {
 	audit := s.store.Audit()
+	nodeIDs := s.newAuditNodeIDs()
 	items := make([]*fleetv1.AuditEvent, len(audit))
 	for i, e := range audit {
 		items[i] = auditToProto(e)
+		items[i].NodeId = nodeIDs.of(e)
 	}
 
 	return connect.NewResponse(&fleetv1.ListAuditResponse{Items: items}), nil
@@ -212,6 +214,7 @@ func enrollmentToProto(r store.Enrollment) *fleetv1.EnrollmentRequest {
 		RequestedAt:        r.RequestedAt,
 		RejectionReason:    r.RejectionReason,
 		AdmittedNodeName:   r.AdmittedNodeName,
+		AdmittedNodeId:     r.AdmittedNodeID,
 		Kind:               r.Kind,
 		PinnedKeySha256:    r.PinnedKeySHA256,
 	}

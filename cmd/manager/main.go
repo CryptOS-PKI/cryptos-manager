@@ -52,11 +52,23 @@ import (
 
 func main() {
 	configPath := flag.String("config", "config.yaml", "path to the manager's YAML config file")
+	healthcheck := flag.Bool("healthcheck", false, "probe the running manager's "+healthPath+" and exit 0 when healthy (the image's HEALTHCHECK)")
 	flag.Parse()
 
 	cfg, err := config.Load(*configPath)
 	if err != nil {
 		log.Fatalf("manager: %v", err)
+	}
+
+	if *healthcheck {
+		url, err := healthProbeURL(cfg)
+		if err != nil {
+			log.Fatalf("manager: healthcheck: %v", err)
+		}
+		if err := probeHealth(url); err != nil {
+			log.Fatalf("manager: healthcheck: %v", err)
+		}
+		return
 	}
 
 	nodes := make([]store.Node, len(cfg.Nodes))
@@ -82,7 +94,13 @@ func main() {
 		}
 	}
 
-	var st store.Store
+	var (
+		st         store.Store
+		storeCheck func(context.Context) error
+	)
+	if os.Getenv(config.DatabaseURLEnv) != "" {
+		log.Printf("manager: database_url taken from %s", config.DatabaseURLEnv)
+	}
 	if cfg.DatabaseURL == "" {
 		// Dev-only in-memory store: seed the demo catalog so the offline mock UI
 		// renders against fixtures. The demo catalog never touches a real store.
@@ -112,6 +130,7 @@ func main() {
 			log.Fatalf("manager: seed postgres: %v", err)
 		}
 		st = pg
+		storeCheck = pg.Ping
 		log.Printf("manager: using postgres store")
 	}
 
@@ -217,7 +236,7 @@ func main() {
 		}
 	}
 
-	var mounts []func(*http.ServeMux)
+	mounts := []func(*http.ServeMux){healthMount(storeCheck)}
 	if cfg.MCP.Enabled {
 		mount, err := mcpMount(cfg.MCP.PublicURL, svc, st, mcpKeys, approvals, tlsCfg.ClientCAs, revocationCache, authMW, b.Version)
 		if err != nil {

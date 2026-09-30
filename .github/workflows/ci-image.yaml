@@ -1,0 +1,145 @@
+name: Image CI
+# Build the release image on a pull request that touches it, and prove the
+# runtime contract the deployment docs promise: it runs as uid 65532 on a
+# read-only root filesystem with every capability dropped, writes only to the
+# node-creds volume, and reports health from its own /healthz, including a 503
+# when its database goes away. Nothing is pushed; publishing happens only on a
+# v* tag (job-release-image.yaml).
+#
+# Pull requests only, and not while the PR is a draft. Unlike the other PR
+# workflows this one is path-filtered, because the image build compiles the
+# web bundle and costs several minutes. A filtered-out workflow never reports,
+# so this check must not be made a required status check.
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - Dockerfile
+      - deploy/**
+      - cmd/manager/health.go
+      - cmd/manager/main.go
+      - go.mod
+      - go.sum
+      - .github/workflows/ci-image.yaml
+      - .github/workflows/job-release-image.yaml
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  image:
+    name: 🐳 Image CI (build, run read-only, health)
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      IMAGE: manager:ci
+      NET: fleet-ci
+    steps:
+      - name: 📥 Checkout manager
+        uses: actions/checkout@v4
+        with:
+          path: manager
+
+      - name: 📥 Checkout web
+        uses: actions/checkout@v4
+        with:
+          repository: CryptOS-PKI/web
+          ref: ${{ vars.WEB_RELEASE_REF || 'main' }}
+          path: web
+
+      - name: 🛠️ Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 🏗️ Build (not pushed)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: manager/Dockerfile
+          push: false
+          load: true
+          tags: ${{ env.IMAGE }}
+          build-args: |
+            VERSION=ci
+            COMMIT=${{ github.event.pull_request.head.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: 🔎 Image runs as nonroot with a health check
+        run: |
+          set -euo pipefail
+          user="$(docker image inspect -f '{{.Config.User}}' "$IMAGE")"
+          echo "user=$user"
+          [ "$user" = "65532:65532" ]
+          docker image inspect -f '{{json .Config.Healthcheck}}' "$IMAGE" | tee /dev/stderr | grep -q -- '-healthcheck'
+
+      - name: 🐘 Start Postgres
+        run: |
+          set -euo pipefail
+          docker network create "$NET"
+          docker run -d --name pg --network "$NET" \
+            -e POSTGRES_DB=manager -e POSTGRES_USER=manager -e POSTGRES_PASSWORD=ci \
+            postgres:18-alpine
+          for _ in $(seq 1 30); do
+            docker exec pg pg_isready -U manager -d manager && exit 0
+            sleep 2
+          done
+          exit 1
+
+      # No tlsCert/tlsKey or operator CA: the manager serves its self-signed
+      # bootstrap certificate, which is enough to exercise the TLS listener the
+      # health probe talks to.
+      - name: 🚀 Run the manager read-only
+        run: |
+          set -euo pipefail
+          cfg="$RUNNER_TEMP/fleet"
+          mkdir -p "$cfg"
+          cat > "$cfg/config.yaml" <<'EOF'
+          listen: "0.0.0.0:8443"
+          httpRedirectListen: ""
+          database_url: "postgres://manager:ci@pg:5432/manager?sslmode=disable"
+          nodes: []
+          EOF
+          sudo chown -R 65532:65532 "$cfg"
+          docker run -d --name manager --network "$NET" \
+            --read-only --cap-drop ALL --security-opt no-new-privileges:true \
+            --health-interval 2s --health-start-period 5s \
+            -p 8443:8443 \
+            -v "$cfg/config.yaml:/etc/cryptos/fleet/config.yaml:ro" \
+            -v node-creds:/var/lib/cryptos-manager/node-creds \
+            "$IMAGE"
+
+      - name: 💚 Becomes healthy
+        run: |
+          set -euo pipefail
+          for _ in $(seq 1 60); do
+            state="$(docker inspect -f '{{.State.Health.Status}}' manager)"
+            echo "health=$state"
+            [ "$state" = healthy ] && break
+            [ "$(docker inspect -f '{{.State.Running}}' manager)" = true ] || break
+            sleep 2
+          done
+          [ "$state" = healthy ]
+          curl -sSk https://127.0.0.1:8443/healthz | tee /dev/stderr | grep -q '"status":"ok"'
+          curl -sSk https://127.0.0.1:8443/version | tee /dev/stderr | grep -q '"version":"ci"'
+
+      - name: 🔐 node-creds volume is writable by the manager
+        run: |
+          set -euo pipefail
+          got="$(docker run --rm -v node-creds:/data busybox:1.37 stat -c '%u:%g %a' /data)"
+          echo "node-creds=$got"
+          [ "$got" = "65532:65532 700" ]
+
+      - name: 💔 Reports 503 when Postgres goes away
+        run: |
+          set -euo pipefail
+          docker stop pg
+          code="$(curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:8443/healthz)"
+          echo "healthz=$code"
+          [ "$code" = 503 ]
+
+      - name: 📜 Manager log
+        if: ${{ always() }}
+        run: docker logs manager || true

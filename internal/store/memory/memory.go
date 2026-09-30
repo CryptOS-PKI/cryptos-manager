@@ -20,6 +20,7 @@ limitations under the License.
 
 import (
 	"fmt"
+	"log"
 	"sort"
 	"sync"
 	"time"
@@ -32,6 +33,7 @@ import (
 type Store struct {
 	mu            sync.RWMutex
 	nodes         map[string]store.Node
+	nodeNames     []store.NodeName
 	profiles      []store.Profile
 	adapters      []store.Adapter
 	audit         []store.AuditEvent
@@ -51,15 +53,22 @@ func New(nodes []store.Node) *Store {
 }
 
 // NewWithCatalog builds a Store from the given nodes, keyed by Node.Name,
-// and the given catalog data.
+// and the given catalog data. A node without an ID gets a fresh one, and every
+// node starts its name history.
 func NewWithCatalog(nodes []store.Node, profiles []store.Profile, adapters []store.Adapter, audit []store.AuditEvent, enrollments []store.Enrollment) *Store {
 	m := make(map[string]store.Node, len(nodes))
+	hist := make([]store.NodeName, 0, len(nodes))
 	for _, n := range nodes {
+		if n.ID == "" {
+			n.ID = store.NewNodeID()
+		}
 		m[n.Name] = n
+		hist = append(hist, store.NodeName{NodeID: n.ID, Name: n.Name})
 	}
 
 	return &Store{
 		nodes:         m,
+		nodeNames:     hist,
 		profiles:      profiles,
 		adapters:      adapters,
 		audit:         audit,
@@ -94,12 +103,106 @@ func (s *Store) Node(name string) (store.Node, bool) {
 	return n, ok
 }
 
-// AddNode inserts n into the inventory, replacing any node with the same name.
+// NodeByID returns the node with the given stable ID, and whether it was
+// found.
+func (s *Store) NodeByID(id string) (store.Node, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.nodeByIDLocked(id)
+}
+
+func (s *Store) nodeByIDLocked(id string) (store.Node, bool) {
+	for _, n := range s.nodes {
+		if n.ID == id {
+			return n, true
+		}
+	}
+
+	return store.Node{}, false
+}
+
+// NodeByFormerName returns the node that most recently gave up name in a
+// rename, and whether there is one.
+func (s *Store) NodeByFormerName(name string) (store.Node, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var latest store.NodeName
+	for _, h := range s.nodeNames {
+		if h.Name == name && !h.Until.IsZero() && (latest.NodeID == "" || h.Until.After(latest.Until)) {
+			latest = h
+		}
+	}
+	if latest.NodeID == "" {
+		return store.Node{}, false
+	}
+
+	return s.nodeByIDLocked(latest.NodeID)
+}
+
+// NodeNames returns every node's name history in the order it was recorded.
+func (s *Store) NodeNames() []store.NodeName {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	out := make([]store.NodeName, len(s.nodeNames))
+	copy(out, s.nodeNames)
+
+	return out
+}
+
+// AddNode inserts n into the inventory. A node with the same name keeps its ID
+// and takes n's other fields; a new node keeps n.ID or gets a fresh one, and
+// starts its name history.
 func (s *Store) AddNode(n store.Node) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if existing, ok := s.nodes[n.Name]; ok {
+		n.ID = existing.ID
+		s.nodes[n.Name] = n
+		log.Printf("memory: node %s (%s) re-registered, keeping its id", n.Name, n.ID)
+		return
+	}
+	if n.ID == "" {
+		n.ID = store.NewNodeID()
+	}
 	s.nodes[n.Name] = n
+	s.nodeNames = append(s.nodeNames, store.NodeName{NodeID: n.ID, Name: n.Name})
+	log.Printf("memory: node %s joined the inventory with id %s", n.Name, n.ID)
+}
+
+// RenameNode changes the name of the node with the given ID and records the
+// change in the name history.
+func (s *Store) RenameNode(id, newName string, at time.Time) (store.Node, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	n, ok := s.nodeByIDLocked(id)
+	if !ok {
+		return store.Node{}, fmt.Errorf("memory: rename %s: %w", id, store.ErrNodeNotFound)
+	}
+	if n.Name == newName {
+		return n, nil
+	}
+	if _, taken := s.nodes[newName]; taken {
+		return store.Node{}, fmt.Errorf("memory: rename %s to %q: %w", id, newName, store.ErrNodeNameTaken)
+	}
+
+	oldName := n.Name
+	delete(s.nodes, oldName)
+	n.Name = newName
+	s.nodes[newName] = n
+	for i := range s.nodeNames {
+		if s.nodeNames[i].NodeID == id && s.nodeNames[i].Until.IsZero() {
+			s.nodeNames[i].Until = at
+		}
+	}
+	s.nodeNames = append(s.nodeNames, store.NodeName{NodeID: id, Name: newName, From: at})
+	log.Printf("memory: node %s renamed from %q to %q", id, oldName, newName)
+
+	return n, nil
 }
 
 // Profiles returns every certificate issuance profile.

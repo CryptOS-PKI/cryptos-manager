@@ -34,6 +34,9 @@ tasks:
       - deploy/build-image.sh {{.CLI_ARGS}}
   run:
     desc: Run the manager server against config.yaml.
+    env:
+      LOG_LEVEL: trace
+      LOG_FORMAT: console
     cmds:
       - go run ./cmd/manager -config config.yaml
   license:

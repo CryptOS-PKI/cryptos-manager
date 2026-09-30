@@ -20,20 +20,64 @@ limitations under the License.
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
-// Node is one fleet member as seen by the store: its dial address, role,
-// and the file paths for its admin mTLS client cert/key and pinned CA.
+// Node is one fleet member as seen by the store: its stable ID, its display
+// name, its dial address, role, and the file paths for its admin mTLS client
+// cert/key and pinned CA.
 type Node struct {
+	// ID is the node's stable identifier, a UUIDv7 in canonical lowercase
+	// form. It is assigned when the node joins the inventory and never
+	// changes or gets reused; Name is the editable display label.
+	ID        string
 	Name      string
 	Endpoint  string
 	Role      string
 	AdminCert string
 	AdminKey  string
 	CACert    string
+}
+
+// NodeName is one span of a node's name history: the node held Name from
+// From until Until. A zero From means the name the node joined with; a zero
+// Until means the name is current.
+type NodeName struct {
+	NodeID string
+	Name   string
+	From   time.Time
+	Until  time.Time
+}
+
+// ErrNodeNotFound is returned when no node has the requested ID.
+var ErrNodeNotFound = errors.New("store: node not found")
+
+// ErrNodeNameTaken is returned when a rename targets a name another node
+// already has.
+var ErrNodeNameTaken = errors.New("store: node name already in use")
+
+// NewNodeID mints a node ID: a UUIDv7 (RFC 9562) in canonical lowercase form.
+func NewNodeID() string {
+	id, err := uuid.NewV7()
+	if err != nil {
+		// NewV7 fails only when the system random source does, which leaves
+		// the process unable to do anything safely.
+		panic(fmt.Sprintf("store: mint node id: %v", err))
+	}
+	return id.String()
+}
+
+// IsNodeID reports whether s is a node ID in canonical form: a lowercase,
+// hyphenated UUID. Anything else, such as a node name, is not.
+func IsNodeID(s string) bool {
+	id, err := uuid.Parse(s)
+	return err == nil && id.String() == s
 }
 
 // Profile is a catalog certificate-issuance template, stored as the marshaled
@@ -197,6 +241,7 @@ type Enrollment struct {
 	RequestedAt        string
 	RejectionReason    string
 	AdmittedNodeName   string
+	AdmittedNodeID     string // stable ID of the admitted node; empty until approved
 	Kind               string // LINK|SUBORDINATE
 	PinnedKeySHA256    string // TOFU-pinned node identity (SPKI SHA-256 hex)
 	AttestationOK      bool
@@ -223,9 +268,27 @@ type Store interface {
 	Nodes() []Node
 	// Node returns the node with the given name, and whether it was found.
 	Node(name string) (Node, bool)
-	// AddNode inserts n into the inventory, replacing any node with the same
-	// name. It is how an adopted node joins the fleet.
+	// NodeByID returns the node with the given stable ID, and whether it was
+	// found.
+	NodeByID(id string) (Node, bool)
+	// NodeByFormerName returns the node that most recently gave up the given
+	// name in a rename, and whether there is one. Callers look up the current
+	// name with Node first.
+	NodeByFormerName(name string) (Node, bool)
+	// NodeNames returns every node's name history, oldest span first per
+	// node.
+	NodeNames() []NodeName
+	// AddNode inserts n into the inventory, replacing the fields of any node
+	// with the same name while keeping that node's ID. A new node keeps n.ID,
+	// or gets a fresh NewNodeID when n.ID is empty, and starts its name
+	// history. It is how an adopted node joins the fleet.
 	AddNode(n Node)
+	// RenameNode changes the name of the node with the given ID to newName
+	// and records the change at at in the name history, returning the
+	// renamed node. Renaming a node to its current name returns it unchanged
+	// and records nothing. It returns ErrNodeNotFound when no node has the
+	// ID and ErrNodeNameTaken when another node already has newName.
+	RenameNode(id, newName string, at time.Time) (Node, error)
 	// Profiles returns every certificate issuance profile.
 	Profiles() []Profile
 	// Profile returns the profile with the given name, and whether it was

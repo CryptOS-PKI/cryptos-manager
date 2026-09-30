@@ -71,8 +71,12 @@ const (
 	CodeApprovalUnusable      = 1013
 	CodeApprovalStatusInvalid = 1014
 
-	CodeNodeUnreachable = 1100
-	CodeNodeNotFound    = 1101
+	CodeNodeUnreachable   = 1100
+	CodeNodeNotFound      = 1101
+	CodeNodeNameTaken     = 1102
+	CodeNodeNameInvalid   = 1103
+	CodeNodeRefMismatch   = 1104
+	CodeNodeRenameRefused = 1105
 
 	CodeProfileNotFound = 1200
 
@@ -105,7 +109,11 @@ var entries = []apperr.Entry{
 	{Code: CodeApprovalUnusable, Title: "Authorization", Cause: "over MCP, the approval was denied, has expired or was already used; call the tool without approval_id to request a new one"},
 	{Code: CodeApprovalStatusInvalid, Title: "Authorization", Cause: "the approval status filter is not pending, approved, denied, expired or used"},
 	{Code: CodeNodeUnreachable, Title: "Fleet", Cause: "the node could not be dialled or did not answer"},
-	{Code: CodeNodeNotFound, Title: "Fleet", Cause: "no node of that name is in the inventory"},
+	{Code: CodeNodeNotFound, Title: "Fleet", Cause: "no node with that name or ID is in the inventory"},
+	{Code: CodeNodeNameTaken, Title: "Fleet", Cause: "another node already has that name"},
+	{Code: CodeNodeNameInvalid, Title: "Fleet", Cause: "the node name is not an RFC 1123 label (1 to 63 lowercase letters, digits and hyphens, starting and ending with a letter or digit), or has the form of a node ID"},
+	{Code: CodeNodeRefMismatch, Title: "Fleet", Cause: "the request's node_id and node name point at different nodes; send node_id alone"},
+	{Code: CodeNodeRenameRefused, Title: "Fleet", Cause: "the node is the configured operator_ca_node, which the manager finds by name, so renaming it would cut off operator credentials"},
 	{Code: CodeProfileNotFound, Title: "Catalog", Cause: "no certificate profile of that name is known"},
 	{Code: CodeIssuanceRefused, Title: "Certificates", Cause: "the issuing node refused to sign the request"},
 	{Code: CodeIssuanceNeedsApproval, Title: "Certificates", Cause: "the request needs human step-up approval (a CA profile or the root node)"},

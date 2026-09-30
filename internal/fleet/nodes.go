@@ -20,7 +20,6 @@ import (
 	"context"
 	"crypto/x509"
 	"encoding/hex"
-	"errors"
 	"sync"
 
 	connect "connectrpc.com/connect"
@@ -54,11 +53,9 @@ func (s *Service) ListNodes(ctx context.Context, _ *connect.Request[fleetv1.List
 // chain. A dial/probe failure surfaces as a HEALTH_DOWN summary within the
 // detail rather than a request error, so the UI can still render the row.
 func (s *Service) GetNode(ctx context.Context, req *connect.Request[fleetv1.GetNodeRequest]) (*connect.Response[fleetv1.GetNodeResponse], error) {
-	name := req.Msg.GetName()
-
-	n, ok := s.store.Node(name)
-	if !ok {
-		return nil, connect.NewError(connect.CodeNotFound, errors.New("fleet: node not found: "+name))
+	n, err := s.resolveNode("GetNode", req.Msg.GetNodeId(), req.Msg.GetName(), formerNamesToo)
+	if err != nil {
+		return nil, err
 	}
 
 	conn, err := s.dial(n)
@@ -88,7 +85,7 @@ func (s *Service) GetNode(ctx context.Context, req *connect.Request[fleetv1.GetN
 
 	return connect.NewResponse(&fleetv1.GetNodeResponse{
 		Node: &fleetv1.NodeDetail{
-			Summary:      upSummary(n, status, cn, issuer),
+			Summary:      s.withProtocolState(ctx, upSummary(n, status, cn, issuer), status),
 			Identity:     mapIdentity(identityResp.GetIdentity()),
 			TpmAvailable: status.GetTpmState() == cryptosv1.TpmState_TPM_STATE_OK,
 			BootCount:    status.GetBootCount(),
@@ -117,7 +114,7 @@ func (s *Service) summarize(ctx context.Context, n store.Node) *fleetv1.NodeSumm
 		cn, issuer = leafCNs(identityResp.GetIdentity())
 	}
 
-	return upSummary(n, statusResp.GetStatus(), cn, issuer)
+	return s.withProtocolState(ctx, upSummary(n, statusResp.GetStatus(), cn, issuer), statusResp.GetStatus())
 }
 
 // upSummary maps a successfully probed node's status to a NodeSummary. cn and
@@ -125,6 +122,7 @@ func (s *Service) summarize(ctx context.Context, n store.Node) *fleetv1.NodeSumm
 // the trust edge to the node's parent CA.
 func upSummary(n store.Node, status *cryptosv1.NodeStatus, cn, issuer string) *fleetv1.NodeSummary {
 	return &fleetv1.NodeSummary{
+		Id:            n.ID,
 		Name:          n.Name,
 		Address:       n.Endpoint,
 		Role:          n.Role,
@@ -154,6 +152,7 @@ func leafCNs(id *cryptosv1.Identity) (cn, issuer string) {
 // probed, carrying err's text as the health detail.
 func downSummary(n store.Node, err error) *fleetv1.NodeSummary {
 	return &fleetv1.NodeSummary{
+		Id:           n.ID,
 		Name:         n.Name,
 		Address:      n.Endpoint,
 		Role:         n.Role,

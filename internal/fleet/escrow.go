@@ -52,11 +52,11 @@ func (s *Service) ExportCAKey(ctx context.Context, req *connect.Request[fleetv1.
 		return nil, err
 	}
 
-	name := req.Msg.GetNodeName()
-	node, ok := s.store.Node(name)
-	if !ok {
-		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("fleet: node %q not found", name))
+	node, err := s.resolveNode("ExportCAKey", req.Msg.GetNodeId(), req.Msg.GetNodeName(), currentNames)
+	if err != nil {
+		return nil, err
 	}
+	name := node.Name
 
 	conn, err := s.dial(node)
 	if err != nil {
@@ -76,7 +76,7 @@ func (s *Service) ExportCAKey(ctx context.Context, req *connect.Request[fleetv1.
 		Kind:       "ca-key-exported",
 		Summary:    fmt.Sprintf("Exported CA key from %s", name),
 		TargetKind: "node",
-		TargetPath: "/nodes/" + name,
+		TargetPath: nodeTarget(node),
 	})
 
 	return connect.NewResponse(&fleetv1.ExportCAKeyResponse{Envelope: resp.GetEnvelope()}), nil
@@ -102,11 +102,11 @@ func (s *Service) ImportCAKey(ctx context.Context, req *connect.Request[fleetv1.
 		return nil, err
 	}
 
-	name := req.Msg.GetNodeName()
-	node, ok := s.store.Node(name)
-	if !ok {
-		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("fleet: node %q not found", name))
+	node, err := s.resolveNode("ImportCAKey", req.Msg.GetNodeId(), req.Msg.GetNodeName(), currentNames)
+	if err != nil {
+		return nil, err
 	}
+	name := node.Name
 
 	conn, err := s.dial(node)
 	if err != nil {
@@ -128,7 +128,7 @@ func (s *Service) ImportCAKey(ctx context.Context, req *connect.Request[fleetv1.
 		Kind:       "ca-key-imported",
 		Summary:    fmt.Sprintf("Imported CA key onto %s (%s)", name, subjectCN),
 		TargetKind: "node",
-		TargetPath: "/nodes/" + name,
+		TargetPath: nodeTarget(node),
 	})
 
 	return connect.NewResponse(&fleetv1.ImportCAKeyResponse{
