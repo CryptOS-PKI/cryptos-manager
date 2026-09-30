@@ -82,6 +82,7 @@ const (
 
 	CodeIssuanceRefused       = 1300
 	CodeIssuanceNeedsApproval = 1301
+	CodeCertificateNotFound   = 1302
 
 	CodeOperatorCAUnconfigured = 1400
 	CodeOperatorNotFound       = 1401
@@ -117,6 +118,7 @@ var entries = []apperr.Entry{
 	{Code: CodeProfileNotFound, Title: "Catalog", Cause: "no certificate profile of that name is known"},
 	{Code: CodeIssuanceRefused, Title: "Certificates", Cause: "the issuing node refused to sign the request"},
 	{Code: CodeIssuanceNeedsApproval, Title: "Certificates", Cause: "the request needs human step-up approval (a CA profile or the root node)"},
+	{Code: CodeCertificateNotFound, Title: "Certificates", Cause: "the node has no issued certificate with that serial"},
 	{Code: CodeOperatorCAUnconfigured, Title: "Operators", Cause: "no operator_ca_node is configured, so operator credentials cannot be listed, issued or revoked, and operator-cert revocation is not enforced"},
 	{Code: CodeOperatorNotFound, Title: "Operators", Cause: "no operator credential with that serial is recorded"},
 	{Code: CodeConfigRejected, Title: "Configuration", Cause: "the node rejected the configuration as invalid"},

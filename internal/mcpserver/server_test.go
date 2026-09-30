@@ -18,6 +18,7 @@ limitations under the License.
 
 import (
 	"context"
+	"encoding/json"
 	"encoding/pem"
 	"sort"
 	"strings"
@@ -28,7 +29,7 @@ import (
 )
 
 var registeredTools = []string{
-	"adapter_list", "adapter_set_enabled", "approval_status", "audit_list", "cert_issue_from_csr", "cert_list", "cert_revoke",
+	"adapter_list", "adapter_set_enabled", "approval_status", "audit_list", "cert_get", "cert_issue_from_csr", "cert_list", "cert_revoke",
 	"enrollment_list", "enrollment_reject", "fleet_get_node", "fleet_get_node_config", "fleet_list_nodes", "fleet_whoami",
 	"operator_credential_list", "profile_apply_to_node", "profile_create", "profile_delete", "profile_list", "profile_update",
 }
@@ -172,6 +173,51 @@ func TestIssueFromCSR_Refusals(t *testing.T) {
 				t.Fatalf("refusal audit = %+v", last)
 			}
 		})
+	}
+}
+
+func TestCertGet_ReturnsPEMToAViewerAndIsAudited(t *testing.T) {
+	h := newHarness(t)
+	cs := h.session(h.key(authz.LevelAdmin, "viewer"))
+	before := len(h.st.Audit())
+
+	res := h.call(cs, "cert_get", map[string]any{"node": "pki-issuing", "serial_hex": "0a1b"})
+	if res.IsError {
+		t.Fatalf("cert_get: %s", text(res))
+	}
+	var out struct {
+		CertificatePEM string `json:"certificate_pem"`
+		ChainPEM       string `json:"chain_pem"`
+		Status         string `json:"status"`
+	}
+	if err := json.Unmarshal([]byte(text(res)), &out); err != nil {
+		t.Fatalf("result %q: %v", text(res), err)
+	}
+	if b, _ := pem.Decode([]byte(out.CertificatePEM)); b == nil || b.Type != "CERTIFICATE" || out.ChainPEM == "" || out.Status != "valid" {
+		t.Fatalf("cert_get = %+v", out)
+	}
+	rows := h.st.Audit()[before:]
+	if len(rows) != 1 || rows[0].Kind != "mcp-call" || rows[0].Tool != "cert_get" || rows[0].Outcome != "ok" || rows[0].KeyID == "" {
+		t.Fatalf("audit = %+v", rows)
+	}
+}
+
+func TestCertGet_RevokedCertificateCarriesItsStatus(t *testing.T) {
+	h := newHarness(t)
+	res := h.call(h.session(h.key(authz.LevelViewer, "")), "cert_get", map[string]any{"node": "pki-issuing", "serial_hex": "dead"})
+	if res.IsError || !strings.Contains(text(res), `"status":"revoked"`) || !strings.Contains(text(res), `"revoked_at":"2026-09-01T00:00:00Z"`) {
+		t.Fatalf("cert_get(revoked) = %q (error %v)", text(res), res.IsError)
+	}
+}
+
+func TestCertGet_UnknownSerialIsRefusedAndAudited(t *testing.T) {
+	h := newHarness(t)
+	res := h.call(h.session(h.key(authz.LevelViewer, "")), "cert_get", map[string]any{"node": "pki-issuing", "serial_hex": "ffff"})
+	if !res.IsError || !strings.Contains(text(res), "1302") {
+		t.Fatalf("cert_get(unknown) = %q (error %v)", text(res), res.IsError)
+	}
+	if last := lastAudit(h.st); last.Tool != "cert_get" || last.Outcome == "ok" {
+		t.Fatalf("audit = %+v", last)
 	}
 }
 

@@ -18,6 +18,7 @@ limitations under the License.
 
 import (
 	"context"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"log"
@@ -29,9 +30,12 @@ import (
 
 	connect "connectrpc.com/connect"
 	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
+	"github.com/CryptOS-PKI/manager/internal/apperr"
 	"github.com/CryptOS-PKI/manager/internal/auditlog"
 	"github.com/CryptOS-PKI/manager/internal/authz"
 	"github.com/CryptOS-PKI/manager/internal/store"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // rfc5280CRLReasons maps the RFC 5280 CRLReason codes the node reports on a
@@ -149,6 +153,55 @@ func (s *Service) RevokeCertificate(ctx context.Context, req *connect.Request[fl
 		SerialHex:  req.Msg.GetSerialHex(),
 		RevokedAt:  revokedAt,
 		ReasonCode: req.Msg.GetReasonCode(),
+	}), nil
+}
+
+// GetCertificate fetches an issued certificate and its chain from the node
+// that issued it and returns them PEM encoded, with the certificate's status.
+// Any level may read it. A revoked or expired certificate is still returned,
+// with its status. It is a read, so the web path writes no audit row; the
+// MCP path audits it like every other MCP read.
+func (s *Service) GetCertificate(ctx context.Context, req *connect.Request[fleetv1.GetCertificateRequest]) (*connect.Response[fleetv1.GetCertificateResponse], error) {
+	if _, err := operatorLevel(ctx); err != nil {
+		return nil, err
+	}
+
+	serial := req.Msg.GetSerialHex()
+	if serial == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("fleet: serial_hex is required"))
+	}
+	name := req.Msg.GetNodeName()
+	node, ok := s.store.Node(name)
+	if !ok {
+		return nil, apperr.Coded(apperr.CodeNodeNotFound,
+			connect.NewError(connect.CodeNotFound, fmt.Errorf("fleet: node %q not found", name)))
+	}
+
+	conn, err := s.dial(node)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("fleet: dial node: %w", err))
+	}
+	defer func() { _ = conn.Close() }()
+
+	got, err := conn.GetIssuedCertificate(ctx, serial)
+	if status.Code(err) == codes.NotFound {
+		return nil, apperr.Coded(apperr.CodeCertificateNotFound,
+			connect.NewError(connect.CodeNotFound, fmt.Errorf("fleet: node %q has no certificate %s: %w", name, serial, err)))
+	}
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("fleet: get issued certificate: %w", err))
+	}
+
+	var chain []byte
+	for _, der := range got.GetChainDer() {
+		chain = append(chain, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})...)
+	}
+
+	return connect.NewResponse(&fleetv1.GetCertificateResponse{
+		CertificatePem: string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: got.GetCertificateDer()})),
+		ChainPem:       string(chain),
+		Status:         got.GetStatus(),
+		RevokedAt:      got.GetRevokedAt(),
 	}), nil
 }
 

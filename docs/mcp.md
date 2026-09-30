@@ -175,6 +175,7 @@ that a person decides in the web UI (see [Step-up approval](#step-up-approval)).
 | `fleet_get_node` | GetNode | viewer | direct |
 | `fleet_get_node_config` | GetNodeConfig (read-only) | operator | direct |
 | `cert_list` | ListCertificates | viewer | direct |
+| `cert_get` | GetCertificate | viewer | direct |
 | `cert_issue_from_csr` | IssueLeaf | operator | direct, or step-up (see below) |
 | `cert_revoke` | RevokeCertificate | operator | step-up |
 | `profile_list` | ListProfiles | viewer | direct |
@@ -189,6 +190,14 @@ that a person decides in the web UI (see [Step-up approval](#step-up-approval)).
 | `enrollment_reject` | RejectEnrollment | operator | direct |
 | `operator_credential_list` | ListOperatorCredentials | operator | direct |
 | `approval_status` | none (the key's own approvals) | viewer | direct |
+
+**`cert_get`** takes `node` and `serial_hex` (as `cert_list` shows them) and returns
+`certificate_pem`, `chain_pem` (issuer first, up to the root) and `status` (`valid`,
+`revoked` or `expired`, with `revoked_at` for a revoked one). A revoked or expired
+certificate is still returned. An unknown serial is refused with
+[1302](error-codes.md). The manager fetches the certificate from the issuing node with
+its `GetIssuedCertificate` call, so the node must run a release that has it. Like every
+MCP read, it is audited; the web UI's `GetCertificate` is not.
 
 **`cert_issue_from_csr`** takes `node`, `profile`, `csr_pem` and, on the second call of a
 step-up, `approval_id`. The agent generates its key pair locally and sends only the CSR.

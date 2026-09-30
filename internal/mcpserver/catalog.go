@@ -67,6 +67,7 @@ var Catalog = []Spec{
 	{Name: "fleet_get_node", RPC: "GetNode", MinLevel: authz.LevelViewer, Policy: Direct},
 	{Name: "fleet_get_node_config", RPC: "GetNodeConfig", MinLevel: authz.LevelOperator, Policy: Direct},
 	{Name: "cert_list", RPC: "ListCertificates", MinLevel: authz.LevelViewer, Policy: Direct},
+	{Name: "cert_get", RPC: "GetCertificate", MinLevel: authz.LevelViewer, Policy: Direct},
 	{Name: "cert_issue_from_csr", RPC: "IssueLeaf", MinLevel: authz.LevelOperator, Policy: Direct},
 	{Name: "profile_list", RPC: "ListProfiles", MinLevel: authz.LevelViewer, Policy: Direct},
 	{Name: "adapter_list", RPC: "ListAdapters", MinLevel: authz.LevelViewer, Policy: Direct},

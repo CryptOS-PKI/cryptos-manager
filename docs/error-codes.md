@@ -31,6 +31,7 @@ The manager owns the 1000-1999 block; another service takes its own first digit.
 | 1200 | Catalog | no certificate profile of that name is known |
 | 1300 | Certificates | the issuing node refused to sign the request |
 | 1301 | Certificates | the request needs human step-up approval (a CA profile or the root node) |
+| 1302 | Certificates | the node has no issued certificate with that serial |
 | 1400 | Operators | no operator_ca_node is configured, so operator credentials cannot be listed, issued or revoked, and operator-cert revocation is not enforced |
 | 1401 | Operators | no operator credential with that serial is recorded |
 | 1500 | Configuration | the node rejected the configuration as invalid |

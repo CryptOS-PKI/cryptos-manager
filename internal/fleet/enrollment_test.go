@@ -573,6 +573,10 @@ func (r *routingConn) ListIssued(ctx context.Context) (*cryptosv1.ListIssuedResp
 	return r.ferry.ListIssued(ctx)
 }
 
+func (r *routingConn) GetIssuedCertificate(ctx context.Context, serialHex string) (*cryptosv1.GetIssuedCertificateResponse, error) {
+	return r.ferry.GetIssuedCertificate(ctx, serialHex)
+}
+
 func (r *routingConn) ListRevocations(ctx context.Context) (*cryptosv1.ListRevocationsResponse, error) {
 	return r.ferry.ListRevocations(ctx)
 }

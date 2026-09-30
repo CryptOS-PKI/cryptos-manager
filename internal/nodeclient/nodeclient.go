@@ -219,6 +219,13 @@ func (c *Client) ListRevocations(ctx context.Context) (*cryptosv1.ListRevocation
 	return c.node.ListRevocations(ctx, &cryptosv1.ListRevocationsRequest{})
 }
 
+// GetIssuedCertificate returns a certificate this node issued, with its chain
+// and status, by hex serial. The node answers NotFound for a serial it did
+// not issue.
+func (c *Client) GetIssuedCertificate(ctx context.Context, serialHex string) (*cryptosv1.GetIssuedCertificateResponse, error) {
+	return c.node.GetIssuedCertificate(ctx, &cryptosv1.GetIssuedCertificateRequest{SerialHex: serialHex})
+}
+
 // Attest asks the node to sign nonce with its identity key, proving
 // possession of the private key behind its current certificate.
 func (c *Client) Attest(ctx context.Context, nonce []byte) (*cryptosv1.AttestResponse, error) {
