@@ -279,3 +279,59 @@ func TestWireRoundTrip_Profile_KeepsEveryField(t *testing.T) {
 	}
 	t.Fatal("created profile kdc is missing from ListProfiles")
 }
+
+// wireProtocolConfigJSON is an issuing node's config in the web's JSON form
+// with both enrolment protocol blocks, write-only secrets blank as GetConfig
+// returns them.
+const wireProtocolConfigJSON = `{
+  "apiVersion": "cryptos.dev/v1alpha1",
+  "kind": "MachineConfig",
+  "metadata": {"name": "A"},
+  "role": {"kind": "issuing"},
+  "pki": {
+    "acme": {
+      "enabled": true,
+      "baseUrl": "https://ca.example.org/acme",
+      "httpPort": 8080,
+      "profile": "tls-server",
+      "termsOfService": "https://ca.example.org/tos",
+      "website": "https://ca.example.org",
+      "externalAccountKeys": [{"keyId": "k1"}],
+      "allowedIdentifierSuffixes": ["example.org"],
+      "orderTtlHours": 24
+    },
+    "est": {
+      "hostnames": ["est.example.org"],
+      "httpPort": 8443,
+      "profile": "device",
+      "label": "routers",
+      "realm": "cryptos",
+      "allowedIdentifierSuffixes": ["net.example.org"],
+      "enrollCredentials": [{"username": "router"}]
+    }
+  }
+}`
+
+func TestWireRoundTrip_ProtocolBlocks_KeepEveryField(t *testing.T) {
+	nodeCfg := &cryptosv1.MachineConfig{}
+	mustUnmarshal(t, wireProtocolConfigJSON, nodeCfg)
+	connA := &fakeConn{
+		getConfigResp:   &cryptosv1.GetConfigResponse{Config: nodeCfg},
+		applyConfigResp: &cryptosv1.ApplyConfigResponse{Generation: 2, RequiresReboot: true},
+	}
+	svc := New(certsTestStore(), dialFor(map[string]*fakeConn{"A": connA}))
+	client := wireClient(t, svc, authz.Identity{CN: "admin@acme.example", Level: authz.LevelAdmin})
+
+	got, err := client.GetNodeConfig(context.Background(), connect.NewRequest(&fleetv1.GetNodeConfigRequest{NodeName: "A"}))
+	if err != nil {
+		t.Fatalf("GetNodeConfig over JSON: %v", err)
+	}
+	requireSameJSON(t, "read (node -> manager -> web)", got.Msg.GetConfig(), wireProtocolConfigJSON)
+
+	if _, err := client.ApplyNodeConfig(context.Background(), connect.NewRequest(&fleetv1.ApplyNodeConfigRequest{
+		NodeName: "A", Config: got.Msg.GetConfig(),
+	})); err != nil {
+		t.Fatalf("ApplyNodeConfig over JSON: %v", err)
+	}
+	requireSameJSON(t, "apply (web -> manager -> node)", connA.gotApplyConfig, wireProtocolConfigJSON)
+}

@@ -7,6 +7,7 @@
 - 🌳 **Cross-node visibility.** Walks every linked node's declared `role`, `parent`, and `pair` to render a multi-Root fleet topology. Each Root is sovereign; the FM never crosses Root trust boundaries on its own.
 - 📚 **Inventory.** Tracks issued certificates, revocation status, and audit deltas across the fleet. Persists to Postgres (cross-node inventory only — per-node state stays on each node's embedded etcd).
 - 📜 **Declarative pushes.** When linked, an FM operator can push `MachineConfig` updates to nodes; nodes verify signatures and apply on next reboot.
+- 🔀 **Enrolment protocol switches.** An admin switches ACME or EST on or off per node (`SetNodeProtocol`). The manager applies the node's config with only that block's `enabled` flag changed, so its settings and write-only secrets stay as the node stores them. A switch takes effect at the node's next reboot, and `ListNodes` and `GetNode` show each protocol's configured and running state with `reboot_required` until the node reports it running. Every switch is audited with who, node, protocol and new state. Rebooting a node from the manager is not available yet.
 - 🧩 **MCP for AI agents.** An optional `/mcp` endpoint on the same listener lets an agent read the fleet and issue end-entity certificates, under the same viewer/operator/admin checks as the web UI. See [`docs/mcp.md`](docs/mcp.md).
 - 🚫 **Never an issuance authority.** The FM's peer cert lacks `keyCertSign` and `cRLSign`. The FM cannot sign certificates, even if compromised. Each Root retains full control.
 
