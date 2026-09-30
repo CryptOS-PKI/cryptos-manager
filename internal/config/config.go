@@ -19,7 +19,10 @@ limitations under the License.
 */
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"strings"
@@ -49,13 +52,38 @@ type Config struct {
 	// the port implicit in the redirect.
 	HTTPSPublicPort string `yaml:"httpsPublicPort"`
 
-	// TLS + client-auth material. Required when AuthBypass is false: the
-	// manager then serves HTTPS and verifies a client certificate against
-	// OperatorCA when one is presented. Ignored in the AuthBypass dev path
-	// (h2c).
-	TLSCert        string `yaml:"tlsCert"`
-	TLSKey         string `yaml:"tlsKey"`
+	// TLSCert and TLSKey are the HTTPS server certificate and key, set
+	// together or not at all. Unset, the manager serves a self-signed
+	// bootstrap certificate. Ignored in the AuthBypass dev path (h2c).
+	TLSCert string `yaml:"tlsCert"`
+	TLSKey  string `yaml:"tlsKey"`
+
+	// OperatorCAPath is a PEM file of operator CA certificates: the external
+	// CA that signs operator client certificates. When set it is the only
+	// source of operator CA trust and any operator CA registered in the
+	// database is ignored. Unset, operator CAs are registered at first run.
 	OperatorCAPath string `yaml:"operatorCAPath"`
+
+	// OperatorCRL lists where the CRLs for the operatorCAPath operator CAs
+	// come from; each CRL is matched to the CA that signed it. Only with
+	// operatorCAPath: a registered operator CA keeps its CRL source on its
+	// own record.
+	OperatorCRL []CRLSource `yaml:"operatorCRL"`
+
+	// OperatorOCSP says how to find the OCSP responder for the
+	// operatorCAPath operator CAs. Only with operatorCAPath.
+	OperatorOCSP OCSPConfig `yaml:"operatorOCSP"`
+
+	// OperatorRevocationPolicy is what the web path does when no fresh
+	// revocation data is available for a certificate: soft (the default)
+	// keeps enforcing the last good CRL and the denylist, with a banner;
+	// hard refuses. MCP always refuses.
+	OperatorRevocationPolicy string `yaml:"operatorRevocationPolicy"`
+
+	// FirstRun is auto (the default) or disabled. Disabled with no
+	// operatorCAPath means no operator CA is trusted and every caller is
+	// refused.
+	FirstRun string `yaml:"firstRun"`
 
 	// DatabaseURL is the Postgres connection DSN for durable state. Empty
 	// selects the in-memory store, seeded from the built-in catalog, which
@@ -76,6 +104,32 @@ type Config struct {
 
 	Nodes []NodeCfg `yaml:"nodes"`
 }
+
+// CRLSource is one operatorCRL entry: an http or https URL, or a file path,
+// never both.
+type CRLSource struct {
+	URL  string `yaml:"url"`
+	Path string `yaml:"path"`
+}
+
+// OCSPConfig is the OCSP mode for the operatorCAPath operator CAs: off, aia
+// (the responder named in each certificate, the default) or url (the
+// responder at URL).
+type OCSPConfig struct {
+	Mode string `yaml:"mode"`
+	URL  string `yaml:"url"`
+}
+
+// Values for FirstRun, OperatorRevocationPolicy and OperatorOCSP.Mode.
+const (
+	FirstRunAuto         = "auto"
+	FirstRunDisabled     = "disabled"
+	RevocationPolicySoft = "soft"
+	RevocationPolicyHard = "hard"
+	OCSPModeOff          = "off"
+	OCSPModeAIA          = "aia"
+	OCSPModeURL          = "url"
+)
 
 // MCPConfig switches the MCP endpoint on and names the origin agents and
 // browsers reach the manager at.
@@ -124,7 +178,9 @@ func Load(path string) (Config, error) {
 		return Config{}, fmt.Errorf("config: read %s: %w", path, err)
 	}
 
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	if err := dec.Decode(&cfg); err != nil && !errors.Is(err, io.EOF) {
 		return Config{}, fmt.Errorf("config: parse %s: %w", path, err)
 	}
 
@@ -140,7 +196,7 @@ func Load(path string) (Config, error) {
 	return cfg, nil
 }
 
-func (c Config) validate() error {
+func (c *Config) validate() error {
 	if c.Listen == "" {
 		return fmt.Errorf("listen must not be empty")
 	}
@@ -152,6 +208,10 @@ func (c Config) validate() error {
 	// is caught here rather than at TLS load.
 	if !c.AuthBypass && (c.TLSCert == "") != (c.TLSKey == "") {
 		return fmt.Errorf("tlsCert and tlsKey must be set together, or both left unset to generate a bootstrap certificate")
+	}
+
+	if err := c.validateOperatorCA(); err != nil {
+		return err
 	}
 
 	if c.MCP.Enabled {
@@ -199,6 +259,68 @@ func (c Config) validateMCP() error {
 	u, err := url.Parse(c.MCP.PublicURL)
 	if err != nil || u.Scheme != "https" || u.Host == "" || u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
 		return fmt.Errorf("mcp.public_url must be the manager's https origin with no path, for example https://fleetos.example.org")
+	}
+	return nil
+}
+
+// validateOperatorCA checks the operator CA trust and revocation keys and
+// fills in their defaults.
+func (c *Config) validateOperatorCA() error {
+	switch c.FirstRun {
+	case "":
+		c.FirstRun = FirstRunAuto
+	case FirstRunAuto, FirstRunDisabled:
+	default:
+		return fmt.Errorf("firstRun must be auto or disabled, not %q", c.FirstRun)
+	}
+
+	switch c.OperatorRevocationPolicy {
+	case "":
+		c.OperatorRevocationPolicy = RevocationPolicySoft
+	case RevocationPolicySoft, RevocationPolicyHard:
+	default:
+		return fmt.Errorf("operatorRevocationPolicy must be soft or hard, not %q", c.OperatorRevocationPolicy)
+	}
+
+	if len(c.OperatorCRL) > 0 && c.OperatorCAPath == "" {
+		return fmt.Errorf("operatorCRL needs operatorCAPath: a registered operator CA keeps its CRL source on its own record")
+	}
+	for i, src := range c.OperatorCRL {
+		switch {
+		case (src.URL == "") == (src.Path == ""):
+			return fmt.Errorf("operatorCRL[%d] must set exactly one of url and path", i)
+		case src.URL != "":
+			if err := httpURL(src.URL); err != nil {
+				return fmt.Errorf("operatorCRL[%d].url: %w", i, err)
+			}
+		}
+	}
+
+	if (c.OperatorOCSP.Mode != "" || c.OperatorOCSP.URL != "") && c.OperatorCAPath == "" {
+		return fmt.Errorf("operatorOCSP needs operatorCAPath: a registered operator CA keeps its OCSP settings on its own record")
+	}
+	switch c.OperatorOCSP.Mode {
+	case "":
+		c.OperatorOCSP.Mode = OCSPModeAIA
+	case OCSPModeOff, OCSPModeAIA, OCSPModeURL:
+	default:
+		return fmt.Errorf("operatorOCSP.mode must be off, aia or url, not %q", c.OperatorOCSP.Mode)
+	}
+	if c.OperatorOCSP.Mode == OCSPModeURL {
+		if err := httpURL(c.OperatorOCSP.URL); err != nil {
+			return fmt.Errorf("operatorOCSP.url is required with mode url: %w", err)
+		}
+	} else if c.OperatorOCSP.URL != "" {
+		return fmt.Errorf("operatorOCSP.url is only used with mode url, not %s", c.OperatorOCSP.Mode)
+	}
+	return nil
+}
+
+// httpURL accepts an absolute http or https URL with a host.
+func httpURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return fmt.Errorf("%q is not an http or https URL", raw)
 	}
 	return nil
 }
