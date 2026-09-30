@@ -216,4 +216,4 @@ Nothing tags automatically. On push to `main`, release-drafter categorises the m
 
 ## 📄 License
 
-[Apache License 2.0](LICENSE). Copyright 2026 Shane.
+[Apache License 2.0](LICENSE). Copyright The CryptOS Authors.
