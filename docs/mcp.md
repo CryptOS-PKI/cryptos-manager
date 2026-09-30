@@ -291,9 +291,9 @@ Not registered as tools at all:
   `PreviewAdoption` and `ListInstallDisks` (disk wipe and provisioning);
   `ApplyNodeConfig` and `SetNodeProtocol` (a node's configuration and its enrolment
   endpoints); `RekeyNode`; `CreateEnrollment` and `ApproveEnrollment` (node admin
-  credentials, subordinate signing); `RenameNode`; `IssueOperatorCredential` and
-  `RevokeOperatorCredential` (an agent never mints operator certificates); MCP key
-  management itself; and `ListApprovals` and `DecideApproval` (an agent never sees or
+  credentials, subordinate signing); `RenameNode`; `RevokeOperatorCredential`, the
+  operator credential request RPCs and the operator CA RPCs (operator certificates and
+  the CAs that sign them are managed by people); MCP key management itself; and `ListApprovals` and `DecideApproval` (an agent never sees or
   decides approvals). Node-only operations stay in `cryptosctl`.
 
 ## Live checks on every call

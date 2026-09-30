@@ -22,9 +22,7 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"fmt"
 	"math/big"
-	"strings"
 	"testing"
 	"time"
 
@@ -64,97 +62,6 @@ func operatorsStore() store.Store {
 	return memory.New([]store.Node{
 		{Name: "opca", Endpoint: "opca.acme.com:4443", Role: "root"},
 	})
-}
-
-func TestIssueOperatorCredential_ViewerDenied_NoDialNoStore(t *testing.T) {
-	st := operatorsStore()
-	conn := &fakeConn{}
-	svc := New(st, dialFor(map[string]*fakeConn{"opca": conn})).WithOperatorCA("opca")
-
-	ctx := operatorCtx("viewer@acme.example", authz.LevelViewer)
-	_, err := svc.IssueOperatorCredential(ctx, connect.NewRequest(&fleetv1.IssueOperatorCredentialRequest{
-		CommonName: "new@acme.example", Level: "operator", CsrDer: []byte("csr"),
-	}))
-	requireConnectCode(t, err, connect.CodePermissionDenied)
-	if conn.gotIssueCSR != nil {
-		t.Error("operator CA was dialed on a denied request")
-	}
-	if len(st.OperatorCredentials()) != 0 || len(st.Audit()) != 0 {
-		t.Error("denied request wrote a credential or audit event")
-	}
-}
-
-func TestIssueOperatorCredential_UnknownLevel_InvalidArgument(t *testing.T) {
-	svc := New(operatorsStore(), dialFor(map[string]*fakeConn{"opca": {}})).WithOperatorCA("opca")
-	ctx := operatorCtx("admin@acme.example", authz.LevelAdmin)
-	_, err := svc.IssueOperatorCredential(ctx, connect.NewRequest(&fleetv1.IssueOperatorCredentialRequest{
-		CommonName: "x", Level: "superuser", CsrDer: []byte("csr"),
-	}))
-	requireConnectCode(t, err, connect.CodeInvalidArgument)
-}
-
-func TestIssueOperatorCredential_NoOperatorCAConfigured_FailedPrecondition(t *testing.T) {
-	svc := New(operatorsStore(), dialFor(map[string]*fakeConn{"opca": {}})) // no WithOperatorCA
-	ctx := operatorCtx("admin@acme.example", authz.LevelAdmin)
-	_, err := svc.IssueOperatorCredential(ctx, connect.NewRequest(&fleetv1.IssueOperatorCredentialRequest{
-		CommonName: "x", Level: "admin", CsrDer: []byte("csr"),
-	}))
-	requireConnectCode(t, err, connect.CodeFailedPrecondition)
-}
-
-func TestIssueOperatorCredential_Admin_RoutesToLevelProfile_RecordsAndAudits(t *testing.T) {
-	st := operatorsStore()
-	notAfter := time.Now().Add(365 * 24 * time.Hour)
-	der := operatorCertDER(t, big.NewInt(0x0a1b), notAfter)
-	conn := &fakeConn{issueResp: &cryptosv1.IssueLeafResponse{CertDer: der}}
-	svc := New(st, dialFor(map[string]*fakeConn{"opca": conn})).WithOperatorCA("opca")
-
-	ctx := operatorCtx("admin@acme.example", authz.LevelAdmin)
-	resp, err := svc.IssueOperatorCredential(ctx, connect.NewRequest(&fleetv1.IssueOperatorCredentialRequest{
-		CommonName: "new@acme.example", Level: "admin", CsrDer: []byte("csr-der"),
-	}))
-	if err != nil {
-		t.Fatalf("IssueOperatorCredential(admin) error = %v", err)
-	}
-
-	if conn.gotIssueProfile != "operator-admin" {
-		t.Errorf("routed to profile %q, want operator-admin", conn.gotIssueProfile)
-	}
-	if string(conn.gotIssueCSR) != "csr-der" {
-		t.Errorf("forwarded CSR %q, want csr-der", conn.gotIssueCSR)
-	}
-	if !conn.closed {
-		t.Error("operator CA connection not closed")
-	}
-
-	wantSerial := fmt.Sprintf("%x", big.NewInt(0x0a1b))
-	if resp.Msg.GetSerialHex() != wantSerial {
-		t.Errorf("response serial = %q, want %q", resp.Msg.GetSerialHex(), wantSerial)
-	}
-	if string(resp.Msg.GetCertDer()) != string(der) {
-		t.Error("response cert der does not match the issued cert")
-	}
-
-	creds := st.OperatorCredentials()
-	if len(creds) != 1 {
-		t.Fatalf("store has %d credentials, want 1", len(creds))
-	}
-	c := creds[0]
-	if c.CommonName != "new@acme.example" || c.Level != "admin" || c.SerialHex != wantSerial || c.Revoked {
-		t.Errorf("stored credential = %+v, want CN new@acme.example level admin serial %s not revoked", c, wantSerial)
-	}
-
-	audit := st.Audit()
-	if len(audit) != 1 || audit[0].Kind != "operator-issued" {
-		t.Fatalf("audit = %+v, want one operator-issued event", audit)
-	}
-	// The audit must name the serial but never leak the CSR/cert bytes.
-	if !strings.Contains(audit[0].Summary, wantSerial) {
-		t.Errorf("audit summary %q does not name the serial", audit[0].Summary)
-	}
-	if strings.Contains(audit[0].Summary, "csr-der") || strings.Contains(audit[0].Summary, string(der)) {
-		t.Error("audit summary leaks CSR or cert bytes")
-	}
 }
 
 func TestRevokeOperatorCredential_Admin_RevokesMarksAndAudits(t *testing.T) {
