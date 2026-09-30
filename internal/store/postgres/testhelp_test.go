@@ -68,7 +68,8 @@ func truncateAll(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
 	if _, err := pool.Exec(context.Background(),
 		`TRUNCATE nodes, node_names, profiles, adapters, audit_events, enrollments, operator_credentials, mcp_keys, oauth_requests, oauth_codes, approvals,
-		  operator_cas, operator_crls, operator_denylist, operator_credential_requests, bootstrap_tokens, bootstrap_sessions, bootstrap_server_cert RESTART IDENTITY`); err != nil {
+		  operator_cas, operator_crls, operator_denylist, operator_credential_requests, bootstrap_tokens, bootstrap_sessions, bootstrap_server_cert RESTART IDENTITY;
+		 UPDATE bootstrap_state SET closed_at = NULL, closed_by_serial = '', closed_by_cn = '', closed_by_issuer_sha256 = ''`); err != nil {
 		t.Fatalf("truncate: %v", err)
 	}
 }
