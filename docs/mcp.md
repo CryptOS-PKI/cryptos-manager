@@ -286,6 +286,7 @@ Not registered as tools at all:
 
 - `ExportCAKey` and `ImportCAKey` (CA key material); `DecommissionNode`; `AdoptNode`,
   `PreviewAdoption` and `ListInstallDisks` (disk wipe and provisioning);
+  `ConfirmAdoptionFingerprint` (a person confirms a new node's identity from its console);
   `ApplyNodeConfig` and `SetNodeProtocol` (a node's configuration and its enrolment
   endpoints); `RekeyNode`; `CreateEnrollment` and `ApproveEnrollment` (node admin
   credentials, subordinate signing); `RenameNode`; `RevokeOperatorCredential`, the
