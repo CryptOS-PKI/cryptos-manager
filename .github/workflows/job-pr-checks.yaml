@@ -52,10 +52,19 @@ jobs:
         if: ${{ !cancelled() }}
         env:
           BODY: ${{ github.event.pull_request.body }}
+        # An issue reference is a keyword (GitHub's closing keywords, or Refs),
+        # an optional colon, then a reference GitHub links: #12, GH-12,
+        # owner/repo#12, or https://github.com/owner/repo/issues/12. Casing is
+        # free. A repo without its owner (repo#12) or a fragment on another
+        # site does not count, because GitHub does not link those.
         run: |
           fail=0
-          printf '%s' "$BODY" | grep -qiE '(closes|fixes|resolves|refs) #[0-9]+' \
-            || { echo "PR body must reference an issue (e.g. 'Closes #12')."; fail=1; }
+          owner='[[:alnum:]][[:alnum:]-]*'
+          repo='[[:alnum:]._-]+'
+          target="(#|gh-|${owner}/${repo}#|https://github\\.com/${owner}/${repo}/issues/)[0-9]+"
+          ref="(^|[^[:alnum:]_])(close[sd]?|fix(e[sd])?|resolve[sd]?|refs):?[[:space:]]+${target}([^[:alnum:]_]|\$)"
+          printf '%s' "$BODY" | grep -qiE "$ref" \
+            || { echo "PR body must reference an issue (e.g. 'Closes #12' or 'Refs owner/repo#12')."; fail=1; }
           printf '%s' "$BODY" | grep -qiE '##[[:space:]]*what' \
             || { echo "PR body must follow the template (a 'What and why' section)."; fail=1; }
           [ "$fail" -eq 0 ] || exit 1
@@ -65,8 +74,8 @@ jobs:
         if: ${{ !cancelled() }}
         uses: actions/checkout@v6
         with:
-          # Full history: hygiene diffs base..head and gitleaks scans every
-          # commit.
+          # Full history: hygiene diffs base..head and gitleaks scans the PR's
+          # commits, base..head.
           fetch-depth: 0
 
       - name: 🧼 PR Hygiene
@@ -113,9 +122,15 @@ jobs:
 
       - name: 🔒 Gitleaks (secret scan)
         if: ${{ !cancelled() && steps.gitleaks-install.outcome == 'success' }}
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
-          # Honor a repo-local .gitleaks.toml if present; scan the full tree.
-          # An array keeps the optional flag pair intact without word splitting.
-          args=(detect --source . --redact --verbose --no-banner)
+          # Only the PR's own commits. The checkout fetches every branch, and
+          # gitleaks without --log-opts scans all of them (git log --all), so a
+          # finding on another branch would fail this PR.
+          # Honor a repo-local .gitleaks.toml if present. An array keeps the
+          # optional flag pair intact without word splitting.
+          args=(detect --source . --redact --verbose --no-banner --log-opts "$BASE..$HEAD")
           if [ -f .gitleaks.toml ]; then args+=(--config .gitleaks.toml); fi
           gitleaks "${args[@]}"

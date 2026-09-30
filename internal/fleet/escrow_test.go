@@ -195,8 +195,8 @@ func TestExportCAKey_Admin_ReturnsEnvelopeAndAudits(t *testing.T) {
 	if strings.Contains(ev.Summary, strongPassphrase) || strings.Contains(ev.Summary, "ENCRYPTED-ENVELOPE-BYTES") {
 		t.Errorf("audit summary %q leaks the passphrase or envelope", ev.Summary)
 	}
-	if ev.TargetKind != "node" || ev.TargetPath != "/nodes/A" {
-		t.Errorf("audit target = (%q, %q), want (node, /nodes/A)", ev.TargetKind, ev.TargetPath)
+	if want := "/nodes/" + nodeID(t, st, "A"); ev.TargetKind != "node" || ev.TargetPath != want {
+		t.Errorf("audit target = (%q, %q), want (node, %s)", ev.TargetKind, ev.TargetPath, want)
 	}
 }
 
@@ -375,8 +375,8 @@ func TestImportCAKey_Admin_ReturnsCNsAndAudits(t *testing.T) {
 	if strings.Contains(ev.Summary, strongPassphrase) || strings.Contains(ev.Summary, "ENCRYPTED-ENVELOPE-BYTES") {
 		t.Errorf("audit summary %q leaks the passphrase or envelope", ev.Summary)
 	}
-	if ev.TargetKind != "node" || ev.TargetPath != "/nodes/A" {
-		t.Errorf("audit target = (%q, %q), want (node, /nodes/A)", ev.TargetKind, ev.TargetPath)
+	if want := "/nodes/" + nodeID(t, st, "A"); ev.TargetKind != "node" || ev.TargetPath != want {
+		t.Errorf("audit target = (%q, %q), want (node, %s)", ev.TargetKind, ev.TargetPath, want)
 	}
 }
 

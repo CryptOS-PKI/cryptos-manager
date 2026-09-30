@@ -202,8 +202,8 @@ func TestApplyNodeConfig_Admin_AppliesExactConfig_AuditsOnce(t *testing.T) {
 	if last.TargetKind != "node" {
 		t.Errorf("audit TargetKind = %q, want node", last.TargetKind)
 	}
-	if last.TargetPath != "/nodes/A" {
-		t.Errorf("audit TargetPath = %q, want /nodes/A", last.TargetPath)
+	if want := "/nodes/" + nodeID(t, st, "A"); last.TargetPath != want {
+		t.Errorf("audit TargetPath = %q, want %s", last.TargetPath, want)
 	}
 }
 

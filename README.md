@@ -36,11 +36,29 @@ Bring your own trust material: a **server TLS cert** (`tlsCert`/`tlsKey`, any pu
 
 ```sh
 docker run -p 443:8443 -p 80:8080 \
+  --read-only --cap-drop ALL --security-opt no-new-privileges:true \
   -v /etc/cryptos/fleet:/etc/cryptos/fleet:ro \
+  -v fleet-node-creds:/var/lib/cryptos-manager/node-creds \
   ghcr.io/cryptos-pki/manager:vX.Y.Z
 # config.yaml (authBypass:false, tlsCert/tlsKey, operatorCAPath, nodes[]) + the
 # referenced cert/key/CA files live under the mounted /etc/cryptos/fleet.
 ```
+
+The image runs as uid 65532 on a read-only root filesystem. The one path it writes is
+`/var/lib/cryptos-manager/node-creds`, where adoption keeps the admin key it mints for
+each node, so give that path a volume. A named volume picks up the image's directory,
+already owned by 65532, the first time it is mounted.
+
+> [!WARNING]
+> Without that volume the node keys live in the container and are gone when it is
+> recreated. The manager is then locked out of every node it adopted, and each one has
+> to be reset from its console and adopted again. Back the volume up with the database.
+
+The image carries its own health check: the manager probes its `/healthz`, which answers
+`200 {"status":"ok"}` when it is serving and its Postgres (if configured) answers, and
+`503 {"status":"unavailable"}` when the database does not. It is anonymous, like
+`/version`, and never includes the database error, which goes to the log instead.
+`docker ps` shows the result.
 
 Publish 80 as well as 443. The image listens on 8443 for HTTPS and, when
 `httpRedirectListen` is set, on 8080 for a plaintext listener that does nothing but
@@ -49,9 +67,10 @@ login page instead of a refused connection. Both are high ports because the imag
 as uid 65532 and cannot bind a privileged one; the published ports are the conventional
 80 and 443.
 
-The redirect names the **published** HTTPS port, not the one the container binds. If you
-publish HTTPS somewhere other than 443, set `httpsPublicPort` to that port, or the
-redirect will send browsers to a port nothing is listening on.
+> [!IMPORTANT]
+> The redirect names the **published** HTTPS port, not the one the container binds. If you
+> publish HTTPS somewhere other than 443, set `httpsPublicPort` to that port, or the
+> redirect will send browsers to a port nothing is listening on.
 
 The web surface itself is reachable without an operator certificate: it serves a landing
 page with a Log in action, and every API call still requires a certificate that verifies
@@ -60,13 +79,14 @@ connection for the page before it offers a certificate; an API call that arrives
 connection is refused and the connection is closed, so the next attempt makes a fresh TLS
 handshake. The refusal is logged (`authz: refused ...`) with the caller's address.
 
-**Everything under the mount must be readable by uid 65532.** The final image stage is
-`gcr.io/distroless/static-debian12:nonroot`, so the process runs as that uid, and that
-includes `config.yaml` itself. This bites hardest on Debian and Ubuntu, where the server
-key normally lives in `/etc/ssl/private` — that directory is `0710 root:ssl-cert`, so
-bind-mounting a key straight out of it gives the container a path it cannot traverse. The
-`usermod -aG ssl-cert` fix that works for a systemd deployment does not carry over, since
-no host account is involved. Copy the material into the mounted tree instead:
+> [!IMPORTANT]
+> **Everything under the mount must be readable by uid 65532.** The final image stage is
+> `gcr.io/distroless/static-debian12:nonroot`, so the process runs as that uid, and that
+> includes `config.yaml` itself. This bites hardest on Debian and Ubuntu, where the server
+> key normally lives in `/etc/ssl/private` — that directory is `0710 root:ssl-cert`, so
+> bind-mounting a key straight out of it gives the container a path it cannot traverse. The
+> `usermod -aG ssl-cert` fix that works for a systemd deployment does not carry over, since
+> no host account is involved. Copy the material into the mounted tree instead:
 
 ```sh
 sudo install -o 65532 -g 65532 -m 0444 fullchain.pem /etc/cryptos/fleet/tls/server-fullchain.pem
@@ -78,10 +98,11 @@ The failure mode is misleading if you skip this: the manager logs `using postgre
 and `N node(s) configured` first, then dies on `tls: load server cert: permission
 denied`, which reads like a TLS problem rather than a permissions one.
 
-**`config.yaml` is a secret, not configuration.** `database_url` carries the Postgres DSN
-inline and the loader does no environment interpolation, so the password is in the file.
-Give it `0400` owned by uid 65532, as above, and keep it out of git — including out of the
-directory you keep a `docker compose` file in.
+> [!CAUTION]
+> **`config.yaml` is a secret, not configuration.** `database_url` carries the Postgres DSN
+> inline and the loader does no environment interpolation, so the password is in the file.
+> Give it `0400` owned by uid 65532, as above, and keep it out of git — including out of the
+> directory you keep a `docker compose` file in.
 
 ### Single host with `docker compose`
 
@@ -102,6 +123,9 @@ worth knowing before you adapt it:
   From Postgres 18 the image stores data in major-version-specific subdirectories, and a
   volume on the old path is rejected outright with
   `there appears to be PostgreSQL data in /var/lib/postgresql/data (unused mount/volume)`.
+- **Node credentials get their own volume.** The manager runs read-only, and
+  `node-creds` is the one writable path: the admin key minted for each adopted node. It
+  is state as much as the database is, so back both up together.
 - **Two different things read the mounted files.** `config.yaml`, `tls/` and
   `operator-ca/` are read by the manager, so they must be readable by uid 65532.
   `secrets/postgres.env` is read by the `docker compose` CLI on the host before any
@@ -117,9 +141,10 @@ worth knowing before you adapt it:
 There is no published image before the first release tag, so until then this is the
 supported path — and it stays useful afterwards for a patched build.
 
-**The build context is the workspace root, not this repo.** The `Dockerfile` copies from
-`manager/` and `web/`, so it needs a parent directory holding both checkouts side by side.
-Running `docker build .` from inside this repo fails on the `COPY` paths:
+> [!IMPORTANT]
+> **The build context is the workspace root, not this repo.** The `Dockerfile` copies from
+> `manager/` and `web/`, so it needs a parent directory holding both checkouts side by side.
+> Running `docker build .` from inside this repo fails on the `COPY` paths:
 
 ```sh
 mkdir -p src && cd src
@@ -144,8 +169,29 @@ works but reports `dev` / `unknown`. Extra arguments go straight to `docker buil
 helm install fleet oci://ghcr.io/cryptos-pki/charts/fleet-manager --version X.Y.Z \
   --set tls.certSecret=<server-tls-secret> \
   --set operatorCA.configMap=<operator-ca-configmap> \
+  --set database.existingSecret=<postgres-dsn-secret> \
   --set-json 'nodes=[{"name":"pki-root","endpoint":"pki-root.example:443","role":"root","adminCertPath":"...","adminKeyPath":"...","caCertPath":"..."}]'
 ```
+
+`chart/fleet-manager` is the supported chart. Beyond the TLS Secret and operator CA
+ConfigMap it needs a Postgres DSN: `database.existingSecret` names a Secret whose
+`database.secretKey` (default `database-url`) holds it, and the chart passes it to the
+manager as `MANAGER_DATABASE_URL` so the password never appears in the rendered config. It
+refuses to render without one unless `authBypass` is on. The node credentials go on a
+PersistentVolumeClaim (`fleet-manager-node-creds`, or `nodeCreds.existingClaim`), which
+`helm uninstall` leaves in place.
+
+> [!WARNING]
+> That claim holds the admin key for every node the manager adopted. Deleting it locks the
+> manager out of those nodes until each one is reset from its console, so back it up with
+> the database.
+
+The chart runs one pod by default, with a `Recreate` rollout, because the default claim is
+`ReadWriteOnce`. More replicas need `nodeCreds.accessModes` to include `ReadWriteMany`, so
+every pod sees every node's key; the chart refuses to render otherwise. The pod runs as
+uid 65532 with a read-only root filesystem and every capability dropped. Readiness is
+`/healthz`, so a pod whose database is down leaves the Service. Startup and liveness only
+check that the listener accepts connections, so a database outage does not restart it.
 
 The MCP endpoint is off in the chart too. `mcp.enabled`, `mcp.publicURL` and `operatorCANode` turn it on; the chart refuses to render it without `operatorCANode` or with `authBypass`. See [`docs/mcp.md`](docs/mcp.md#with-the-helm-chart).
 
@@ -177,12 +223,16 @@ Setup, the tool list and key management are in [`docs/mcp.md`](docs/mcp.md).
 The manager keeps its state either in memory or in Postgres, chosen by the `database_url` config key:
 
 - **Unset (default).** An in-memory store seeded from the built-in catalog. Nothing persists across a restart. This is the offline-dev and test default.
-- **Set to a Postgres DSN.** The manager applies its schema (a small idempotent migrator runs on every startup), seeds the catalog into an empty database on first run, and persists enrollments and the hash-chained audit log. Restarts keep pending enrollments and the audit trail; the seed is a no-op once any table has rows, so live data is never clobbered.
+- **Set to a Postgres DSN.** The manager applies its schema (a small idempotent migrator runs on every startup), seeds the catalog into an empty database on first run, and persists enrollments and the hash-chained audit log. Restarts keep pending enrollments and the audit trail; the seed is a no-op once any table has rows, so live data is never clobbered. That makes `nodes[]` in `config.yaml` bootstrap-only: once the database holds the inventory, a node renamed in the web UI keeps its new name across restarts, and editing the file no longer changes it. Every node has a stable ID, a UUIDv7 assigned when it joins, that never changes; the name is an editable label.
 
 ```yaml
 # config.yaml
 database_url: "postgres://manager:secret@db:5432/manager"
 ```
+
+A non-empty `MANAGER_DATABASE_URL` environment variable overrides `database_url`, so the
+DSN and its password can come from a secret store instead of the file. The manager logs
+`database_url taken from MANAGER_DATABASE_URL` when it does.
 
 The persistence layer is hand-rolled: raw SQL over [`pgx`](https://github.com/jackc/pgx), a hand-written schema, and a tiny version-tracked migrator — no ORM.
 
@@ -193,10 +243,20 @@ verify the listener without a browser — see
 
 The Postgres integration tests are gated on the `MANAGER_TEST_DATABASE_URL` env var and **skip** when it is unset, so `task ci` stays green without a database. To run them against a throwaway Postgres:
 
-```sh
+**Linux / macOS**
+
+```bash
 docker run -d --rm -e POSTGRES_PASSWORD=test -p 5433:5432 postgres:18-alpine
 MANAGER_TEST_DATABASE_URL=postgres://postgres:test@localhost:5433/postgres \
   go test ./internal/store/... -v
+```
+
+**Windows (PowerShell)**
+
+```powershell
+docker run -d --rm -e POSTGRES_PASSWORD=test -p 5433:5432 postgres:18-alpine
+$env:MANAGER_TEST_DATABASE_URL = "postgres://postgres:test@localhost:5433/postgres"
+go test ./internal/store/... -v
 ```
 
 Pull-request CI (`.github/workflows/ci-go.yaml`) runs the same checks as `task ci` (gofmt, vet, golangci-lint, build, tests) with a Postgres service container and `MANAGER_TEST_DATABASE_URL` set, so these integration tests always run there. It skips draft PRs.
@@ -204,6 +264,16 @@ Pull-request CI (`.github/workflows/ci-go.yaml`) runs the same checks as `task c
 ## 📦 Releasing
 
 Nothing tags automatically. On push to `main`, release-drafter categorises the merged conventional-commit PRs into the draft release notes, and [`Bugs5382/changelog-updater-action`](https://github.com/Bugs5382/changelog-updater-action) writes those notes into `CHANGELOG.md` (committed back to `main` as a `[skip ci]` pre-release commit). The maintainer then publishes the GitHub Release by hand, which creates the `vX.Y.Z` tag. That tag triggers `job-release-image.yaml`, which builds and pushes the container image (`ghcr.io/cryptos-pki/manager`) via BuildKit and packages+pushes the Helm chart (`oci://ghcr.io/cryptos-pki/charts/fleet-manager`). The node ISO ships from [`cryptos`](https://github.com/CryptOS-PKI/cryptos). The image and chart assume no particular deploy environment — adopters bring their own registry, trust material, and orchestrator. (The repo's own release/governance tooling — release-drafter, `Bugs5382/changelog-updater-action`, golic — is the maintainer's; adopters don't need it.)
+
+The release image is meant to be rebuildable from its tag. Every base image in the
+`Dockerfile` is pinned by digest, the build date is the tagged commit's time rather than
+the clock, and the release refuses to build until the `WEB_RELEASE_REF` repository
+variable pins the `web` checkout to a tag or commit (falling back to `web`'s `main` would
+embed whatever was there that day). A pull request that touches the image runs
+`.github/workflows/ci-image.yaml`, which builds it without pushing, runs it read-only with
+every capability dropped against a Postgres container, and checks that it turns healthy,
+that the node-creds volume is owned by 65532, and that `/healthz` answers 503 once the
+database is stopped.
 
 ## 🚦 Status
 

@@ -33,9 +33,9 @@ func TestNodeRoundTrip(t *testing.T) {
 	ctx := context.Background()
 
 	if _, err := s.pool.Exec(ctx,
-		`INSERT INTO nodes (name, endpoint, role, admin_cert, admin_key, ca_cert)
-		 VALUES ($1,$2,$3,$4,$5,$6)`,
-		"x", "x.example:443", "root", "cert", "key", "ca"); err != nil {
+		`INSERT INTO nodes (id, name, endpoint, role, admin_cert, admin_key, ca_cert)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+		store.NewNodeID(), "x", "x.example:443", "root", "cert", "key", "ca"); err != nil {
 		t.Fatalf("insert node: %v", err)
 	}
 

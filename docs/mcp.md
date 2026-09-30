@@ -282,7 +282,7 @@ Not registered as tools at all:
   `PreviewAdoption` and `ListInstallDisks` (disk wipe and provisioning);
   `ApplyNodeConfig` and `SetNodeProtocol` (a node's configuration and its enrolment
   endpoints); `RekeyNode`; `CreateEnrollment` and `ApproveEnrollment` (node admin
-  credentials, subordinate signing); `IssueOperatorCredential` and
+  credentials, subordinate signing); `RenameNode`; `IssueOperatorCredential` and
   `RevokeOperatorCredential` (an agent never mints operator certificates); MCP key
   management itself; and `ListApprovals` and `DecideApproval` (an agent never sees or
   decides approvals). Node-only operations stay in `cryptosctl`.
