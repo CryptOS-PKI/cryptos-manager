@@ -268,6 +268,14 @@ type OperatorCredential struct {
 	Email      string
 	FullName   string
 	LeafSHA256 string
+	// RequestID is the credential request the certificate answered, empty
+	// when there was none.
+	RequestID string
+	// FirstSeenAt and LastSeenAt are when the manager first and last saw the
+	// credential authenticate; zero when it never has. LastSeenAt is updated
+	// at most hourly.
+	FirstSeenAt time.Time
+	LastSeenAt  time.Time
 }
 
 // Store is the manager's read access to the fleet inventory and its

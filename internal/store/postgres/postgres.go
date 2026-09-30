@@ -548,7 +548,8 @@ func (s *Store) AddAuditEvent(e store.AuditEvent) store.AuditEvent {
 // OperatorCredentials returns every issued operator credential, oldest first.
 func (s *Store) OperatorCredentials() []store.OperatorCredential {
 	rows, err := s.pool.Query(bg(),
-		`SELECT common_name, serial_hex, level, not_after, revoked, issuer_sha256, kind, email, full_name, leaf_sha256
+		`SELECT common_name, serial_hex, level, not_after, revoked, issuer_sha256, kind, email, full_name, leaf_sha256,
+		   coalesce(request_id::text, ''), first_seen_at, last_seen_at
 		 FROM operator_credentials ORDER BY issued_at, issuer_sha256, serial_hex`)
 	if err != nil {
 		panic(fmt.Sprintf("postgres: query operator_credentials: %v", err))
@@ -557,11 +558,15 @@ func (s *Store) OperatorCredentials() []store.OperatorCredential {
 
 	out := make([]store.OperatorCredential, 0)
 	for rows.Next() {
-		var c store.OperatorCredential
+		var (
+			c                   store.OperatorCredential
+			firstSeen, lastSeen *time.Time
+		)
 		if err := rows.Scan(&c.CommonName, &c.SerialHex, &c.Level, &c.NotAfter, &c.Revoked,
-			&c.IssuerSHA256, &c.Kind, &c.Email, &c.FullName, &c.LeafSHA256); err != nil {
+			&c.IssuerSHA256, &c.Kind, &c.Email, &c.FullName, &c.LeafSHA256, &c.RequestID, &firstSeen, &lastSeen); err != nil {
 			panic(fmt.Sprintf("postgres: scan operator credential: %v", err))
 		}
+		c.FirstSeenAt, c.LastSeenAt = timeOrZero(firstSeen), timeOrZero(lastSeen)
 		out = append(out, c)
 	}
 	if err := rows.Err(); err != nil {
