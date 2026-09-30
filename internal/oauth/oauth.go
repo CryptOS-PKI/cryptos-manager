@@ -498,6 +498,11 @@ func (s *Server) token(w http.ResponseWriter, r *http.Request) {
 		oauthError(w, http.StatusBadRequest, "invalid_grant", "the level ceiling is no longer allowed")
 		return
 	}
+	if errors.Is(err, mcpauth.ErrNotAdmitted) {
+		log.Printf("oauth: token for %s refused: %v", code.OperatorCN, err)
+		oauthError(w, http.StatusBadRequest, "invalid_grant", "the operator certificate can't hold an MCP key")
+		return
+	}
 	if err != nil {
 		oauthError(w, http.StatusInternalServerError, "server_error", "the key could not be minted")
 		return

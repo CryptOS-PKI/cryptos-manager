@@ -32,28 +32,30 @@ import (
 
 type noRevocations struct{}
 
-func (noRevocations) RevokedSerials() ([]string, error) { return nil, nil }
+func (noRevocations) CheckMCP(string, string) error { return nil }
 
-func testMCPMount(t *testing.T, roots *x509.CertPool, cache *authz.RevocationCache) (func(*http.ServeMux), error) {
+func livePool() *x509.CertPool { return x509.NewCertPool() }
+
+func testMCPMount(t *testing.T, roots func() *x509.CertPool, checker mcpauth.MCPChecker) (func(*http.ServeMux), error) {
 	t.Helper()
 	st := memory.New(nil)
 	svc := fleet.New(st, nil)
-	return mcpMount("https://fleetos.example.org", svc, st, &mcpauth.Keys{Store: st}, &approval.Service{Store: st}, roots, cache, authz.ClientCertMiddleware, "test")
+	return mcpMount("https://fleetos.example.org", svc, st, &mcpauth.Keys{Store: st}, &approval.Service{Store: st}, roots, checker, authz.ClientCertMiddleware, "test")
 }
 
 // The endpoint is refused outright rather than served without the live
 // certificate checks.
 func TestMCPMount_RefusesWithoutTheOperatorCAOrRevocation(t *testing.T) {
-	if _, err := testMCPMount(t, x509.NewCertPool(), nil); err == nil {
-		t.Error("mounted without a revocation cache")
+	if _, err := testMCPMount(t, livePool, nil); err == nil {
+		t.Error("mounted without a revocation checker")
 	}
-	if _, err := testMCPMount(t, nil, authz.NewRevocationCache(noRevocations{})); err == nil {
+	if _, err := testMCPMount(t, nil, noRevocations{}); err == nil {
 		t.Error("mounted without an operator CA pool")
 	}
 }
 
 func TestRootHandler_MountsMCPAndLogin(t *testing.T) {
-	mount, err := testMCPMount(t, x509.NewCertPool(), authz.NewRevocationCache(noRevocations{}))
+	mount, err := testMCPMount(t, livePool, noRevocations{})
 	if err != nil {
 		t.Fatalf("mcpMount: %v", err)
 	}

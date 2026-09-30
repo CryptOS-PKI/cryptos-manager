@@ -134,3 +134,44 @@ func TestLoad_BareConfigWithPostgres(t *testing.T) {
 		t.Fatalf("cfg = %+v", cfg)
 	}
 }
+
+// A CryptOS node can't be the operator CA any more, so operator_ca_node is
+// refused with the migration message rather than silently ignored, with or
+// without operatorCAPath.
+func TestLoad_OperatorCANodeIsRefused(t *testing.T) {
+	for name, body := range map[string]string{
+		"alone":               "listen: \":8443\"\noperator_ca_node: pki-operator\n",
+		"with operatorCAPath": fileSource + "operator_ca_node: pki-operator\n",
+		"empty value":         fileSource + "operator_ca_node: \"\"\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := loadYAML(t, body)
+			if err == nil || !strings.Contains(err.Error(), OperatorCANodeMigration) {
+				t.Fatalf("Load() = %v, want the migration message", err)
+			}
+		})
+	}
+	if !strings.Contains(OperatorCANodeMigration, "migrating from operator_ca_node") {
+		t.Fatalf("the migration message doesn't point at the docs: %q", OperatorCANodeMigration)
+	}
+}
+
+// MCP needs Postgres (the denylist, the operator CAs and the revocation
+// epoch live there) and no longer needs operator_ca_node or operatorCAPath:
+// the per-issuer revocation checks run on every call.
+func TestLoad_MCPSources(t *testing.T) {
+	const mcp = "mcp:\n  enabled: true\n  public_url: \"https://fleetos.example.org\"\n"
+	for name, body := range map[string]string{
+		"file source":       fileSource + "database_url: postgres://manager@db/manager\n" + mcp,
+		"registered source": "listen: \":8443\"\ndatabase_url: postgres://manager@db/manager\n" + mcp,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := loadYAML(t, body); err != nil {
+				t.Fatalf("Load() = %v", err)
+			}
+		})
+	}
+	if _, err := loadYAML(t, fileSource+mcp); err == nil || !strings.Contains(err.Error(), "database_url") {
+		t.Fatalf("Load() without Postgres = %v, want a database_url error", err)
+	}
+}

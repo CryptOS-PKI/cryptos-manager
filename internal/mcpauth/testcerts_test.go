@@ -23,7 +23,9 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
+	"errors"
 	"math/big"
+	"strings"
 	"testing"
 	"time"
 
@@ -98,7 +100,15 @@ func (ca testCA) validOperator(t *testing.T, serial int64, level authz.Level) *x
 	return ca.operatorCert(t, serial, level, time.Now().Add(-time.Hour), time.Now().Add(time.Hour))
 }
 
-// revokedSet is a fixed operator revocation list.
+// revokedSet is a fixed operator revocation list, keyed by the serial as the
+// identity shows it ("0A:BC").
 type revokedSet map[string]bool
 
-func (r revokedSet) IsRevoked(serial string) bool { return r[serial] }
+func (r revokedSet) CheckMCP(_, serial string) error {
+	for s, revoked := range r {
+		if revoked && strings.ToLower(strings.TrimLeft(strings.ReplaceAll(s, ":", ""), "0")) == serial {
+			return errors.New("revoked")
+		}
+	}
+	return nil
+}

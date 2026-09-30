@@ -91,12 +91,10 @@ type Config struct {
 	// MANAGER_DATABASE_URL (DatabaseURLEnv) overrides it.
 	DatabaseURL string `yaml:"database_url"`
 
-	// OperatorCANode names the fleet node that acts as the operator CA:
-	// operator-credential issuance and revocation (S9) route there, and the
-	// manager fetches its revoked serials to enforce operator-cert revocation
-	// at the authz middleware. Empty disables operator-credential management
-	// and revocation enforcement.
-	OperatorCANode string `yaml:"operator_ca_node"`
+	// OperatorCANode is refused at load with OperatorCANodeMigration: a
+	// CryptOS node can't be the operator CA. It is parsed only so the refusal
+	// can say what to do instead of reporting an unknown key.
+	OperatorCANode *string `yaml:"operator_ca_node"`
 
 	// MCP serves the Model Context Protocol endpoint for AI agents at /mcp
 	// on the same listener. Off by default.
@@ -161,6 +159,12 @@ type NodeCfg struct {
 	InsecureSkipNodeVerify bool `yaml:"insecureSkipNodeVerify"`
 }
 
+// OperatorCANodeMigration is the load error for a config that still sets
+// operator_ca_node.
+const OperatorCANodeMigration = "operator_ca_node is no longer supported: CryptOS nodes can't be the operator CA. " +
+	"Use an external operator CA (operatorCAPath or first-run registration) and, for revocation, " +
+	"operatorCRL and the Fleet Manager denylist. See docs: migrating from operator_ca_node"
+
 // DatabaseURLEnv overrides database_url when set and non-empty. The DSN
 // carries the database password, and the loader does no interpolation, so
 // this is how a deployment keeps it in a secret store rather than in
@@ -199,6 +203,9 @@ func Load(path string) (Config, error) {
 func (c *Config) validate() error {
 	if c.Listen == "" {
 		return fmt.Errorf("listen must not be empty")
+	}
+	if c.OperatorCANode != nil {
+		return errors.New(OperatorCANodeMigration)
 	}
 
 	// tlsCert/tlsKey and operatorCAPath are deliberately optional. Omitting
@@ -243,18 +250,16 @@ func (c *Config) validate() error {
 
 // validateMCP refuses any configuration in which an MCP key could not be
 // re-validated live on every request. Each key stands for an operator
-// certificate, so without the operator CA and its revocation source there is
-// nothing to check it against, and under authBypass there is no certificate
-// at all.
+// certificate: under authBypass there is no certificate at all, and without
+// Postgres there is no denylist, registered operator CA or revocation epoch
+// to check it against. Whether the certificate's operator CA has a fresh CRL
+// is checked per call, so MCP can be enabled before the CRL is set up.
 func (c Config) validateMCP() error {
 	if c.AuthBypass {
 		return fmt.Errorf("mcp.enabled requires authBypass to be false: MCP keys are bound to operator certificates")
 	}
-	if c.OperatorCANode == "" {
-		return fmt.Errorf("mcp.enabled requires operator_ca_node: without an operator revocation source a revoked operator's keys would keep working")
-	}
-	if c.OperatorCAPath == "" {
-		return fmt.Errorf("mcp.enabled requires operatorCAPath: MCP keys are re-validated against the operator CA on every request")
+	if c.DatabaseURL == "" {
+		return fmt.Errorf("mcp.enabled requires database_url: the operator denylist, operator CAs and revocation epoch MCP keys are checked against live in Postgres")
 	}
 	u, err := url.Parse(c.MCP.PublicURL)
 	if err != nil || u.Scheme != "https" || u.Host == "" || u.Path != "" || u.RawQuery != "" || u.Fragment != "" {

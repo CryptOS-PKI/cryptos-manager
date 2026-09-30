@@ -51,13 +51,13 @@ func TestResolve_ValidKeyYieldsLiveIdentity(t *testing.T) {
 	st := memory.New(nil)
 	cert := ca.validOperator(t, 0x0abc, authz.LevelOperator)
 	plain, key := mintFor(t, st, cert, "")
-	r := &Resolver{Store: st, Roots: ca.pool(), Revoked: revokedSet{}}
+	r := &Resolver{Store: st, Roots: ca.pool, Revoked: revokedSet{}}
 
 	id, err := r.Resolve(context.Background(), plain)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	want := authz.Identity{CN: "operator@example.org", Serial: "0A:BC", Level: authz.LevelOperator, Via: authz.ViaMCP, KeyID: key.ID}
+	want := authz.Identity{CN: "operator@example.org", Serial: "0A:BC", Level: authz.LevelOperator, Via: authz.ViaMCP, KeyID: key.ID, IssuerSHA256: fp(ca.cert)}
 	if id != want {
 		t.Fatalf("identity = %+v, want %+v", id, want)
 	}
@@ -81,7 +81,7 @@ func TestResolve_CeilingCapsTheCertLevel(t *testing.T) {
 	for i, c := range cases {
 		st := memory.New(nil)
 		plain, _ := mintFor(t, st, ca.validOperator(t, int64(100+i), c.certLevel), c.ceiling)
-		r := &Resolver{Store: st, Roots: ca.pool(), Revoked: revokedSet{}}
+		r := &Resolver{Store: st, Roots: ca.pool, Revoked: revokedSet{}}
 		id, err := r.Resolve(context.Background(), plain)
 		if err != nil || id.Level != c.want {
 			t.Errorf("cert %v ceiling %q: level %v err %v, want %v", c.certLevel, c.ceiling, id.Level, err, c.want)
@@ -99,7 +99,7 @@ func TestResolve_CeilingNeverRaisesTheCertLevel(t *testing.T) {
 	plain, _ := NewKey()
 	st.AddMcpKey(store.McpKey{ID: "k", TokenHash: HashKey(plain), OperatorSerial: "07", OperatorCN: "operator@example.org",
 		OperatorCertDER: cert.Raw, LevelCeiling: "admin", CreatedAt: time.Now()})
-	r := &Resolver{Store: st, Roots: ca.pool(), Revoked: revokedSet{}}
+	r := &Resolver{Store: st, Roots: ca.pool, Revoked: revokedSet{}}
 	id, err := r.Resolve(context.Background(), plain)
 	if err != nil || id.Level != authz.LevelViewer {
 		t.Fatalf("level %v err %v, want viewer", id.Level, err)
@@ -115,38 +115,38 @@ func TestResolve_Rejections(t *testing.T) {
 		want  error
 	}{
 		"malformed": {func(t *testing.T, st store.Store) (string, *Resolver) {
-			return "not-a-key", &Resolver{Store: st, Roots: ca.pool(), Revoked: revokedSet{}}
+			return "not-a-key", &Resolver{Store: st, Roots: ca.pool, Revoked: revokedSet{}}
 		}, ErrMalformed},
 		"unknown": {func(t *testing.T, st store.Store) (string, *Resolver) {
 			k, _ := NewKey()
-			return k, &Resolver{Store: st, Roots: ca.pool(), Revoked: revokedSet{}}
+			return k, &Resolver{Store: st, Roots: ca.pool, Revoked: revokedSet{}}
 		}, ErrUnknownKey},
 		"revoked key": {func(t *testing.T, st store.Store) (string, *Resolver) {
 			plain, key := mintFor(t, st, ca.validOperator(t, 1, authz.LevelOperator), "")
 			_, _ = st.RevokeMcpKey(key.ID, time.Now())
-			return plain, &Resolver{Store: st, Roots: ca.pool(), Revoked: revokedSet{}}
+			return plain, &Resolver{Store: st, Roots: ca.pool, Revoked: revokedSet{}}
 		}, ErrKeyRevoked},
 		"revoked cert": {func(t *testing.T, st store.Store) (string, *Resolver) {
 			plain, _ := mintFor(t, st, ca.validOperator(t, 0x0abc, authz.LevelOperator), "")
-			return plain, &Resolver{Store: st, Roots: ca.pool(), Revoked: revokedSet{"0A:BC": true}}
+			return plain, &Resolver{Store: st, Roots: ca.pool, Revoked: revokedSet{"0A:BC": true}}
 		}, ErrCertRevoked},
 		"expired cert": {func(t *testing.T, st store.Store) (string, *Resolver) {
 			cert := ca.operatorCert(t, 2, authz.LevelOperator, time.Now().Add(-2*time.Hour), time.Now().Add(-time.Hour))
 			plain, _ := mintFor(t, st, cert, "")
-			return plain, &Resolver{Store: st, Roots: ca.pool(), Revoked: revokedSet{}}
+			return plain, &Resolver{Store: st, Roots: ca.pool, Revoked: revokedSet{}}
 		}, ErrCertExpired},
 		"not yet valid cert": {func(t *testing.T, st store.Store) (string, *Resolver) {
 			cert := ca.operatorCert(t, 3, authz.LevelOperator, time.Now().Add(time.Hour), time.Now().Add(2*time.Hour))
 			plain, _ := mintFor(t, st, cert, "")
-			return plain, &Resolver{Store: st, Roots: ca.pool(), Revoked: revokedSet{}}
+			return plain, &Resolver{Store: st, Roots: ca.pool, Revoked: revokedSet{}}
 		}, ErrCertExpired},
 		"wrong CA": {func(t *testing.T, st store.Store) (string, *Resolver) {
 			plain, _ := mintFor(t, st, other.validOperator(t, 4, authz.LevelAdmin), "")
-			return plain, &Resolver{Store: st, Roots: ca.pool(), Revoked: revokedSet{}}
+			return plain, &Resolver{Store: st, Roots: ca.pool, Revoked: revokedSet{}}
 		}, ErrCertUntrusted},
 		"operator CA removed from the pool": {func(t *testing.T, st store.Store) (string, *Resolver) {
 			plain, _ := mintFor(t, st, ca.validOperator(t, 5, authz.LevelAdmin), "")
-			return plain, &Resolver{Store: st, Roots: other.pool(), Revoked: revokedSet{}}
+			return plain, &Resolver{Store: st, Roots: other.pool, Revoked: revokedSet{}}
 		}, ErrCertUntrusted},
 	}
 	for name, c := range cases {
@@ -164,7 +164,7 @@ func TestResolve_AuditsFirstUseAndKnownKeyRejections(t *testing.T) {
 	ca := newTestCA(t, "Operator CA")
 	st := memory.New(nil)
 	plain, key := mintFor(t, st, ca.validOperator(t, 9, authz.LevelOperator), "")
-	r := &Resolver{Store: st, Roots: ca.pool(), Revoked: revokedSet{}}
+	r := &Resolver{Store: st, Roots: ca.pool, Revoked: revokedSet{}}
 
 	_, _ = r.Resolve(context.Background(), plain)
 	_, _ = r.Resolve(context.Background(), plain)
@@ -207,7 +207,7 @@ func TestMiddleware_Uniform401AndIdentityOnSuccess(t *testing.T) {
 	wrongCAPlain, _ := mintFor(t, st, other.validOperator(t, 14, authz.LevelOperator), "")
 	certRevokedPlain, _ := mintFor(t, st, ca.validOperator(t, 15, authz.LevelOperator), "")
 
-	r := &Resolver{Store: st, Roots: ca.pool(), Revoked: revokedSet{"0F": true}}
+	r := &Resolver{Store: st, Roots: ca.pool, Revoked: revokedSet{"0F": true}}
 	var got authz.Identity
 	h := Middleware(r, "https://fleetos.example.org/.well-known/oauth-protected-resource/mcp")(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		got, _ = authz.FromContext(req.Context())
@@ -253,7 +253,7 @@ func TestMiddleware_Uniform401AndIdentityOnSuccess(t *testing.T) {
 
 func TestMiddleware_ThrottlesRepeatedFailuresPerClient(t *testing.T) {
 	ca := newTestCA(t, "Operator CA")
-	r := &Resolver{Store: memory.New(nil), Roots: ca.pool(), Revoked: revokedSet{}}
+	r := &Resolver{Store: memory.New(nil), Roots: ca.pool, Revoked: revokedSet{}}
 	h := Middleware(r, "")(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 
 	throttled := false

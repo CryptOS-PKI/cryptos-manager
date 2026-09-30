@@ -214,7 +214,7 @@ func newHarness(t *testing.T) *harness {
 	pool := x509.NewCertPool()
 	pool.AddCert(h.ca)
 
-	resolver := &mcpauth.Resolver{Store: h.st, Roots: pool, Revoked: noneRevoked{}}
+	resolver := &mcpauth.Resolver{Store: h.st, Roots: func() *x509.CertPool { return pool }, Revoked: noneRevoked{}}
 	mux := http.NewServeMux()
 	h.now = time.Now().UTC()
 	h.approvals = &approval.Service{Store: h.st, Now: h.clock}
@@ -226,7 +226,7 @@ func newHarness(t *testing.T) *harness {
 
 type noneRevoked struct{}
 
-func (noneRevoked) IsRevoked(string) bool { return false }
+func (noneRevoked) CheckMCP(string, string) error { return nil }
 
 // key mints a key for a fresh operator certificate at level with ceiling.
 func (h *harness) key(level authz.Level, ceiling string) string {

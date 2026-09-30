@@ -87,20 +87,9 @@ func main() {
 			CACert:    n.CACertPath,
 		}
 	}
-	// Operator-CA issuing profiles (operator-viewer/operator/admin) are
-	// functional config, not demo data: seed them when an operator CA node is
-	// configured so S9 issuance can route to them.
-	var operatorProfiles []store.Profile
-	if cfg.OperatorCANode != "" {
-		var err error
-		operatorProfiles, err = fleet.OperatorProfiles()
-		if err != nil {
-			log.Fatalf("manager: build operator profiles: %v", err)
-		}
-	}
-
 	var (
 		st         store.Store
+		trustStore store.OperatorTrust
 		storeCheck func(context.Context) error
 	)
 	if os.Getenv(config.DatabaseURLEnv) != "" {
@@ -110,8 +99,8 @@ func main() {
 		// Dev-only in-memory store: seed the demo catalog so the offline mock UI
 		// renders against fixtures. The demo catalog never touches a real store.
 		profiles, adapters, audit, enrollments := seed.Catalog()
-		profiles = append(profiles, operatorProfiles...)
-		st = memory.NewWithCatalog(nodes, profiles, adapters, audit, enrollments)
+		mem := memory.NewWithCatalog(nodes, profiles, adapters, audit, enrollments)
+		st, trustStore = mem, mem
 		log.Printf("manager: no database_url configured, using in-memory store (demo catalog seeded)")
 	} else {
 		ctx := context.Background()
@@ -129,12 +118,11 @@ func main() {
 		}
 		defer pg.Close()
 		// A live store starts clean: no demo nodes, profiles, adapters, audit,
-		// or enrollments. Only configured nodes and the functional operator-CA
-		// profiles are seeded.
-		if err := pg.SeedIfEmpty(ctx, nodes, operatorProfiles, nil, nil, nil); err != nil {
+		// or enrollments. Only configured nodes are seeded.
+		if err := pg.SeedIfEmpty(ctx, nodes, nil, nil, nil, nil); err != nil {
 			log.Fatalf("manager: seed postgres: %v", err)
 		}
-		st = pg
+		st, trustStore = pg, pg
 		storeCheck = pg.Ping
 		log.Printf("manager: using postgres store")
 	}
@@ -193,10 +181,8 @@ func main() {
 	}
 	svc = svc.WithEnrollment(pemDial, operatorCAPEM)
 
-	// S9: route operator-credential issuance/revocation to the configured
-	// operator-CA node. S10: supply the TOFU preview + pinned maintenance dial
-	// seams for node adoption.
-	svc = svc.WithOperatorCA(cfg.OperatorCANode)
+	// S10: supply the TOFU preview + pinned maintenance dial seams for node
+	// adoption.
 	mcpKeys := &mcpauth.Keys{Store: st}
 	svc = svc.WithMCP(mcpKeys, cfg.MCP.Enabled)
 	approvals := &approval.Service{Store: st}
@@ -220,60 +206,39 @@ func main() {
 		log.Fatalf("manager: webui: %v", err)
 	}
 
-	// S9 revocation enforcement: when an operator-CA node is configured, the
-	// manager periodically fetches its revoked serials and the mTLS middleware
-	// denies a client whose cert serial is revoked. The cache is fail-safe: a
-	// failed refresh keeps the last-good set (a transient operator-CA outage
-	// never locks everyone out). Enforcement runs only on the real mTLS path,
-	// not the h2c dev bypass.
-	var revocationCache *authz.RevocationCache
-	if !cfg.AuthBypass {
-		if src := svc.OperatorRevocationSource(); src != nil {
-			revocationCache = authz.NewRevocationCache(src)
-			// Prime the cache synchronously before serving so revocation is
-			// enforced on the very first request. Without this the initial
-			// refresh races the listener and a revoked cert could slip through
-			// a cold-start window. A prime failure is non-fatal (fail-safe on a
-			// transient operator-CA outage) but loudly warns that enforcement is
-			// not yet active until the periodic refresh succeeds.
-			if err := revocationCache.Prime(); err != nil {
-				log.Printf("manager: WARNING operator-CA revocation NOT YET ENFORCED — priming from node %q failed: %v; revoked operator certs may be accepted until the first successful refresh", cfg.OperatorCANode, err)
-			}
-			go revocationCache.Run(context.Background(), 60*time.Second)
-			log.Printf("manager: enforcing operator-CA revocation via node %q", cfg.OperatorCANode)
-		} else {
-			log.Printf("manager: no operator_ca_node configured, operator-cert revocation not enforced")
-		}
-	}
-
 	// Auth is HTTP middleware, not a Connect interceptor: only the HTTP layer
 	// sees the TLS peer certificate. Bypass injects a dev identity over h2c;
-	// the real path verifies the client cert the TLS listener required and
-	// (when configured) denies a revoked serial.
-	authMW := authz.ClientCertMiddleware
-	if revocationCache != nil {
-		authMW = func(next http.Handler) http.Handler {
-			return authz.ClientCertMiddlewareWithRevocation(revocationCache, next)
-		}
-	}
-	if cfg.AuthBypass {
-		authMW = authz.BypassMiddleware
-	}
+	// the real path re-checks the client certificate on every request against
+	// the operator CAs trusted now and their revocation data.
+	authMW := authz.BypassMiddleware
 	b := currentBuild()
 
-	// The TLS config is built before the routes because the MCP endpoint
-	// re-validates keys against the same operator CA pool the handshake uses.
-	var tlsCfg *tls.Config
-	if !cfg.AuthBypass {
-		tlsCfg, err = buildTLSConfig(cfg)
+	var (
+		tlsCfg *tls.Config
+		trust  *operatorTrust
+	)
+	if cfg.AuthBypass {
+		log.Printf("manager: authBypass is set, so first run is disabled and no operator CA is used")
+	} else {
+		ctx := context.Background()
+		base, err := buildTLSConfig(cfg)
 		if err != nil {
 			log.Fatalf("manager: tls: %v", err)
 		}
+		trust, err = setupOperatorTrust(ctx, cfg, st, trustStore, base, log.Printf)
+		if err != nil {
+			log.Fatalf("manager: operator CA: %v", err)
+		}
+		trust.refreshCRLs(ctx, log.Printf)
+		trust.run(ctx, log.Printf)
+		tlsCfg = serverTLSConfig(base, trust.trust)
+		authMW = authz.ClientCertMiddlewareWith(trust.auth)
+		mcpKeys.Admit = trust.auth.AdmitMCP
 	}
 
 	mounts := []func(*http.ServeMux){healthMount(storeCheck)}
 	if cfg.MCP.Enabled {
-		mount, err := mcpMount(cfg.MCP.PublicURL, svc, st, mcpKeys, approvals, tlsCfg.ClientCAs, revocationCache, authMW, b.Version)
+		mount, err := mcpMount(cfg.MCP.PublicURL, svc, st, mcpKeys, approvals, trust.trust.Roots, trust.rev, authMW, b.Version)
 		if err != nil {
 			log.Fatalf("manager: %v", err)
 		}
@@ -314,19 +279,18 @@ func main() {
 	}
 }
 
-// buildTLSConfig builds the server TLS config: the adopter-provided server
-// cert/key, and a client certificate that is requested and verified against the
-// operator CA when the client presents one.
+// buildTLSConfig builds the base server TLS config: the adopter-provided
+// server cert/key, HTTP/2 over ALPN, and a client certificate that is
+// requested and verified when the client presents one. The operator CA pool
+// is filled per handshake from the trust store (serverTLSConfig).
 //
 // VerifyClientCertIfGiven rather than RequireAndVerifyClientCert (#68): the
 // handshake must succeed without a client certificate so the web surface can
 // serve a landing page and say what is missing. A certificate that *is*
-// presented still has to verify against the operator CA -- an untrusted one
-// fails the handshake exactly as before -- and authorization is unchanged,
-// because it never lived in the TLS layer. What moved is where the absence of a
-// certificate is answered: newRootHandler gates the API on it, so an
-// unauthenticated client gets a 401 from the API instead of a dead connection
-// from the whole service.
+// presented still has to verify against a trusted operator CA -- an untrusted
+// one fails the handshake -- and authorization never lived in the TLS layer.
+// newRootHandler gates the API on the certificate, so an unauthenticated
+// client gets a 401 from the API instead of a dead connection.
 func buildTLSConfig(cfg config.Config) (*tls.Config, error) {
 	// No configured material is a deliberate day-zero choice (#78): generate a
 	// throwaway certificate so the site comes up and the operator can be told
@@ -351,31 +315,14 @@ func buildTLSConfig(cfg config.Config) (*tls.Config, error) {
 		}
 	}
 
-	// Without an operator CA nobody can authenticate yet, which is the correct
-	// day-zero posture rather than a reason to refuse to start: the listener
-	// comes up, the API answers 401 to everyone, and first run opens only its
-	// own endpoint. A nil ClientCAs pool means a presented certificate is
-	// verified against nothing we trust and is refused.
-	var pool *x509.CertPool
-	if cfg.OperatorCAPath != "" {
-		caPEM, readErr := os.ReadFile(cfg.OperatorCAPath)
-		if readErr != nil {
-			return nil, fmt.Errorf("read operator CA: %w", readErr)
-		}
-		pool = x509.NewCertPool()
-		if !pool.AppendCertsFromPEM(caPEM) {
-			return nil, fmt.Errorf("operator CA %s contains no PEM certificates", cfg.OperatorCAPath)
-		}
-	} else {
-		log.Printf("manager: WARNING no operatorCAPath configured, so no operator " +
-			"certificate can be accepted; the API will refuse every caller until the fleet is bootstrapped")
-	}
-
 	return &tls.Config{
 		Certificates: []tls.Certificate{serverCert},
 		ClientAuth:   tls.VerifyClientCertIfGiven,
-		ClientCAs:    pool,
-		MinVersion:   tls.VersionTLS12,
+		// An empty pool, never nil: a nil pool would verify a presented
+		// certificate against the system roots.
+		ClientCAs:  x509.NewCertPool(),
+		NextProtos: []string{"h2", "http/1.1"},
+		MinVersion: tls.VersionTLS12,
 	}, nil
 }
 
