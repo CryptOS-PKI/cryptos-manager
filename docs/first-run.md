@@ -70,7 +70,11 @@ exactly one), a CRL source and an OCSP mode:
 - **CRL source:** `url` (fetched and checked now), `crl_der` (an initial CRL,
   checked now; later ones by upload) or `none`, which needs the `NO_CRL`
   acknowledgement. A CA with no CRL gets no MCP keys.
-- **OCSP mode:** `aia` (default), `url` (the responder is probed now) or `off`.
+- **OCSP mode:** `aia` (default), `url` or `off`. In `url` mode the manager
+  probes the responder now, asking about a random serial; no answer is
+  `OCSP_UNREACHABLE`, a badly signed one `OCSP_INVALID`. The preview doesn't
+  carry `ocsp_probe` details yet: a confirmed registration means the probe
+  passed.
 
 The CA must be a CA with `keyCertSign`, have 30 days left, hold a P-384, P-256
 or RSA 3072+ key, and not be a CryptOS node's CA (by certificate or public
@@ -100,7 +104,11 @@ certificate the operator CA signed out of band against the confirmed CA:
 - the subject is exactly `CN=<email>`;
 - the key is P-384 or RSA 3072+ (P-256 is refused for operator certificates);
 - at least a day is left (over 400 days is a warning);
-- it isn't on the denylist or in the CA's CRL.
+- it isn't on the denylist or in the CA's CRL, and where OCSP is configured
+  for it, the CA's responder doesn't say `revoked` (`REVOKED_OCSP`) or
+  `unknown` (`OCSP_UNKNOWN`). With no fresh revocation data,
+  `operatorRevocationPolicy: hard` refuses with 1608 (`STALE_OCSP` or
+  `STALE_CRL`); `soft` accepts.
 
 With `csr_der`, the CSR must verify, carry the same key and the same email.
 Without it, the call is a pre-flight for a certificate made entirely at the CA.
