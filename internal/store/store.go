@@ -248,16 +248,26 @@ type Enrollment struct {
 	Profile            string // SUBORDINATE: issuing profile name (store-internal; no proto field)
 }
 
-// OperatorCredential is one operator client certificate the manager issued via
-// the operator-CA node. It is the durable record backing the Operators admin
-// surface: the manager never holds the operator's private key (browser-held),
-// only this metadata. It mirrors cryptos.fleet.v1.OperatorCredential.
+// OperatorCredential is one operator client certificate the manager knows. It
+// is the durable record backing the Operators admin surface: the manager never
+// holds the operator's private key, only this metadata. It mirrors
+// cryptos.fleet.v1.OperatorCredential.
 type OperatorCredential struct {
 	CommonName string
 	SerialHex  string
 	Level      string
 	NotAfter   string
 	Revoked    bool
+
+	// IssuerSHA256 is the fingerprint of the operator CA that signed the
+	// credential, empty for a legacy_node row.
+	IssuerSHA256 string
+	// Kind is how the manager learned of the credential, one of the
+	// OperatorCredential* kinds.
+	Kind       string
+	Email      string
+	FullName   string
+	LeafSHA256 string
 }
 
 // Store is the manager's read access to the fleet inventory and its

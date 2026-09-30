@@ -43,6 +43,10 @@ type Store struct {
 	oauthRequests map[string]store.OAuthRequest
 	oauthCodes    map[string]store.OAuthCode
 	approvals     map[string]store.Approval
+
+	// trust holds what the in-memory store keeps for a config-file operator
+	// CA: CRLs per process and the revocation epoch.
+	trust trustState
 }
 
 // New builds a Store from the given nodes, keyed by Node.Name, with an
