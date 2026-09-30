@@ -112,30 +112,47 @@ func (f *Fetcher) Fetch(ctx context.Context, rawURL string) ([]byte, error) {
 }
 
 func (f *Fetcher) do(ctx context.Context, method, rawURL, contentType string, body io.Reader) ([]byte, error) {
+	b, err := f.request(ctx, method, rawURL, contentType, body)
+	if err != nil {
+		return nil, crlUnreachable("%s %s: %v", method, redact(rawURL), err)
+	}
+	return b, nil
+}
+
+// httpStatusError is a response other than 200 OK.
+type httpStatusError struct{ code int }
+
+func (e *httpStatusError) Error() string { return fmt.Sprintf("HTTP %d", e.code) }
+
+var errBodyTooLarge = errors.New("the response is over the size cap")
+
+// request does one fetch with the limits. Its errors carry no response
+// body and no query string.
+func (f *Fetcher) request(ctx context.Context, method, rawURL, contentType string, body io.Reader) ([]byte, error) {
 	if err := ValidateFetchURL(rawURL); err != nil {
-		return nil, crlUnreachable("refused: %v", err)
+		return nil, fmt.Errorf("refused: %w", err)
 	}
 	req, err := http.NewRequestWithContext(ctx, method, rawURL, body)
 	if err != nil {
-		return nil, crlUnreachable("refused: %v", err)
+		return nil, fmt.Errorf("refused: %w", err)
 	}
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	}
 	resp, err := f.client.Do(req)
 	if err != nil {
-		return nil, crlUnreachable("%s %s: %v", method, redact(rawURL), unwrapURLError(err))
+		return nil, unwrapURLError(err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		return nil, crlUnreachable("%s %s: HTTP %d", method, redact(rawURL), resp.StatusCode)
+		return nil, &httpStatusError{code: resp.StatusCode}
 	}
 	b, err := io.ReadAll(io.LimitReader(resp.Body, f.maxBytes+1))
 	if err != nil {
-		return nil, crlUnreachable("%s %s: read: %v", method, redact(rawURL), err)
+		return nil, fmt.Errorf("read: %w", err)
 	}
 	if int64(len(b)) > f.maxBytes {
-		return nil, crlUnreachable("%s %s: the response is more than %d bytes", method, redact(rawURL), f.maxBytes)
+		return nil, fmt.Errorf("%w (%d bytes)", errBodyTooLarge, f.maxBytes)
 	}
 	return b, nil
 }

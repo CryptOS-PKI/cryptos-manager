@@ -260,12 +260,14 @@ type PeerAuthorizer struct {
 }
 
 // AuthorizePeer re-verifies a peer certificate and checks its revocation.
+// The chain check comes first, so an OCSP URI is only ever read from a
+// certificate the operator CA issued.
 func (p PeerAuthorizer) AuthorizePeer(leaf *x509.Certificate, intermediates []*x509.Certificate) (string, error) {
 	a, err := p.Trust.VerifyPeer(leaf, intermediates)
 	if err != nil {
 		return "", err
 	}
-	if err := p.Rev.CheckWeb(a.SHA256, SerialKey(leaf.SerialNumber)); err != nil {
+	if err := p.Rev.CheckWebCert(a.SHA256, leaf); err != nil {
 		return "", err
 	}
 	return a.SHA256, nil
@@ -282,5 +284,5 @@ func (p PeerAuthorizer) AdmitMCP(certDER []byte) error {
 	if err != nil {
 		return err
 	}
-	return p.Rev.CheckMCP(a.SHA256, SerialKey(cert.SerialNumber))
+	return p.Rev.CheckMCPCert(a.SHA256, cert)
 }

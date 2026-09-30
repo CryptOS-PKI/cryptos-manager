@@ -129,3 +129,38 @@ func TestMint_RefusesACertificateTheAdmissionCheckRefuses(t *testing.T) {
 		t.Fatal("a key was stored for a refused certificate")
 	}
 }
+
+// certChecker also takes the whole certificate, which the OCSP check needs
+// for the responder URI in the certificate's authorityInfoAccess.
+type certChecker struct {
+	fakeChecker
+	gotCert *x509.Certificate
+}
+
+func (c *certChecker) CheckMCPCert(anchor string, cert *x509.Certificate) error {
+	c.gotAnchor, c.gotCert = anchor, cert
+	c.callsCount++
+	return c.errs[anchor]
+}
+
+// A checker that takes the certificate gets the bound certificate itself.
+func TestResolve_PassesTheCertificateToACertChecker(t *testing.T) {
+	ca := newTestCA(t, "Operator CA")
+	st := memory.New(nil)
+	cert := ca.validOperator(t, 0x0abd, authz.LevelOperator)
+	plain, _ := mintFor(t, st, cert, "")
+	revokedOCSP := apperr.Reasoned(apperr.CodeCertRejected, fleetv1.ErrorReason_ERROR_REASON_REVOKED_OCSP, errors.New("revoked"))
+	checker := &certChecker{fakeChecker: fakeChecker{errs: map[string]error{fp(ca.cert): revokedOCSP}}}
+	r := &Resolver{Store: st, Roots: ca.pool, Revoked: checker}
+
+	_, err := r.Resolve(context.Background(), plain)
+	if !errors.Is(err, ErrCertRevoked) {
+		t.Fatalf("Resolve = %v, want ErrCertRevoked", err)
+	}
+	if checker.gotCert == nil || !checker.gotCert.Equal(cert) || checker.gotAnchor != fp(ca.cert) {
+		t.Fatalf("CheckMCPCert got anchor %q cert %v, want the bound certificate", checker.gotAnchor, checker.gotCert)
+	}
+	if checker.gotSerial != "" {
+		t.Fatal("the serial-only CheckMCP was called as well")
+	}
+}

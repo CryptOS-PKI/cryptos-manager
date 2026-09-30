@@ -56,6 +56,13 @@ type MCPChecker interface {
 	CheckMCP(anchorSHA256, serial string) error
 }
 
+// CertMCPChecker is an MCPChecker that takes the whole certificate. The
+// resolver prefers it: the OCSP check reads the responder URI from the
+// certificate's authorityInfoAccess, which a serial alone doesn't carry.
+type CertMCPChecker interface {
+	CheckMCPCert(anchorSHA256 string, cert *x509.Certificate) error
+}
+
 // Resolver turns a bearer key into the live identity of the operator
 // certificate it is bound to. Nothing is cached: every request re-checks the
 // key row and re-validates the certificate against the operator CAs trusted
@@ -143,7 +150,13 @@ func (r *Resolver) validate(key store.McpKey, now time.Time) (authz.Identity, er
 	anchor := chains[0][len(chains[0])-1]
 	sum := sha256.Sum256(anchor.Raw)
 	id.IssuerSHA256 = hex.EncodeToString(sum[:])
-	if err := r.Revoked.CheckMCP(id.IssuerSHA256, fmt.Sprintf("%x", cert.SerialNumber)); err != nil {
+	var revErr error
+	if cc, ok := r.Revoked.(CertMCPChecker); ok {
+		revErr = cc.CheckMCPCert(id.IssuerSHA256, cert)
+	} else {
+		revErr = r.Revoked.CheckMCP(id.IssuerSHA256, fmt.Sprintf("%x", cert.SerialNumber))
+	}
+	if err := revErr; err != nil {
 		if code, _ := apperr.Code(err); code == apperr.CodeNoRevocationSource {
 			return authz.Identity{}, fmt.Errorf("%w: %w", ErrRevocationStale, err)
 		}

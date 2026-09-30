@@ -58,6 +58,9 @@ func setupOperatorTrust(ctx context.Context, cfg config.Config, st store.Store, 
 		Policy: src.Policy,
 		Logf:   logf,
 		Audit:  func(e store.AuditEvent) { auditlog.Record(context.Background(), st, e) },
+		// OCSP per anchor (off, aia or url); the file source takes the mode
+		// from operatorOCSP, a registered CA from its row.
+		OCSPFetcher: operatorca.NewOCSPFetcher(),
 	})
 	trust, err := operatorca.NewTrustStore(ctx, src, ot, rev, base, logf)
 	if err != nil {
