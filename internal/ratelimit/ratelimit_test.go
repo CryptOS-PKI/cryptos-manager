@@ -66,8 +66,10 @@ func TestWindow_TripsAtTheLimitWithinTheWindowAndResets(t *testing.T) {
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 	w := NewWindow(3, time.Hour)
 	w.now = func() time.Time { return now }
-	if w.Fail() || w.Fail() {
-		t.Fatal("tripped before the limit")
+	for i := 0; i < 2; i++ {
+		if w.Fail() {
+			t.Fatalf("tripped at failure %d, before the limit of 3", i+1)
+		}
 	}
 	if !w.Fail() {
 		t.Fatal("the third failure within the hour didn't trip")
