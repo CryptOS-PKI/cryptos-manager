@@ -13,11 +13,33 @@ spec:
     metadata:
       labels: {{- include "fleet-manager.labels" . | nindent 8 }}
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: manager
           image: {{ include "fleet-manager.image" . | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           args: ["-config", "/etc/cryptos/fleet/config.yaml"]
+          # Read-only root, as the image is built to run. The chart mounts no
+          # volume for node credentials yet, so adoption fails with a
+          # read-only filesystem error rather than writing admin keys into a
+          # container layer that is lost when the pod goes.
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: https
+              scheme: {{ if .Values.authBypass }}HTTP{{ else }}HTTPS{{ end }}
+            periodSeconds: 10
+            timeoutSeconds: 5
           ports:
             - name: https
               containerPort: {{ .Values.service.targetPort }}

@@ -35,11 +35,29 @@ Bring your own trust material: a **server TLS cert** (`tlsCert`/`tlsKey`, any pu
 
 ```sh
 docker run -p 443:8443 -p 80:8080 \
+  --read-only --cap-drop ALL --security-opt no-new-privileges:true \
   -v /etc/cryptos/fleet:/etc/cryptos/fleet:ro \
+  -v fleet-node-creds:/var/lib/cryptos-manager/node-creds \
   ghcr.io/cryptos-pki/manager:vX.Y.Z
 # config.yaml (authBypass:false, tlsCert/tlsKey, operatorCAPath, nodes[]) + the
 # referenced cert/key/CA files live under the mounted /etc/cryptos/fleet.
 ```
+
+The image runs as uid 65532 on a read-only root filesystem. The one path it writes is
+`/var/lib/cryptos-manager/node-creds`, where adoption keeps the admin key it mints for
+each node, so give that path a volume. A named volume picks up the image's directory,
+already owned by 65532, the first time it is mounted.
+
+> [!WARNING]
+> Without that volume the node keys live in the container and are gone when it is
+> recreated. The manager is then locked out of every node it adopted, and each one has
+> to be reset from its console and adopted again. Back the volume up with the database.
+
+The image carries its own health check: the manager probes its `/healthz`, which answers
+`200 {"status":"ok"}` when it is serving and its Postgres (if configured) answers, and
+`503 {"status":"unavailable"}` when the database does not. It is anonymous, like
+`/version`, and never includes the database error, which goes to the log instead.
+`docker ps` shows the result.
 
 Publish 80 as well as 443. The image listens on 8443 for HTTPS and, when
 `httpRedirectListen` is set, on 8080 for a plaintext listener that does nothing but
@@ -101,6 +119,9 @@ worth knowing before you adapt it:
   From Postgres 18 the image stores data in major-version-specific subdirectories, and a
   volume on the old path is rejected outright with
   `there appears to be PostgreSQL data in /var/lib/postgresql/data (unused mount/volume)`.
+- **Node credentials get their own volume.** The manager runs read-only, and
+  `node-creds` is the one writable path: the admin key minted for each adopted node. It
+  is state as much as the database is, so back both up together.
 - **Two different things read the mounted files.** `config.yaml`, `tls/` and
   `operator-ca/` are read by the manager, so they must be readable by uid 65532.
   `secrets/postgres.env` is read by the `docker compose` CLI on the host before any
@@ -203,6 +224,16 @@ Pull-request CI (`.github/workflows/ci-go.yaml`) runs the same checks as `task c
 ## 📦 Releasing
 
 Nothing tags automatically. On push to `main`, release-drafter categorises the merged conventional-commit PRs into the draft release notes, and [`Bugs5382/changelog-updater-action`](https://github.com/Bugs5382/changelog-updater-action) writes those notes into `CHANGELOG.md` (committed back to `main` as a `[skip ci]` pre-release commit). The maintainer then publishes the GitHub Release by hand, which creates the `vX.Y.Z` tag. That tag triggers `job-release-image.yaml`, which builds and pushes the container image (`ghcr.io/cryptos-pki/manager`) via BuildKit and packages+pushes the Helm chart (`oci://ghcr.io/cryptos-pki/charts/fleet-manager`). The node ISO ships from [`cryptos`](https://github.com/CryptOS-PKI/cryptos). The image and chart assume no particular deploy environment — adopters bring their own registry, trust material, and orchestrator. (The repo's own release/governance tooling — release-drafter, `Bugs5382/changelog-updater-action`, golic — is the maintainer's; adopters don't need it.)
+
+The release image is meant to be rebuildable from its tag. Every base image in the
+`Dockerfile` is pinned by digest, the build date is the tagged commit's time rather than
+the clock, and the release refuses to build until the `WEB_RELEASE_REF` repository
+variable pins the `web` checkout to a tag or commit (falling back to `web`'s `main` would
+embed whatever was there that day). A pull request that touches the image runs
+`.github/workflows/ci-image.yaml`, which builds it without pushing, runs it read-only with
+every capability dropped against a Postgres container, and checks that it turns healthy,
+that the node-creds volume is owned by 65532, and that `/healthz` answers 503 once the
+database is stopped.
 
 ## 🚦 Status
 
