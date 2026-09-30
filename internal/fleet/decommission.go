@@ -48,11 +48,11 @@ func (s *Service) DecommissionNode(ctx context.Context, req *connect.Request[fle
 		return nil, err
 	}
 
-	name := req.Msg.GetNodeName()
-	node, ok := s.store.Node(name)
-	if !ok {
-		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("fleet: node %q not found", name))
+	node, err := s.resolveNode("DecommissionNode", req.Msg.GetNodeId(), req.Msg.GetNodeName(), currentNames)
+	if err != nil {
+		return nil, err
 	}
+	name := node.Name
 
 	confirmCN := req.Msg.GetConfirmCommonName()
 	if confirmCN == "" {
@@ -83,7 +83,7 @@ func (s *Service) DecommissionNode(ctx context.Context, req *connect.Request[fle
 		Kind:       "node-decommissioned",
 		Summary:    fmt.Sprintf("Decommissioned %s: identity and data wiped remotely", name),
 		TargetKind: "node",
-		TargetPath: "/nodes/" + name,
+		TargetPath: nodeTarget(node),
 	})
 
 	return connect.NewResponse(&fleetv1.DecommissionNodeResponse{

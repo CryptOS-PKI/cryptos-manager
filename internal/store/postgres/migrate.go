@@ -24,7 +24,10 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
+	"log"
 
+	"github.com/CryptOS-PKI/manager/internal/store"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -100,10 +103,60 @@ const v5ApprovalsSQL = `CREATE TABLE IF NOT EXISTS approvals (
 );
 CREATE INDEX IF NOT EXISTS approvals_created_at ON approvals (created_at DESC);`
 
-// migration is one ordered, idempotently-tracked schema step.
+// v6NodeIDsSQL gives every node a stable ID separate from its editable name,
+// points enrollments at the node they admitted by that ID, and keeps each
+// node's name history so audit entries and links recorded under an old name
+// still find the node. The ID column starts nullable: backfillNodeIDs fills it
+// with UUIDv7s minted in Go (Postgres only gained uuidv7() in 18), and
+// v6NodeIDsFinishSQL then makes it NOT NULL and UNIQUE. name keeps its primary
+// key, so two nodes still cannot share a name.
+const v6NodeIDsSQL = `ALTER TABLE nodes ADD COLUMN IF NOT EXISTS id uuid;
+ALTER TABLE enrollments ADD COLUMN IF NOT EXISTS admitted_node_id text NOT NULL DEFAULT '';
+CREATE TABLE IF NOT EXISTS node_names (
+  seq bigserial PRIMARY KEY, node_id uuid NOT NULL, name text NOT NULL,
+  valid_from timestamptz, valid_until timestamptz
+);
+CREATE INDEX IF NOT EXISTS node_names_name ON node_names (name);`
+
+// v6NodeIDsFinishSQL runs after the backfill. Each existing node's history
+// starts with its current name, open at both ends, because nothing recorded
+// when it got that name.
+const v6NodeIDsFinishSQL = `ALTER TABLE nodes ALTER COLUMN id SET NOT NULL;
+ALTER TABLE nodes ADD CONSTRAINT nodes_id_key UNIQUE (id);
+UPDATE enrollments e SET admitted_node_id = n.id::text
+  FROM nodes n WHERE e.admitted_node_name <> '' AND e.admitted_node_name = n.name AND e.admitted_node_id = '';
+INSERT INTO node_names (node_id, name) SELECT id, name FROM nodes ORDER BY name;`
+
+// backfillNodeIDs mints a UUIDv7 for every node that has no ID yet.
+func backfillNodeIDs(ctx context.Context, tx pgx.Tx) error {
+	rows, err := tx.Query(ctx, `SELECT name FROM nodes WHERE id IS NULL ORDER BY name`)
+	if err != nil {
+		return fmt.Errorf("list nodes without an id: %w", err)
+	}
+	names, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return fmt.Errorf("read nodes without an id: %w", err)
+	}
+	log.Printf("postgres: migration v6: backfilling ids for %d node(s)", len(names))
+	for _, name := range names {
+		id := store.NewNodeID()
+		if _, err := tx.Exec(ctx, `UPDATE nodes SET id = $1 WHERE name = $2`, id, name); err != nil {
+			return fmt.Errorf("set id for node %q: %w", name, err)
+		}
+		log.Printf("postgres: migration v6: node %s gets id %s", name, id)
+	}
+	if _, err := tx.Exec(ctx, v6NodeIDsFinishSQL); err != nil {
+		return fmt.Errorf("finish node ids: %w", err)
+	}
+	return nil
+}
+
+// migration is one ordered, idempotently-tracked schema step: its SQL, then
+// its Go step when a step needs values SQL cannot produce.
 type migration struct {
 	version string
 	sql     string
+	apply   func(ctx context.Context, tx pgx.Tx) error
 }
 
 // migrations is the ordered list of schema steps. Each runs at most once,
@@ -114,12 +167,19 @@ var migrations = []migration{
 	{version: "v3", sql: v3OperatorCredentialsSQL},
 	{version: "v4", sql: v4McpSQL},
 	{version: "v5", sql: v5ApprovalsSQL},
+	{version: "v6", sql: v6NodeIDsSQL, apply: backfillNodeIDs},
 }
 
 // migrate applies every not-yet-applied migration in order, each tracked in a
 // schema_migrations table, and is safe to run on every startup. Running it
 // against an already-migrated database is a no-op.
 func migrate(ctx context.Context, pool *pgxpool.Pool) error {
+	return migrateSteps(ctx, pool, migrations)
+}
+
+// migrateSteps applies the not-yet-applied steps of steps, in order, in one
+// transaction.
+func migrateSteps(ctx context.Context, pool *pgxpool.Pool, steps []migration) error {
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("postgres: begin migration: %w", err)
@@ -132,7 +192,7 @@ func migrate(ctx context.Context, pool *pgxpool.Pool) error {
 		return fmt.Errorf("postgres: create schema_migrations: %w", err)
 	}
 
-	for _, m := range migrations {
+	for _, m := range steps {
 		var applied bool
 		if err := tx.QueryRow(ctx,
 			`SELECT EXISTS (SELECT 1 FROM schema_migrations WHERE version = $1)`,
@@ -143,8 +203,14 @@ func migrate(ctx context.Context, pool *pgxpool.Pool) error {
 			continue
 		}
 
+		log.Printf("postgres: applying migration %s", m.version)
 		if _, err := tx.Exec(ctx, m.sql); err != nil {
 			return fmt.Errorf("postgres: apply schema %s: %w", m.version, err)
+		}
+		if m.apply != nil {
+			if err := m.apply(ctx, tx); err != nil {
+				return fmt.Errorf("postgres: apply migration %s: %w", m.version, err)
+			}
 		}
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO schema_migrations (version) VALUES ($1)`, m.version); err != nil {

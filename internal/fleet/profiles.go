@@ -143,11 +143,11 @@ func (s *Service) ApplyProfileToNode(ctx context.Context, req *connect.Request[f
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 
-	nodeName := req.Msg.GetNodeName()
-	node, ok := s.store.Node(nodeName)
-	if !ok {
-		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("fleet: node %q not found", nodeName))
+	node, err := s.resolveNode("ApplyProfileToNode", req.Msg.GetNodeId(), req.Msg.GetNodeName(), currentNames)
+	if err != nil {
+		return nil, err
 	}
+	nodeName := node.Name
 
 	conn, err := s.dial(node)
 	if err != nil {

@@ -10,6 +10,7 @@ require (
 require (
 	connectrpc.com/connect v1.20.0
 	github.com/Bugs5382/go-apperr v1.0.0
+	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	golang.org/x/time v0.15.0
@@ -30,7 +31,7 @@ require (
 )
 
 require (
-	github.com/CryptOS-PKI/api v0.0.0-20260929191730-1ed201b4faf4
+	github.com/CryptOS-PKI/api v0.0.0-20260930094841-755e24e4ea60
 	golang.org/x/net v0.51.0
 	golang.org/x/sys v0.42.0 // indirect
 	golang.org/x/text v0.34.0 // indirect

@@ -53,11 +53,11 @@ func (s *Service) RekeyNode(ctx context.Context, req *connect.Request[fleetv1.Re
 		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("fleet: operator level required"))
 	}
 
-	name := req.Msg.GetNodeName()
-	child, ok := s.store.Node(name)
-	if !ok {
-		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("fleet: node %q not found", name))
+	child, err := s.resolveNode("RekeyNode", req.Msg.GetNodeId(), req.Msg.GetNodeName(), currentNames)
+	if err != nil {
+		return nil, err
 	}
+	name := child.Name
 
 	subjectCN, issuerCN, chainLen, err := s.runRekeyFerry(ctx, child, req.Msg.GetProfileName())
 	if err != nil {
@@ -70,7 +70,7 @@ func (s *Service) RekeyNode(ctx context.Context, req *connect.Request[fleetv1.Re
 		Kind:       "rekeyed",
 		Summary:    fmt.Sprintf("Re-keyed %s under %s", name, issuerCN),
 		TargetKind: "node",
-		TargetPath: "/nodes/" + name,
+		TargetPath: nodeTarget(child),
 	})
 
 	return connect.NewResponse(&fleetv1.RekeyNodeResponse{
