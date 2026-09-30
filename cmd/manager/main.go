@@ -227,7 +227,7 @@ func main() {
 		trust.run(ctx, log.Printf)
 		svc = svc.WithOperatorTrust(trust.trust, trust.rev)
 		tlsCfg = serverTLSConfig(base, trust.trust)
-		authMW = authz.ClientCertMiddlewareWith(trust.auth)
+		authMW = authz.ClientCertMiddlewareWith(trust.web)
 		mcpKeys.Admit = trust.auth.AdmitMCP
 	}
 
