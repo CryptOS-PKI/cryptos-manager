@@ -22,7 +22,7 @@ permissions:
   contents: read
 jobs:
   golic:
-    name: 🔏 License headers${{ github.event.action == 'edited' && github.event.changes.base == null && ' (edit, not run)' || '' }}
+    name: 🔏 License headers
     if: github.event.pull_request.draft == false && (github.event.action != 'edited' || github.event.changes.base != null)
     runs-on: ubuntu-latest
     timeout-minutes: 10

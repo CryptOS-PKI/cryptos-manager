@@ -33,7 +33,7 @@ permissions:
   contents: read
 jobs:
   go:
-    name: 🧪 Go CI (fmt, vet, lint, build, test)${{ github.event.action == 'edited' && github.event.changes.base == null && ' (edit, not run)' || '' }}
+    name: 🧪 Go CI (fmt, vet, lint, build, test)
     if: github.event.pull_request.draft == false && (github.event.action != 'edited' || github.event.changes.base != null)
     runs-on: ubuntu-latest
     timeout-minutes: 15
