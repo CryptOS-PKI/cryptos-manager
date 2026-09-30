@@ -64,6 +64,11 @@ Two distinct things are easy to conflate:
 
 They are different files and are not interchangeable.
 
+The manager can check a node's server certificate the same way: save it as
+`server.crt` next to the node's `adminCertPath`. Because the node makes a new
+certificate every boot, the pin has to be renewed after each reboot. See
+[node-trust.md](node-trust.md).
+
 ## 2. There is no `config get` — `apply` can silently drop your profiles
 
 `cryptosctl config` exposes only `apply`:
