@@ -1,5 +1,13 @@
 # Operator PKI — client-cert auth for the Fleet Manager
 
+> [!WARNING]
+> A CryptOS node can no longer be the operator CA. The node-hosted operator
+> sub-CA, the `operator-*` profiles on a node and `operator_ca_node` described
+> below are refused by the manager. Use an external operator CA: see
+> [operator-ca.md](operator-ca.md) and
+> [deploying-standalone.md §3](deploying-standalone.md#3-the-operator-ca-is-an-external-ca).
+> The level extension and `opext` sections below still apply.
+
 The Fleet Manager's management plane authenticates operators by **mTLS client
 certificate**, issued by the fleet's own PKI (the manager dogfoods the system it
 manages). There are no usernames or passwords: the certificate your browser

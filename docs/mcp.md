@@ -32,7 +32,9 @@ agent MCP client --HTTPS, no client cert, Authorization: Bearer fos_mcp_...--> m
 # config.yaml
 authBypass: false
 operatorCAPath: "/etc/cryptos/fleet/operator-ca.crt"
-operator_ca_node: pki-operator
+operatorCRL:
+  - url: "http://pki.example.org/fleetos-operator.crl"
+database_url: "postgres://manager:CHANGEME@db:5432/manager"
 
 mcp:
   enabled: true
@@ -44,22 +46,25 @@ mcp:
 | `mcp.enabled` | `false` | Serve `/mcp` and the login endpoints. |
 | `mcp.public_url` | none | The manager's external `https` origin, with no path. It is the OAuth issuer, and `public_url` + `/mcp` is the resource agents connect to. It must be exactly what clients reach, including a non-default port. A trailing `/` is dropped. |
 
-`public_url` is snake_case like `database_url` and `operator_ca_node`; a camelCase
-spelling is silently ignored (see
+`public_url` is snake_case like `database_url`; the manager refuses unknown keys at
+load, so a camelCase spelling fails to start (see
 [deploying-standalone.md §4](deploying-standalone.md#4-config-key-casing-is-not-uniform)).
 
 **The manager refuses to start** with `mcp.enabled: true` when any of these hold,
 because a key could not be re-validated on each request:
 
 - `authBypass: true` (there is no operator certificate to bind a key to);
-- `operator_ca_node` is unset (no revocation source, so a revoked operator's keys would
-  keep working);
-- `operatorCAPath` is unset (nothing to verify the bound certificate against);
+- `database_url` is unset (the operator denylist, operator CAs and revocation epoch the
+  keys are checked against live in Postgres);
 - `public_url` is missing, not `https`, or has a path.
 
-Keys and login state live in the store. With the in-memory store (no `database_url`)
-they are lost on restart, so use Postgres for anything but a local trial. With Postgres
-every replica shares them, so a login can start on one replica and finish on another.
+A key also needs its operator certificate's CA to have a **CRL source with a fresh CRL**.
+That is checked when the key is created and on every call, not at start, so MCP can be
+enabled before the CRL is set up; until then keys are refused with
+[1608](error-codes.md) `NO_CRL` or `STALE_CRL`. See [operator-ca.md](operator-ca.md#mcp-needs-a-fresh-crl).
+
+Keys and login state live in Postgres, so every replica shares them and a login can
+start on one replica and finish on another.
 
 ### With the Helm chart
 
@@ -69,34 +74,26 @@ The in-repo chart (`chart/fleet-manager`) renders the same keys from its values:
 | --- | --- | --- |
 | `mcp.enabled` | `false` | `mcp.enabled` |
 | `mcp.publicURL` | `""` | `mcp.public_url` |
-| `operatorCANode` | `""` | `operator_ca_node` (omitted when empty) |
 
 ```sh
 helm install fleet oci://ghcr.io/cryptos-pki/charts/fleet-manager --version X.Y.Z \
   --set tls.certSecret=<server-tls-secret> \
   --set operatorCA.configMap=<operator-ca-configmap> \
-  --set operatorCANode=pki-operator \
   --set mcp.enabled=true \
   --set mcp.publicURL=https://fleetos.example.org \
   --set-json 'nodes=[...]'
 ```
 
-`operatorCANode` must name an entry in `nodes`. The chart applies the startup checks
-above at render time, so `helm install` and `helm template` fail with a message instead
-of deploying a manager that refuses to start:
+The chart applies the startup checks above at render time, so `helm install` and
+`helm template` fail with a message instead of deploying a manager that refuses to
+start:
 
 - `mcp.enabled` with `authBypass: true`;
-- `mcp.enabled` without `operatorCANode`;
 - `mcp.enabled` without `mcp.publicURL`.
 
-The chart does not check the shape of `publicURL` (https, no path); the manager does,
-at startup. `operatorCANode` is useful without MCP too: it turns on operator-credential
-management and operator-certificate revocation for the web UI and API.
-
-The chart runs two replicas and sets no `database_url`, so each replica has its own
-in-memory store. A key minted on one replica is unknown to the other, and a login can
-start on one and fail on the other. Until the chart exposes a database, run it with
-`replicaCount: 1` when MCP is enabled.
+With `authBypass: false` the chart already requires `database.existingSecret`. It does
+not check the shape of `publicURL` (https, no path); the manager does, at startup. The
+chart refuses to render the removed `operatorCANode` value.
 
 ## Logging in
 
@@ -301,9 +298,10 @@ Not registered as tools at all:
 For every `/mcp` request the manager:
 
 1. hashes the bearer and looks up the key; a revoked key stops at once;
-2. re-validates the certificate stored with the key: it must still chain to the current
-   operator CA (`operatorCAPath`), be inside its validity period, and not be in the
-   operator revocation cache;
+2. re-validates the certificate stored with the key: it must still chain to an operator
+   CA trusted now, be inside its validity period, and not be on the denylist or in its
+   CA's CRL; the CA must have a CRL within nextUpdate, and this replica's last denylist
+   poll must be under 5 minutes old;
 3. reads the level from the certificate; the **effective level** is the lower of that level
    and the key's ceiling.
 
@@ -315,12 +313,13 @@ What that means in practice:
 - **The key is bound to the certificate serial.** Renewing or re-issuing the operator
   certificate ends its keys, and the operator logs in again. A role change is a re-issue,
   so old keys can never carry the old level.
-- **Key revocation is immediate.** Certificate revocation takes effect at the next refresh
-  of the operator revocation cache, within 60 seconds.
-- **Removing the operator CA** from `operatorCAPath` ends every key under it.
-- The stored certificate is checked against `operatorCAPath` directly, so an operator
-  certificate must chain to a certificate in that file without help from intermediates
-  the browser would otherwise send.
+- **Key revocation is immediate.** A denylist entry takes effect on the writing replica
+  at once and on the others within about 5 seconds; a CA revocation takes effect when the
+  manager next loads the CA's CRL.
+- **Removing or retiring the operator CA** ends every key under it.
+- The stored certificate is checked against the trusted operator CAs directly, so an
+  operator certificate must chain to one of them without help from intermediates the
+  browser would otherwise send.
 
 ## Managing keys
 
