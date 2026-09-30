@@ -66,9 +66,10 @@ login page instead of a refused connection. Both are high ports because the imag
 as uid 65532 and cannot bind a privileged one; the published ports are the conventional
 80 and 443.
 
-The redirect names the **published** HTTPS port, not the one the container binds. If you
-publish HTTPS somewhere other than 443, set `httpsPublicPort` to that port, or the
-redirect will send browsers to a port nothing is listening on.
+> [!IMPORTANT]
+> The redirect names the **published** HTTPS port, not the one the container binds. If you
+> publish HTTPS somewhere other than 443, set `httpsPublicPort` to that port, or the
+> redirect will send browsers to a port nothing is listening on.
 
 The web surface itself is reachable without an operator certificate: it serves a landing
 page with a Log in action, and every API call still requires a certificate that verifies
@@ -77,13 +78,14 @@ connection for the page before it offers a certificate; an API call that arrives
 connection is refused and the connection is closed, so the next attempt makes a fresh TLS
 handshake. The refusal is logged (`authz: refused ...`) with the caller's address.
 
-**Everything under the mount must be readable by uid 65532.** The final image stage is
-`gcr.io/distroless/static-debian12:nonroot`, so the process runs as that uid, and that
-includes `config.yaml` itself. This bites hardest on Debian and Ubuntu, where the server
-key normally lives in `/etc/ssl/private` — that directory is `0710 root:ssl-cert`, so
-bind-mounting a key straight out of it gives the container a path it cannot traverse. The
-`usermod -aG ssl-cert` fix that works for a systemd deployment does not carry over, since
-no host account is involved. Copy the material into the mounted tree instead:
+> [!IMPORTANT]
+> **Everything under the mount must be readable by uid 65532.** The final image stage is
+> `gcr.io/distroless/static-debian12:nonroot`, so the process runs as that uid, and that
+> includes `config.yaml` itself. This bites hardest on Debian and Ubuntu, where the server
+> key normally lives in `/etc/ssl/private` — that directory is `0710 root:ssl-cert`, so
+> bind-mounting a key straight out of it gives the container a path it cannot traverse. The
+> `usermod -aG ssl-cert` fix that works for a systemd deployment does not carry over, since
+> no host account is involved. Copy the material into the mounted tree instead:
 
 ```sh
 sudo install -o 65532 -g 65532 -m 0444 fullchain.pem /etc/cryptos/fleet/tls/server-fullchain.pem
@@ -95,10 +97,11 @@ The failure mode is misleading if you skip this: the manager logs `using postgre
 and `N node(s) configured` first, then dies on `tls: load server cert: permission
 denied`, which reads like a TLS problem rather than a permissions one.
 
-**`config.yaml` is a secret, not configuration.** `database_url` carries the Postgres DSN
-inline and the loader does no environment interpolation, so the password is in the file.
-Give it `0400` owned by uid 65532, as above, and keep it out of git — including out of the
-directory you keep a `docker compose` file in.
+> [!CAUTION]
+> **`config.yaml` is a secret, not configuration.** `database_url` carries the Postgres DSN
+> inline and the loader does no environment interpolation, so the password is in the file.
+> Give it `0400` owned by uid 65532, as above, and keep it out of git — including out of the
+> directory you keep a `docker compose` file in.
 
 ### Single host with `docker compose`
 
@@ -137,9 +140,10 @@ worth knowing before you adapt it:
 There is no published image before the first release tag, so until then this is the
 supported path — and it stays useful afterwards for a patched build.
 
-**The build context is the workspace root, not this repo.** The `Dockerfile` copies from
-`manager/` and `web/`, so it needs a parent directory holding both checkouts side by side.
-Running `docker build .` from inside this repo fails on the `COPY` paths:
+> [!IMPORTANT]
+> **The build context is the workspace root, not this repo.** The `Dockerfile` copies from
+> `manager/` and `web/`, so it needs a parent directory holding both checkouts side by side.
+> Running `docker build .` from inside this repo fails on the `COPY` paths:
 
 ```sh
 mkdir -p src && cd src
@@ -238,10 +242,20 @@ verify the listener without a browser — see
 
 The Postgres integration tests are gated on the `MANAGER_TEST_DATABASE_URL` env var and **skip** when it is unset, so `task ci` stays green without a database. To run them against a throwaway Postgres:
 
-```sh
+**Linux / macOS**
+
+```bash
 docker run -d --rm -e POSTGRES_PASSWORD=test -p 5433:5432 postgres:18-alpine
 MANAGER_TEST_DATABASE_URL=postgres://postgres:test@localhost:5433/postgres \
   go test ./internal/store/... -v
+```
+
+**Windows (PowerShell)**
+
+```powershell
+docker run -d --rm -e POSTGRES_PASSWORD=test -p 5433:5432 postgres:18-alpine
+$env:MANAGER_TEST_DATABASE_URL = "postgres://postgres:test@localhost:5433/postgres"
+go test ./internal/store/... -v
 ```
 
 Pull-request CI (`.github/workflows/ci-go.yaml`) runs the same checks as `task ci` (gofmt, vet, golangci-lint, build, tests) with a Postgres service container and `MANAGER_TEST_DATABASE_URL` set, so these integration tests always run there. It skips draft PRs.
