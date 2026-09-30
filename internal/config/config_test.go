@@ -380,3 +380,49 @@ func TestLoad_MCPFailsClosed(t *testing.T) {
 		})
 	}
 }
+
+// A Kubernetes deployment keeps the DSN in a Secret and hands it over as an
+// environment variable, so config.yaml can stay a ConfigMap with no password.
+func TestLoad_DatabaseURLFromEnvironmentWins(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	body := `
+listen: "127.0.0.1:8080"
+authBypass: true
+database_url: "postgres://file:pw@db:5432/manager"
+`
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	t.Setenv(DatabaseURLEnv, "postgres://env:pw@db:5432/manager")
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.DatabaseURL != "postgres://env:pw@db:5432/manager" {
+		t.Errorf("DatabaseURL = %q, want the %s value", cfg.DatabaseURL, DatabaseURLEnv)
+	}
+}
+
+func TestLoad_EmptyDatabaseURLEnvironmentKeepsTheFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	body := `
+listen: "127.0.0.1:8080"
+authBypass: true
+database_url: "postgres://file:pw@db:5432/manager"
+`
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	t.Setenv(DatabaseURLEnv, "")
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.DatabaseURL != "postgres://file:pw@db:5432/manager" {
+		t.Errorf("DatabaseURL = %q, want the file's value", cfg.DatabaseURL)
+	}
+}

@@ -68,6 +68,14 @@ services:
     # MANAGER_IMAGE to its tag.
     image: ${MANAGER_IMAGE:-ghcr.io/cryptos-pki/manager:${MANAGER_VERSION:-latest}}
     restart: unless-stopped
+    # Nothing in the image is written at runtime except the node-creds volume
+    # below, so the root filesystem is read-only and a stray write fails
+    # loudly instead of vanishing with the container. The health check comes
+    # from the image (the manager probes its own /healthz).
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       postgres:
         # Honoured by `up`, but NOT by `docker compose restart`, which is why
@@ -87,6 +95,12 @@ services:
       - /etc/cryptos/fleet/config.yaml:/etc/cryptos/fleet/config.yaml:ro
       - /etc/cryptos/fleet/tls:/etc/cryptos/fleet/tls:ro
       - /etc/cryptos/fleet/operator-ca:/etc/cryptos/fleet/operator-ca:ro
+      # The one writable path: the admin key the manager mints for each node it
+      # adopts. Lose it and the manager is locked out of every adopted node, so
+      # back this volume up with the database. On first use Docker copies the
+      # image's directory, owned by 65532, into the empty volume.
+      - node-creds:/var/lib/cryptos-manager/node-creds
 
 volumes:
   pgdata:
+  node-creds:

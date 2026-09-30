@@ -65,6 +65,11 @@ func (s *Store) Close() {
 	s.pool.Close()
 }
 
+// Ping reports whether the database answers, for the manager's health check.
+func (s *Store) Ping(ctx context.Context) error {
+	return s.pool.Ping(ctx)
+}
+
 // bg is the context used by the interface methods, which are context-free to
 // match store.Store; Postgres calls always need one.
 func bg() context.Context { return context.Background() }
