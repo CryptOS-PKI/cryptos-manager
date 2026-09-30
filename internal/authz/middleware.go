@@ -18,10 +18,13 @@ limitations under the License.
 
 import (
 	"context"
+	"crypto/x509"
 	"log"
 	"math/big"
 	"net/http"
 	"strings"
+
+	"github.com/CryptOS-PKI/manager/internal/apperr"
 )
 
 // serialRevoker reports whether a client-cert serial has been revoked. The
@@ -48,6 +51,27 @@ func ClientCertMiddleware(next http.Handler) http.Handler {
 // whose serial has been revoked, is 403. A nil revoker disables the revocation
 // check (identical to ClientCertMiddleware).
 func ClientCertMiddlewareWithRevocation(revoker serialRevoker, next http.Handler) http.Handler {
+	return clientCert(nil, revoker, next)
+}
+
+// PeerAuthorizer re-checks a peer certificate on every request against the
+// operator CAs trusted now, including revocation, and returns the SHA-256 of
+// the operator CA it chains to. The TLS handshake verified the certificate
+// once, against whatever was trusted then; this is what makes a retired CA
+// or a new denylist entry take effect on an open connection. A refusal
+// carries its 16xx code and sub-reason.
+type PeerAuthorizer interface {
+	AuthorizePeer(leaf *x509.Certificate, intermediates []*x509.Certificate) (issuerSHA256 string, err error)
+}
+
+// ClientCertMiddlewareWith is ClientCertMiddleware plus a per-request
+// PeerAuthorizer check. A refused certificate gets 403 with the refusal's
+// code and reason headers.
+func ClientCertMiddlewareWith(auth PeerAuthorizer) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler { return clientCert(auth, nil, next) }
+}
+
+func clientCert(auth PeerAuthorizer, revoker serialRevoker, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.TLS == nil || len(r.TLS.PeerCertificates) == 0 {
 			// A connection whose handshake carried no certificate can never
@@ -71,6 +95,15 @@ func ClientCertMiddlewareWithRevocation(revoker serialRevoker, next http.Handler
 		if revoker != nil && revoker.IsRevoked(id.Serial) {
 			http.Error(w, "operator certificate revoked", http.StatusForbidden)
 			return
+		}
+		if auth != nil {
+			issuer, err := auth.AuthorizePeer(cert, r.TLS.PeerCertificates[1:])
+			if err != nil {
+				log.Printf("authz: refused %s %q from %s for %s (serial %s): %v", r.Method, r.URL.Path, r.RemoteAddr, id.CN, id.Serial, err)
+				apperr.WriteHTTP(w, http.StatusForbidden, err)
+				return
+			}
+			id.IssuerSHA256 = issuer
 		}
 		id.Via = ViaWeb
 		ctx := context.WithValue(NewContext(r.Context(), id), peerCertCtxKey{}, cert)
