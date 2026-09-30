@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	connect "connectrpc.com/connect"
@@ -53,14 +54,21 @@ func (s *Service) RevokeOperatorCredential(ctx context.Context, req *connect.Req
 		return nil, err
 	}
 	serial := operatorca.NormalizeSerial(req.Msg.GetSerialHex())
-	if req.Msg.GetSerialHex() == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("fleet: serial_hex is required"))
+	if req.Msg.GetSerialHex() == "" || !isHex(serial, 1, maxSerialHex) {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("fleet: serial_hex must be a hex certificate serial"))
+	}
+	if !validReasonCode(req.Msg.GetReasonCode()) {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("fleet: reason_code %d is not an RFC 5280 CRL reason (0-10, except 7)", req.Msg.GetReasonCode()))
+	}
+	issuer := strings.ToLower(req.Msg.GetIssuerSha256())
+	if issuer != "" && !isHex(issuer, 64, 64) {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("fleet: issuer_sha256 must be a SHA-256 fingerprint in hex"))
 	}
 	if !s.hasOperatorCA() {
 		return nil, errOperatorCAUnconfigured("RevokeOperatorCredential")
 	}
 
-	issuer := req.Msg.GetIssuerSha256()
 	if issuer == "" {
 		issuer = s.recordedIssuer(serial)
 	}
@@ -86,7 +94,7 @@ func (s *Service) RevokeOperatorCredential(ctx context.Context, req *connect.Req
 		ID:         newAuditID(),
 		At:         at.Format(time.RFC3339),
 		Kind:       "operator-revoked",
-		Summary:    fmt.Sprintf("Denied operator credential %s under operator CA %s on the Fleet Manager denylist (reason %d)", serial, issuer, req.Msg.GetReasonCode()),
+		Summary:    fmt.Sprintf("Denied operator credential %s under operator CA %s on the Fleet Manager denylist (reason %d); it is not revoked at the operator CA", serial, issuer, req.Msg.GetReasonCode()),
 		TargetKind: "operator-credential",
 		TargetPath: "/operators/" + serial,
 	})
@@ -118,25 +126,54 @@ func (s *Service) ListOperatorCredentials(ctx context.Context, _ *connect.Reques
 	creds := s.store.OperatorCredentials()
 	items := make([]*fleetv1.OperatorCredential, len(creds))
 	for i, c := range creds {
-		serial := operatorca.NormalizeSerial(c.SerialHex)
-		denied := c.IssuerSHA256 != "" && s.revocations.Denylisted(c.IssuerSHA256, serial)
-		crlRevoked := c.IssuerSHA256 != "" && s.revocations.CRLRevoked(c.IssuerSHA256, serial)
-		items[i] = &fleetv1.OperatorCredential{
-			CommonName:   c.CommonName,
-			SerialHex:    c.SerialHex,
-			Level:        c.Level,
-			NotAfter:     c.NotAfter,
-			Revoked:      c.Revoked || denied || crlRevoked,
-			Kind:         c.Kind,
-			IssuerSha256: c.IssuerSHA256,
-			Email:        c.Email,
-			FullName:     c.FullName,
-			Denylisted:   denied,
-			CrlRevoked:   crlRevoked,
-		}
+		items[i] = s.credentialToProto(c)
 	}
 
 	return connect.NewResponse(&fleetv1.ListOperatorCredentialsResponse{Items: items}), nil
+}
+
+// credentialToProto renders a stored credential with its revocation state on
+// this replica.
+func (s *Service) credentialToProto(c store.OperatorCredential) *fleetv1.OperatorCredential {
+	serial := operatorca.NormalizeSerial(c.SerialHex)
+	denied := c.IssuerSHA256 != "" && s.revocations.Denylisted(c.IssuerSHA256, serial)
+	crlRevoked := c.IssuerSHA256 != "" && s.revocations.CRLRevoked(c.IssuerSHA256, serial)
+	return &fleetv1.OperatorCredential{
+		CommonName:   c.CommonName,
+		SerialHex:    c.SerialHex,
+		Level:        c.Level,
+		NotAfter:     c.NotAfter,
+		Revoked:      c.Revoked || denied || crlRevoked,
+		Kind:         c.Kind,
+		IssuerSha256: c.IssuerSHA256,
+		Email:        c.Email,
+		FullName:     c.FullName,
+		Denylisted:   denied,
+		CrlRevoked:   crlRevoked,
+		FirstSeenAt:  rfc3339(c.FirstSeenAt),
+		LastSeenAt:   rfc3339(c.LastSeenAt),
+	}
+}
+
+// maxSerialHex bounds a serial: RFC 5280 allows 20 octets, and some CAs
+// overshoot, so twice that is still refused as nonsense.
+const maxSerialHex = 80
+
+func isHex(s string, minLen, maxLen int) bool {
+	if len(s) < minLen || len(s) > maxLen {
+		return false
+	}
+	for _, r := range s {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+// validReasonCode accepts the RFC 5280 CRLReason values; 7 is unused.
+func validReasonCode(c int32) bool {
+	return c >= 0 && c <= 10 && c != 7
 }
 
 // hasOperatorCA reports whether an operator CA source is configured.
