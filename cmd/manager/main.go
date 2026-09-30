@@ -43,6 +43,7 @@ import (
 	"github.com/CryptOS-PKI/manager/internal/fleet"
 	"github.com/CryptOS-PKI/manager/internal/mcpauth"
 	"github.com/CryptOS-PKI/manager/internal/nodeclient"
+	"github.com/CryptOS-PKI/manager/internal/operatorca"
 	"github.com/CryptOS-PKI/manager/internal/store"
 	"github.com/CryptOS-PKI/manager/internal/store/memory"
 	"github.com/CryptOS-PKI/manager/internal/store/postgres"
@@ -90,6 +91,7 @@ func main() {
 	var (
 		st         store.Store
 		trustStore store.OperatorTrust
+		certStore  serverCertStore
 		storeCheck func(context.Context) error
 	)
 	if os.Getenv(config.DatabaseURLEnv) != "" {
@@ -122,7 +124,7 @@ func main() {
 		if err := pg.SeedIfEmpty(ctx, nodes, nil, nil, nil, nil); err != nil {
 			log.Fatalf("manager: seed postgres: %v", err)
 		}
-		st, trustStore = pg, pg
+		st, trustStore, certStore = pg, pg, pg
 		storeCheck = pg.Ping
 		log.Printf("manager: using postgres store")
 	}
@@ -213,7 +215,7 @@ func main() {
 		log.Printf("manager: authBypass is set, so first run is disabled and no operator CA is used")
 	} else {
 		ctx := context.Background()
-		base, err := buildTLSConfig(cfg)
+		base, err := buildTLSConfig(ctx, cfg, certStore, log.Printf)
 		if err != nil {
 			log.Fatalf("manager: tls: %v", err)
 		}
@@ -284,27 +286,34 @@ func main() {
 // one fails the handshake -- and authorization never lived in the TLS layer.
 // newRootHandler gates the API on the certificate, so an unauthenticated
 // client gets a 401 from the API instead of a dead connection.
-func buildTLSConfig(cfg config.Config) (*tls.Config, error) {
-	// No configured material is a deliberate day-zero choice (#78): generate a
-	// throwaway certificate so the site comes up and the operator can be told
-	// what to install. A configured path that fails to load is a mistake, and
-	// still fatal -- it must not be papered over with a self-signed
-	// certificate that looks like it worked.
+func buildTLSConfig(ctx context.Context, cfg config.Config, certs serverCertStore, logf func(string, ...any)) (*tls.Config, error) {
+	// No configured material is a deliberate day-zero choice (#78): serve a
+	// self-signed certificate so the site comes up and the operator can be
+	// told what to install. With Postgres it is kept there and shared, so
+	// restarts and replicas serve one fingerprint. A configured path that
+	// fails to load is a mistake, and still fatal -- it must not be papered
+	// over with a self-signed certificate that looks like it worked.
 	var (
 		serverCert tls.Certificate
 		err        error
 	)
 	if cfg.TLSCert == "" && cfg.TLSKey == "" {
-		serverCert, err = generateServerCert(bootstrapCertHosts(cfg.Listen))
+		serverCert, err = bootstrapServerCert(ctx, certs, bootstrapCertHosts(cfg.Listen), time.Now())
 		if err != nil {
-			return nil, fmt.Errorf("generate bootstrap server cert: %w", err)
+			return nil, err
 		}
-		log.Printf("manager: WARNING no tlsCert/tlsKey configured, serving a SELF-SIGNED " +
-			"bootstrap certificate; browsers will warn until real material is installed")
+		logf("manager: WARNING serving a SELF-SIGNED bootstrap certificate, SHA-256 %s, valid until %s; "+
+			"verify this fingerprint in your browser before entering the bootstrap token",
+			operatorca.ColonFingerprint(serverCert.Leaf.Raw), serverCert.Leaf.NotAfter.UTC().Format("2006-01-02"))
 	} else {
 		serverCert, err = tls.LoadX509KeyPair(cfg.TLSCert, cfg.TLSKey)
 		if err != nil {
 			return nil, fmt.Errorf("load server cert: %w", err)
+		}
+		if certs != nil {
+			if err := certs.DeleteBootstrapServerCert(ctx); err != nil {
+				return nil, fmt.Errorf("delete the stored bootstrap certificate: %w", err)
+			}
 		}
 	}
 

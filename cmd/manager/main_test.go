@@ -131,7 +131,7 @@ func TestBuildTLSConfig_RequestsButDoesNotRequireAClientCert(t *testing.T) {
 	dir := t.TempDir()
 	certPath, keyPath := writeSelfSigned(t, dir)
 	cfg := config.Config{TLSCert: certPath, TLSKey: keyPath}
-	tc, err := buildTLSConfig(cfg)
+	tc, err := buildTLSConfig(context.Background(), cfg, nil, t.Logf)
 	if err != nil {
 		t.Fatalf("buildTLSConfig: %v", err)
 	}
@@ -154,7 +154,7 @@ func TestSetupOperatorTrust_BadOperatorCA(t *testing.T) {
 		t.Fatal(err)
 	}
 	st := memory.New(nil)
-	base, err := buildTLSConfig(config.Config{Listen: "0.0.0.0:8443"})
+	base, err := buildTLSConfig(context.Background(), config.Config{Listen: "0.0.0.0:8443"}, nil, t.Logf)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -286,7 +286,7 @@ func TestHTTPSRedirectHandler_NoHost(t *testing.T) {
 // than refusing to start, which is what the CryptOS nodes already do for their
 // own listener before any CA identity exists.
 func TestBuildTLSConfig_GeneratesWhenNoCertConfigured(t *testing.T) {
-	tc, err := buildTLSConfig(config.Config{Listen: "0.0.0.0:8443"})
+	tc, err := buildTLSConfig(context.Background(), config.Config{Listen: "0.0.0.0:8443"}, nil, t.Logf)
 	if err != nil {
 		t.Fatalf("buildTLSConfig with no material: %v", err)
 	}
@@ -319,7 +319,7 @@ func TestBuildTLSConfig_GeneratesWhenNoCertConfigured(t *testing.T) {
 // correct day-zero posture, and the first-run flow opens only its own endpoint.
 func TestBuildTLSConfig_NoOperatorCAIsNotFatal(t *testing.T) {
 	st := memory.New(nil)
-	base, err := buildTLSConfig(config.Config{Listen: "0.0.0.0:8443"})
+	base, err := buildTLSConfig(context.Background(), config.Config{Listen: "0.0.0.0:8443"}, nil, t.Logf)
 	if err != nil {
 		t.Fatalf("buildTLSConfig: %v", err)
 	}
@@ -344,7 +344,7 @@ func TestBuildTLSConfig_NoOperatorCAIsNotFatal(t *testing.T) {
 // papered over with a self-signed certificate.
 func TestBuildTLSConfig_BrokenPathStillFails(t *testing.T) {
 	cfg := config.Config{TLSCert: "/nonexistent/tls.crt", TLSKey: "/nonexistent/tls.key"}
-	if _, err := buildTLSConfig(cfg); err == nil {
+	if _, err := buildTLSConfig(context.Background(), cfg, nil, t.Logf); err == nil {
 		t.Fatal("buildTLSConfig with an unreadable cert path = nil error, want error")
 	}
 }
@@ -516,7 +516,7 @@ func connTracker(req *http.Request, reused *bool) *http.Request {
 func TestServe_CertlessConnectionIsNotReusedForTheAPI(t *testing.T) {
 	caPath, ca, caKey := writeOperatorCA(t, t.TempDir())
 	cfg := config.Config{OperatorCAPath: caPath}
-	base, err := buildTLSConfig(cfg)
+	base, err := buildTLSConfig(context.Background(), cfg, nil, t.Logf)
 	if err != nil {
 		t.Fatalf("buildTLSConfig: %v", err)
 	}
@@ -612,7 +612,7 @@ func TestSetupOperatorTrust_RefusesANodeCAAtStart(t *testing.T) {
 	caPath, _, _ := writeOperatorCA(t, t.TempDir())
 	st := memory.New([]store.Node{{Name: "pki-inter", Endpoint: "192.0.2.21:443", Role: "intermediate", CACert: caPath}})
 	cfg := config.Config{OperatorCAPath: caPath}
-	base, err := buildTLSConfig(cfg)
+	base, err := buildTLSConfig(context.Background(), cfg, nil, t.Logf)
 	if err != nil {
 		t.Fatal(err)
 	}
