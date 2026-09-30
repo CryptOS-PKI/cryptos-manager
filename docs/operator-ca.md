@@ -21,6 +21,9 @@ The source is chosen only by what is configured:
 | None | No `operatorCAPath`, and no Postgres or `firstRun: disabled` | Nothing | Nothing; every API caller is refused |
 | Dev | `authBypass: true` | No certificates at all | n/a |
 
+Registered CAs come from first run ([first-run.md](first-run.md)): the holder
+of the bootstrap token registers the CA's certificate.
+
 **The config file wins.** While `operatorCAPath` is set, any operator CA stored
 in the database is ignored, and the manager logs so at start. Use the file for
 GitOps-pinned deployments.
