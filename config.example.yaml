@@ -6,9 +6,10 @@
 # Node inventory for a local nodeID / TPM-less QEMU fleet. Map each node's FQDN
 # to the host in /etc/hosts; the QEMU host-forwards land on each node's guest
 # :443. The manager dials each node's mTLS gRPC listener presenting that node's
-# admin client cert+key. The node server cert is an ephemeral self-signed cert,
-# so the manager relaxes server verification and relies on client-auth (which
-# the node enforces). caCertPath is that node's identity chain
+# admin client cert+key, which the node enforces. The node's server cert is a
+# self-signed cert the node makes on every boot; the manager verifies it only
+# when a server.crt pin sits next to the node's adminCertPath (see
+# docs/node-trust.md). caCertPath is that node's identity chain
 # (`cryptosctl identity show -o pem`): root = 1 cert, intermediate = 2 certs
 # [intermediate, root].
 listen: "127.0.0.1:8080"

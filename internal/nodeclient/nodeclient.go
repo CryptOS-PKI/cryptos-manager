@@ -20,12 +20,22 @@ limitations under the License.
 */
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
+	"encoding/pem"
+	"errors"
 	"fmt"
+	"io/fs"
+	"log"
+	"net"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 
 	cryptosv1 "github.com/CryptOS-PKI/api/go/cryptos/v1"
 	"github.com/CryptOS-PKI/manager/internal/store"
@@ -42,12 +52,17 @@ type Client struct {
 // Dial opens a gRPC connection to node's endpoint, presenting node's admin
 // client certificate for mTLS.
 //
-// The node's server certificate is ephemeral and self-signed per boot, so it
-// cannot be verified against a pinned CA or hostname/SAN. Dial therefore
-// relaxes server verification (InsecureSkipVerify) while still presenting
-// the admin client certificate, which is the credential the node actually
-// enforces via client authentication. Server-identity pinning is future
-// hardening, not this dev slice.
+// When a ServerCertFile sits next to the node's admin certificate, the node's
+// server certificate is verified against it: it must be a certificate in that
+// file, or chain to one and be valid for the endpoint's host (as cryptosctl
+// --trust checks), or the handshake is refused. The file is read on every dial, so
+// replacing it re-pins the node without a restart. A CryptOS node presents a
+// new self-signed management certificate every boot, so a pinned node needs
+// re-pinning after it reboots.
+//
+// A node without that file is dialed without verifying the server
+// certificate; the node still authenticates the manager by its admin client
+// certificate. Each such node is logged once.
 func Dial(node store.Node) (*Client, error) {
 	adminCert, err := tls.LoadX509KeyPair(node.AdminCert, node.AdminKey)
 	if err != nil {
@@ -62,7 +77,26 @@ func Dial(node store.Node) (*Client, error) {
 		GetClientCertificate: func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
 			return &adminCert, nil
 		},
-		InsecureSkipVerify: true, //nolint:gosec // node's server cert is ephemeral self-signed; client-cert auth is the trust boundary here.
+		// Server verification runs in VerifyConnection for a pinned node, so the
+		// refusal can name the presented certificate for re-pinning.
+		InsecureSkipVerify: true, //nolint:gosec // pinned nodes are verified in VerifyConnection; see Dial's doc comment for unpinned ones.
+	}
+
+	pinPath := filepath.Join(filepath.Dir(node.AdminCert), ServerCertFile)
+	pemBytes, err := os.ReadFile(pinPath)
+	switch {
+	case err == nil:
+		verify, err := pinnedServerVerifier(node, pinPath, pemBytes)
+		if err != nil {
+			return nil, err
+		}
+		tlsCfg.VerifyConnection = verify
+	case errors.Is(err, fs.ErrNotExist):
+		if _, seen := unpinnedWarned.LoadOrStore(node.Name, struct{}{}); !seen {
+			log.Printf("nodeclient: node %s has no pinned server certificate (%s); its server certificate is not verified", node.Name, pinPath)
+		}
+	default:
+		return nil, fmt.Errorf("nodeclient: read pinned server certificate for %s: %w", node.Name, err)
 	}
 
 	conn, err := grpc.NewClient(node.Endpoint, grpc.WithTransportCredentials(credentials.NewTLS(tlsCfg)))
@@ -73,6 +107,76 @@ func Dial(node store.Node) (*Client, error) {
 	return &Client{
 		conn: conn,
 		node: cryptosv1.NewNodeServiceClient(conn),
+	}, nil
+}
+
+// ServerCertFile is the name of the file, in the same directory as a node's
+// admin certificate, that pins the node's management server certificate. It
+// holds the PEM certificate the node presents, the same file cryptosctl takes
+// as --trust.
+const ServerCertFile = "server.crt"
+
+// unpinnedWarned records the nodes already logged as dialed without server
+// certificate verification, so the warning is not repeated on every call.
+var unpinnedWarned sync.Map
+
+// pinnedServerVerifier returns a VerifyConnection callback that accepts a
+// server certificate identical to one in pemBytes (read from pinPath), or one
+// that chains to a certificate there and is valid for the endpoint's host.
+func pinnedServerVerifier(node store.Node, pinPath string, pemBytes []byte) (func(tls.ConnectionState) error, error) {
+	roots := x509.NewCertPool()
+	var pinned [][]byte
+	for rest := pemBytes; ; {
+		var block *pem.Block
+		block, rest = pem.Decode(rest)
+		if block == nil {
+			break
+		}
+		if block.Type != "CERTIFICATE" {
+			continue
+		}
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return nil, fmt.Errorf("nodeclient: pinned server certificate file %s for %s: %w", pinPath, node.Name, err)
+		}
+		roots.AddCert(cert)
+		pinned = append(pinned, cert.Raw)
+	}
+	if len(pinned) == 0 {
+		return nil, fmt.Errorf("nodeclient: pinned server certificate file %s for %s holds no PEM certificate", pinPath, node.Name)
+	}
+	host, _, err := net.SplitHostPort(node.Endpoint)
+	if err != nil {
+		return nil, fmt.Errorf("nodeclient: endpoint %q for %s: %w", node.Endpoint, node.Name, err)
+	}
+
+	return func(cs tls.ConnectionState) error {
+		if len(cs.PeerCertificates) == 0 {
+			return fmt.Errorf("nodeclient: node %s presented no server certificate", node.Name)
+		}
+		leaf := cs.PeerCertificates[0]
+		for _, raw := range pinned {
+			if bytes.Equal(raw, leaf.Raw) {
+				return nil
+			}
+		}
+		intermediates := x509.NewCertPool()
+		for _, c := range cs.PeerCertificates[1:] {
+			intermediates.AddCert(c)
+		}
+		if _, err := leaf.Verify(x509.VerifyOptions{
+			Roots:         roots,
+			Intermediates: intermediates,
+			DNSName:       host,
+			KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		}); err != nil {
+			sum := sha256.Sum256(leaf.Raw)
+			log.Printf("nodeclient: node %s refused: presented server certificate sha256 %s does not match the pinned server certificate: %v",
+				node.Name, hex.EncodeToString(sum[:]), err)
+			return fmt.Errorf("nodeclient: node %s presented a server certificate (sha256 %s) that does not match the pinned server certificate: %w",
+				node.Name, hex.EncodeToString(sum[:]), err)
+		}
+		return nil
 	}, nil
 }
 
