@@ -18,17 +18,21 @@ limitations under the License.
 
 import (
 	"bytes"
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/hex"
 	"encoding/pem"
 	"log"
-	"net"
+	"math/big"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/CryptOS-PKI/manager/internal/store"
 )
@@ -88,33 +92,58 @@ func TestDial_CAChain_Accepted(t *testing.T) {
 	}
 }
 
+// The endpoint is a literal IP so the test never depends on how a name
+// resolves: a name with several addresses (localhost is both 127.0.0.1 and
+// ::1 on some hosts) makes gRPC report the last address's dial error instead
+// of the refused handshake.
 func TestDial_CAChain_HostMismatchRefused(t *testing.T) {
 	clientCA := newTestCA(t, "fake-node-client-ca")
 	nodeCA := newTestCA(t, "Example Root CA G1")
-	serverCert := caSignedServerCert(t, nodeCA)
+	serverCert := dnsOnlyServerCert(t, nodeCA, "node.example.org")
 	lis := listenLocal(t, "127.0.0.1:0")
 	stop := startBootedNode(t, lis, serverCert, clientCA)
 	defer stop()
 
 	dir := t.TempDir()
-	_, port, err := net.SplitHostPort(lis.Addr().String())
-	if err != nil {
-		t.Fatalf("split addr: %v", err)
-	}
-	// The certificate lists only 127.0.0.1, so dialing the node as localhost
-	// must fail the host check even though the chain is good.
-	node := pinnedNode(t, net.JoinHostPort("localhost", port), dir, clientCA)
+	// The certificate chains to the recorded CA but names only
+	// node.example.org, so dialing the node at 127.0.0.1 must fail the host
+	// check.
+	node := pinnedNode(t, lis.Addr().String(), dir, clientCA)
 	node.CACert = writeCAChainPEM(t, dir, nodeCA)
 
-	err = getStatus(t, node)
+	err := getStatus(t, node)
 	if err == nil {
 		t.Fatal("GetStatus() with a host the certificate does not name: error = nil, want refused")
 	}
-	for _, want := range []string{node.Name, sha256Hex(serverCert), "recorded CA chain", "localhost"} {
+	for _, want := range []string{node.Name, sha256Hex(serverCert), "recorded CA chain", "for host 127.0.0.1"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("GetStatus() error = %v, want it to contain %q", err, want)
 		}
 	}
+}
+
+// dnsOnlyServerCert is a management certificate signed by nodeCA whose only
+// SAN is the DNS name dnsName.
+func dnsOnlyServerCert(t *testing.T, nodeCA *testCA, dnsName string) tls.Certificate {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate leaf key: %v", err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(3),
+		Subject:      pkix.Name{CommonName: dnsName},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		DNSNames:     []string{dnsName},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, nodeCA.cert, &key.PublicKey, nodeCA.key)
+	if err != nil {
+		t.Fatalf("create leaf cert: %v", err)
+	}
+	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}
 }
 
 func TestDial_CAChain_OtherCARefused(t *testing.T) {
