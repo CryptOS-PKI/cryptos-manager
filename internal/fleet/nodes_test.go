@@ -20,7 +20,9 @@ limitations under the License.
 
 import (
 	"context"
+	"crypto"
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha512"
@@ -53,6 +55,10 @@ type fakeConn struct {
 	// CA-identity signer, which signs attestationMessage(nonce)) instead of
 	// returning a zero response.
 	attestKey *ecdsa.PrivateKey
+	// attestSigner, used when attestKey is nil, signs through the generic
+	// crypto.Signer.Sign path the node's attester uses, so RSA and other key
+	// types can be exercised.
+	attestSigner crypto.Signer
 	// attestLegacy makes Attest sign the bare nonce, as nodes did before the
 	// versioned attestation message.
 	attestLegacy bool
@@ -213,7 +219,7 @@ func (f *fakeConn) Attest(_ context.Context, nonce []byte) (*cryptosv1.AttestRes
 	if f.err != nil {
 		return nil, f.err
 	}
-	if f.attestKey == nil {
+	if f.attestKey == nil && f.attestSigner == nil {
 		return &cryptosv1.AttestResponse{}, nil
 	}
 	signed := attestationMessage(nonce)
@@ -226,11 +232,38 @@ func (f *fakeConn) Attest(_ context.Context, nonce []byte) (*cryptosv1.AttestRes
 		signed = append([]byte("wrong-bytes-"), nonce...)
 	}
 	digest := sha512.Sum384(signed)
+	if f.attestKey == nil {
+		return f.attestWithSigner(signed, digest[:])
+	}
 	sig, err := ecdsa.SignASN1(rand.Reader, f.attestKey, digest[:])
 	if err != nil {
 		return nil, err
 	}
 	pubDER, err := x509.MarshalPKIXPublicKey(&f.attestKey.PublicKey)
+	if err != nil {
+		return nil, err
+	}
+	return &cryptosv1.AttestResponse{
+		Signature:      sig,
+		IdentityPubDer: pubDER,
+	}, nil
+}
+
+func (f *fakeConn) attestWithSigner(signed, digest []byte) (*cryptosv1.AttestResponse, error) {
+	var (
+		sig []byte
+		err error
+	)
+	if _, ok := f.attestSigner.(ed25519.PrivateKey); ok {
+		// Ed25519 cannot sign a prehashed digest; it signs the message itself.
+		sig, err = f.attestSigner.Sign(rand.Reader, signed, crypto.Hash(0))
+	} else {
+		sig, err = f.attestSigner.Sign(rand.Reader, digest, crypto.SHA384)
+	}
+	if err != nil {
+		return nil, err
+	}
+	pubDER, err := x509.MarshalPKIXPublicKey(f.attestSigner.Public())
 	if err != nil {
 		return nil, err
 	}
