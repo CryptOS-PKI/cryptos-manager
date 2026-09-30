@@ -74,8 +74,8 @@ jobs:
         if: ${{ !cancelled() }}
         uses: actions/checkout@v6
         with:
-          # Full history: hygiene diffs base..head and gitleaks scans every
-          # commit.
+          # Full history: hygiene diffs base..head and gitleaks scans the PR's
+          # commits, base..head.
           fetch-depth: 0
 
       - name: 🧼 PR Hygiene
@@ -122,9 +122,15 @@ jobs:
 
       - name: 🔒 Gitleaks (secret scan)
         if: ${{ !cancelled() && steps.gitleaks-install.outcome == 'success' }}
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
-          # Honor a repo-local .gitleaks.toml if present; scan the full tree.
-          # An array keeps the optional flag pair intact without word splitting.
-          args=(detect --source . --redact --verbose --no-banner)
+          # Only the PR's own commits. The checkout fetches every branch, and
+          # gitleaks without --log-opts scans all of them (git log --all), so a
+          # finding on another branch would fail this PR.
+          # Honor a repo-local .gitleaks.toml if present. An array keeps the
+          # optional flag pair intact without word splitting.
+          args=(detect --source . --redact --verbose --no-banner --log-opts "$BASE..$HEAD")
           if [ -f .gitleaks.toml ]; then args+=(--config .gitleaks.toml); fi
           gitleaks "${args[@]}"
