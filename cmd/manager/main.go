@@ -375,8 +375,9 @@ func serveHTTPRedirect(listen, publicHTTPSPort string) {
 	}
 }
 
-// httpsRedirectHandler redirects every request to the HTTPS scheme on the same
-// host, preserving path and query.
+// httpsRedirectHandler redirects GET and HEAD requests to the HTTPS scheme on
+// the same host, preserving path and query, and answers 405 to any other
+// method.
 //
 // publicHTTPSPort is the port clients reach, which is deliberately not the port
 // the manager listens on: the container serves 8443 internally and is published
@@ -388,6 +389,13 @@ func serveHTTPRedirect(listen, publicHTTPSPort string) {
 // ever needs to serve anything else on port 80.
 func httpsRedirectHandler(publicHTTPSPort string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Only page loads are redirected. Anything else would be replayed
+		// to HTTPS with its body after crossing the network in the clear.
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			http.Error(w, "use HTTPS", http.StatusMethodNotAllowed)
+			return
+		}
 		host := r.Host
 		if host == "" {
 			// Nothing to redirect to, and guessing would send the client

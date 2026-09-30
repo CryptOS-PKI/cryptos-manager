@@ -243,7 +243,6 @@ func TestHTTPSRedirectHandler(t *testing.T) {
 			"explicit 443 is left implicit",
 			"443", http.MethodGet, "fm.acme.example", "/", "https://fm.acme.example/",
 		},
-		{"non-GET is redirected too", "", http.MethodPost, "fm.acme.example", "/api", "https://fm.acme.example/api"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			req := httptest.NewRequest(tc.method, tc.target, nil)
