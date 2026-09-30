@@ -23,6 +23,8 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -382,4 +384,218 @@ func setRebootTiming(wait, poll, grace time.Duration) func() {
 	ow, op, og := rebootWait, rebootPollGap, rebootPollGrace
 	rebootWait, rebootPollGap, rebootPollGrace = wait, poll, grace
 	return func() { rebootWait, rebootPollGap, rebootPollGrace = ow, op, og }
+}
+
+// runningStatus is a GetStatus reply from a node that booted its installed
+// system, which reports an identity state; a maintenance node leaves it unset.
+func runningStatus(state cryptosv1.IdentityState) *cryptosv1.GetStatusResponse {
+	return &cryptosv1.GetStatusResponse{Status: &cryptosv1.NodeStatus{IdentityState: state}}
+}
+
+// recordingMaintenanceDial returns a pinned-dial seam that hands out conn and
+// records every client cert it was asked to present.
+func recordingMaintenanceDial(conn *fakeConn, presented *[]string) func(endpoint, pin, clientCertPEM, clientKeyPEM string) (NodeConn, error) {
+	return func(_, _, clientCertPEM, _ string) (NodeConn, error) {
+		*presented = append(*presented, clientCertPEM)
+		return conn, nil
+	}
+}
+
+func TestRunAdoption_ReAdoptAfterPartialApply_ReusesAdminAndResumes(t *testing.T) {
+	adoptCredsBaseDir = t.TempDir()
+	st := memory.New(nil)
+	restore := setRebootTiming(10*time.Millisecond, 2*time.Millisecond, 1*time.Millisecond)
+	defer restore()
+
+	// First attempt: the config is applied and the node installs, but it never
+	// answers in running mode, so the adoption fails after ApplyConfig. The
+	// node now has a staged config pinning the admin minted for this attempt.
+	var presented []string
+	maint := &fakeConn{applyConfigResp: &cryptosv1.ApplyConfigResponse{RequiresReboot: true}}
+	down := &fakeConn{err: errors.New("node down")}
+	first := New(st, dialFor(map[string]*fakeConn{"new-node": down})).WithAdoption(nil, recordingMaintenanceDial(maint, &presented))
+	if err := first.runAdoption(context.Background(), &fleetv1.AdoptNodeRequest{
+		Endpoint: "node:4443", PinnedCertSha256: "abc", Config: adoptConfig(),
+	}, (&collectSink{}).send); err == nil {
+		t.Fatal("first attempt succeeded, want the partial-apply failure")
+	}
+	if maint.gotApplyConfig == nil {
+		t.Fatal("first attempt never applied the config")
+	}
+
+	// Second attempt: the node is up in running mode, awaiting its ceremony,
+	// and only trusts the first attempt's admin.
+	installed := &fakeConn{status: runningStatus(cryptosv1.IdentityState_IDENTITY_STATE_NONE)}
+	running := &fakeConn{
+		status: &cryptosv1.GetStatusResponse{},
+		ceremonyStream: &scriptedCeremony{kinds: []cryptosv1.CeremonyEventKind{
+			cryptosv1.CeremonyEventKind_CEREMONY_EVENT_KIND_COMPLETE,
+		}},
+	}
+	second := New(st, dialFor(map[string]*fakeConn{"new-node": running})).WithAdoption(nil, recordingMaintenanceDial(installed, &presented))
+	sink := &collectSink{}
+	if err := second.runAdoption(context.Background(), &fleetv1.AdoptNodeRequest{
+		Endpoint: "node:4443", PinnedCertSha256: "abc", Config: adoptConfig(),
+	}, sink.send); err != nil {
+		t.Fatalf("re-adoption error = %v, want it to resume", err)
+	}
+
+	if len(presented) != 2 || presented[0] == "" || presented[0] != presented[1] {
+		t.Fatal("re-adoption did not present the admin cert the node's staged config pins")
+	}
+	if installed.gotApplyConfig != nil {
+		t.Error("re-adoption re-ran the install on a node that is already installed")
+	}
+	if len(running.gotCeremonyYAML) == 0 {
+		t.Error("re-adoption did not run the first-boot ceremony with the requested config")
+	}
+	if !containsPhase(sink.phases, phaseEstablished) {
+		t.Errorf("phases = %v, want a terminal established", sink.phases)
+	}
+	n, ok := st.Node("new-node")
+	if !ok {
+		t.Fatal("re-adopted node was not registered in the inventory")
+	}
+	got, err := os.ReadFile(n.AdminCert)
+	if err != nil {
+		t.Fatalf("read registered admin cert: %v", err)
+	}
+	if string(got) != presented[0] {
+		t.Error("the inventory records a different admin cert than the node trusts")
+	}
+}
+
+func TestRunAdoption_ReAdoptEstablishedRoot_RegistersWithoutCeremony(t *testing.T) {
+	adoptCredsBaseDir = t.TempDir()
+	st := memory.New(nil)
+	restore := setRebootTiming(5*time.Millisecond, 1*time.Millisecond, 1*time.Millisecond)
+	defer restore()
+
+	// The ceremony finished on an earlier attempt, but the manager never
+	// registered the node (the stream dropped at the end).
+	admin, err := mintBootstrapAdmin("fleet-admin@new-node")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := writeAdminCreds("new-node", admin); err != nil {
+		t.Fatal(err)
+	}
+	var presented []string
+	installed := &fakeConn{status: runningStatus(cryptosv1.IdentityState_IDENTITY_STATE_ESTABLISHED)}
+	running := &fakeConn{status: &cryptosv1.GetStatusResponse{}}
+	svc := New(st, dialFor(map[string]*fakeConn{"new-node": running})).WithAdoption(nil, recordingMaintenanceDial(installed, &presented))
+
+	sink := &collectSink{}
+	if err := svc.runAdoption(context.Background(), &fleetv1.AdoptNodeRequest{
+		Endpoint: "node:4443", PinnedCertSha256: "abc", Config: adoptConfig(),
+	}, sink.send); err != nil {
+		t.Fatalf("re-adoption of an established root error = %v", err)
+	}
+	if len(presented) != 1 || presented[0] != string(admin.certPEM) {
+		t.Error("re-adoption did not present the stored admin cert")
+	}
+	if installed.gotApplyConfig != nil || len(running.gotCeremonyYAML) != 0 {
+		t.Error("re-adoption re-ran the install or the ceremony on an established node")
+	}
+	if !containsPhase(sink.phases, phaseEstablished) {
+		t.Errorf("phases = %v, want a terminal established", sink.phases)
+	}
+	if _, ok := st.Node("new-node"); !ok {
+		t.Error("established node was not registered in the inventory")
+	}
+}
+
+func TestRunAdoption_ReAdoptSubordinate_AwaitsCertificate(t *testing.T) {
+	adoptCredsBaseDir = t.TempDir()
+	st := memory.New(nil)
+	restore := setRebootTiming(5*time.Millisecond, 1*time.Millisecond, 1*time.Millisecond)
+	defer restore()
+
+	admin, err := mintBootstrapAdmin("fleet-admin@sub-node")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := writeAdminCreds("sub-node", admin); err != nil {
+		t.Fatal(err)
+	}
+	var presented []string
+	installed := &fakeConn{status: runningStatus(cryptosv1.IdentityState_IDENTITY_STATE_AWAITING_CERT)}
+	running := &fakeConn{status: &cryptosv1.GetStatusResponse{}}
+	svc := New(st, dialFor(map[string]*fakeConn{"sub-node": running})).WithAdoption(nil, recordingMaintenanceDial(installed, &presented))
+
+	cfg := &cryptosv1.MachineConfig{
+		Metadata: &cryptosv1.Metadata{Name: "sub-node"},
+		Role:     &cryptosv1.Role{Kind: "issuing"},
+	}
+	sink := &collectSink{}
+	if err := svc.runAdoption(context.Background(), &fleetv1.AdoptNodeRequest{
+		Endpoint: "node:4443", PinnedCertSha256: "abc", Config: cfg,
+	}, sink.send); err != nil {
+		t.Fatalf("re-adoption of a subordinate error = %v", err)
+	}
+	if installed.gotApplyConfig != nil || len(running.gotCeremonyYAML) != 0 {
+		t.Error("re-adoption re-ran the install or a ceremony on a subordinate")
+	}
+	if !containsPhase(sink.phases, phaseAwaitingCertificate) {
+		t.Errorf("phases = %v, want a terminal awaiting-certificate", sink.phases)
+	}
+	if _, ok := st.Node("sub-node"); !ok {
+		t.Error("subordinate was not registered in the inventory")
+	}
+}
+
+func TestRunAdoption_ReAdoptAdoptedNode_KeepsItsAdminCreds(t *testing.T) {
+	adoptCredsBaseDir = t.TempDir()
+	st := memory.New(nil)
+	restore := setRebootTiming(5*time.Millisecond, 1*time.Millisecond, 1*time.Millisecond)
+	defer restore()
+
+	admin, err := mintBootstrapAdmin("fleet-admin@new-node")
+	if err != nil {
+		t.Fatal(err)
+	}
+	certPath, _, err := writeAdminCreds("new-node", admin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var presented []string
+	installed := &fakeConn{status: runningStatus(cryptosv1.IdentityState_IDENTITY_STATE_ESTABLISHED)}
+	running := &fakeConn{status: &cryptosv1.GetStatusResponse{}}
+	svc := New(st, dialFor(map[string]*fakeConn{"new-node": running})).WithAdoption(nil, recordingMaintenanceDial(installed, &presented))
+	_ = svc.runAdoption(context.Background(), &fleetv1.AdoptNodeRequest{
+		Endpoint: "node:4443", PinnedCertSha256: "abc", Config: adoptConfig(),
+	}, (&collectSink{}).send)
+
+	got, err := os.ReadFile(certPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, admin.certPEM) {
+		t.Error("adopting again overwrote the admin credential an adopted node trusts")
+	}
+}
+
+func TestRunAdoption_ProbeFails_Unavailable_NoApply(t *testing.T) {
+	adoptCredsBaseDir = t.TempDir()
+	st := memory.New(nil)
+	// The handshake fails, as it does when an installed node pins an admin
+	// credential this manager no longer holds.
+	rejecting := &fakeConn{err: errors.New("remote error: tls: certificate required")}
+	svc := New(st, dialFor(nil)).WithAdoption(nil,
+		func(string, string, string, string) (NodeConn, error) { return rejecting, nil })
+
+	sink := &collectSink{}
+	err := svc.runAdoption(context.Background(), &fleetv1.AdoptNodeRequest{
+		Endpoint: "node:4443", PinnedCertSha256: "abc", Config: adoptConfig(),
+	}, sink.send)
+	requireConnectCode(t, err, connect.CodeUnavailable)
+	if !strings.Contains(err.Error(), "reset") {
+		t.Errorf("error = %q, want it to point the operator at a node reset", err)
+	}
+	if rejecting.gotApplyConfig != nil {
+		t.Error("ApplyConfig was attempted after the node status probe failed")
+	}
+	if !containsPhase(sink.phases, phaseError) {
+		t.Errorf("phases = %v, want a terminal error phase", sink.phases)
+	}
 }
