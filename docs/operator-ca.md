@@ -169,4 +169,6 @@ chart refuses to render `operatorCANode`, both with a message pointing here.
 
 Operator credential rows recorded before the change are kept and listed with
 the kind `legacy_node`. Issuing an operator credential through the Fleet Manager
-is gone; the external CA signs them.
+is gone; the external CA signs them. See
+[operator-credentials.md](operator-credentials.md) for requesting, recording
+and denying them.

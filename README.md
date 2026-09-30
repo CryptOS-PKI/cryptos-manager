@@ -35,7 +35,7 @@ Once linked, the node's embedded operator surface becomes read-only and FM owns 
 
 ## 🚀 Deploying
 
-The manager ships as a **single self-contained image**: the Go binary with the `web` bundle embedded (`go:embed`), serving the SPA and the Connect API on **one** listener. In a real deployment that listener does mTLS client-cert auth (`authBypass: false`), so operators authenticate with a browser-installed client certificate — see [`docs/operator-ca.md`](docs/operator-ca.md) for the external operator CA that signs them and how revocation works.
+The manager ships as a **single self-contained image**: the Go binary with the `web` bundle embedded (`go:embed`), serving the SPA and the Connect API on **one** listener. In a real deployment that listener does mTLS client-cert auth (`authBypass: false`), so operators authenticate with a browser-installed client certificate — see [`docs/operator-ca.md`](docs/operator-ca.md) for the external operator CA that signs them and how revocation works. New operator credentials are requested in the manager, signed at the CA and recorded back: see [`docs/operator-credentials.md`](docs/operator-credentials.md).
 
 Bring your own trust material: a **server TLS cert** (`tlsCert`/`tlsKey`, any public or CryptOS-issued cert) and the **operator CA** (`operatorCAPath`, the client-auth trust anchor). No usernames or passwords are stored.
 

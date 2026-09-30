@@ -126,10 +126,10 @@ you minted for operators.
 
 ### The level extension in OpenSSL form
 
-`operator-pki.md` gives the level extension only as a YAML byte sequence for a
-cryptos profile (`value: [19, 5, 97, 100, 109, 105, 110]`). When your operator
-CA is OpenSSL, you need the same DER in `-extfile` form. These are identical
-bytes — `0x13` is ASN.1 `PrintableString`, `0x05` its length:
+`go run ./cmd/opext` prints the level extension as a byte sequence
+(`[19, 5, 97, 100, 109, 105, 110]`). An OpenSSL operator CA needs the same DER
+in `-extfile` form. These are identical bytes — `0x13` is ASN.1
+`PrintableString`, `0x05` its length:
 
 ```ini
 # op-admin.ext
@@ -438,7 +438,7 @@ Two things this does not cover:
 
 ## Related
 
-- [`operator-pki.md`](operator-pki.md) — the dogfooded operator-CA-on-a-node path.
+- [`operator-credentials.md`](operator-credentials.md) — adding, recording and denying operator credentials after day zero.
 - [`mcp.md`](mcp.md) — the MCP endpoint for AI agents.
 - ⚠ The level extension arc `1.3.6.1.4.1.59999.1.1` is a **placeholder**; an
   IANA Private Enterprise Number must replace it before GA, and the value has
