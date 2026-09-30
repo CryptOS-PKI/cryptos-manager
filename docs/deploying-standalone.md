@@ -64,9 +64,11 @@ Two distinct things are easy to conflate:
 
 They are different files and are not interchangeable.
 
-The manager can check a node's server certificate the same way: save it as
-`server.crt` next to the node's `adminCertPath`. Because the node makes a new
-certificate every boot, the pin has to be renewed after each reboot. See
+The manager checks a node's server certificate the same way, and refuses a
+node it can't verify: before the node has its CA, save the certificate as
+`server.crt` next to the node's `adminCertPath` (the node makes a new one every
+boot, so the pin is renewed after each reboot); once the node signs its
+management certificate with its CA, `caCertPath` verifies it. See
 [node-trust.md](node-trust.md).
 
 ## 2. There is no `config get` — `apply` can silently drop your profiles

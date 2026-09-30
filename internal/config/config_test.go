@@ -424,3 +424,58 @@ database_url: "postgres://file:pw@db:5432/manager"
 		t.Errorf("DatabaseURL = %q, want the file's value", cfg.DatabaseURL)
 	}
 }
+
+// A node before its CA ceremony has no CA chain to name; the manager verifies
+// it by its pinned server certificate instead.
+func TestLoad_NodeWithoutCACertPath(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	body := `
+listen: "127.0.0.1:8080"
+nodes:
+  - name: pki-root
+    endpoint: "192.0.2.10:443"
+    role: root
+    adminCertPath: /tmp/admin.crt
+    adminKeyPath: /tmp/admin.key
+`
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v, want a node without caCertPath accepted", err)
+	}
+	if cfg.Nodes[0].CACertPath != "" || cfg.Nodes[0].InsecureSkipNodeVerify {
+		t.Errorf("node = %+v, want no caCertPath and verification on", cfg.Nodes[0])
+	}
+}
+
+func TestLoad_InsecureSkipNodeVerify(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	body := `
+listen: "127.0.0.1:8080"
+nodes:
+  - name: lab-node
+    endpoint: "192.0.2.20:443"
+    role: root
+    adminCertPath: /tmp/admin.crt
+    adminKeyPath: /tmp/admin.key
+    insecureSkipNodeVerify: true
+  - name: other-node
+    endpoint: "192.0.2.21:443"
+    role: issuing
+    adminCertPath: /tmp/admin2.crt
+    adminKeyPath: /tmp/admin2.key
+`
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if !cfg.Nodes[0].InsecureSkipNodeVerify || cfg.Nodes[1].InsecureSkipNodeVerify {
+		t.Errorf("insecureSkipNodeVerify = %t, %t, want true for lab-node only",
+			cfg.Nodes[0].InsecureSkipNodeVerify, cfg.Nodes[1].InsecureSkipNodeVerify)
+	}
+}

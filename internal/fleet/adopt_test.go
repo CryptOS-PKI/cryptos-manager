@@ -133,7 +133,8 @@ func TestRunAdoption_HappyPath_StreamsPhasesRegistersAndAudits(t *testing.T) {
 	// After install + self-reboot the node is dialed in running mode (by name,
 	// via s.dial) for the ceremony.
 	running := &fakeConn{
-		status: &cryptosv1.GetStatusResponse{},
+		identity: rootIdentity(t),
+		status:   &cryptosv1.GetStatusResponse{},
 		ceremonyStream: &scriptedCeremony{kinds: []cryptosv1.CeremonyEventKind{
 			cryptosv1.CeremonyEventKind_CEREMONY_EVENT_KIND_KEY_CREATED,
 			cryptosv1.CeremonyEventKind_CEREMONY_EVENT_KIND_CERT_SIGNED,
@@ -425,7 +426,8 @@ func TestRunAdoption_ReAdoptAfterPartialApply_ReusesAdminAndResumes(t *testing.T
 	// and only trusts the first attempt's admin.
 	installed := &fakeConn{status: runningStatus(cryptosv1.IdentityState_IDENTITY_STATE_NONE)}
 	running := &fakeConn{
-		status: &cryptosv1.GetStatusResponse{},
+		identity: rootIdentity(t),
+		status:   &cryptosv1.GetStatusResponse{},
 		ceremonyStream: &scriptedCeremony{kinds: []cryptosv1.CeremonyEventKind{
 			cryptosv1.CeremonyEventKind_CEREMONY_EVENT_KIND_COMPLETE,
 		}},
@@ -480,7 +482,8 @@ func TestRunAdoption_ReAdoptEstablishedRoot_RegistersWithoutCeremony(t *testing.
 	}
 	var presented []string
 	installed := &fakeConn{status: runningStatus(cryptosv1.IdentityState_IDENTITY_STATE_ESTABLISHED)}
-	running := &fakeConn{status: &cryptosv1.GetStatusResponse{}}
+	running := &fakeConn{
+		identity: rootIdentity(t), status: &cryptosv1.GetStatusResponse{}}
 	svc := New(st, dialFor(map[string]*fakeConn{"new-node": running})).WithAdoption(nil, recordingMaintenanceDial(installed, &presented))
 
 	sink := &collectSink{}

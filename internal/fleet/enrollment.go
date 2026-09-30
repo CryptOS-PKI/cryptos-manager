@@ -344,6 +344,18 @@ func (s *Service) runSubordinateFerry(ctx context.Context, child, parent store.N
 	if _, err := cc.SubmitSubordinateCertificate(ctx, signed.GetChainDer(), signed.GetChainPem()); err != nil {
 		return fmt.Errorf("submit subordinate certificate to %q: %w", child.Name, err)
 	}
+
+	// The child has its CA now and will present a management certificate
+	// signed by it, which its pre-ceremony pin no longer matches. The node
+	// already holds its certificate, so a failure to record the chain does not
+	// undo the ferry; it is logged with what the operator has to do.
+	recorded, ok, err := recordCAChain(child, signed.GetChainDer())
+	switch {
+	case err != nil:
+		log.Printf("fleet: subordinate ferry: WARNING %v; pin the node's new management certificate or set its caCertPath, or the manager refuses it", err)
+	case ok:
+		s.store.AddNode(recorded)
+	}
 	return nil
 }
 

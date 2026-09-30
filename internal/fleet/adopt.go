@@ -18,6 +18,8 @@ limitations under the License.
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -30,6 +32,7 @@ import (
 	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
 	cryptosv1 "github.com/CryptOS-PKI/api/go/cryptos/v1"
 	"github.com/CryptOS-PKI/manager/internal/auditlog"
+	"github.com/CryptOS-PKI/manager/internal/nodeclient"
 	"github.com/CryptOS-PKI/manager/internal/store"
 	"google.golang.org/protobuf/encoding/protojson"
 )
@@ -242,12 +245,19 @@ func (s *Service) runAdoption(ctx context.Context, msg *fleetv1.AdoptNodeRequest
 	}
 
 	// Wait for the running node, dialing with the admin cert it trusts (a
-	// managed dial, no maintenance pin: the running server cert differs).
-	conn, err = s.awaitRunningNode(ctx, nodeName, endpoint, adminCertPath, adminKeyPath)
+	// managed dial, no maintenance pin: the running server cert differs). The
+	// certificate it comes back with is pinned first, so the dial verifies it.
+	conn, pinnedSHA256, err := s.awaitRunningNode(ctx, nodeName, endpoint, adminCertPath, adminKeyPath)
 	if err != nil {
 		return s.adoptFail(send, connect.CodeDeadlineExceeded, err)
 	}
 	defer func() { _ = conn.Close() }()
+	if pinnedSHA256 != "" {
+		if err := send(phaseAwaitingReboot, fmt.Sprintf(
+			"node is back in running mode; pinned its management certificate sha256 %s. Check it against the Mgmt SHA-256 line on the node's console", pinnedSHA256), false); err != nil {
+			return err
+		}
+	}
 
 	// A root self-signs its CA via the first-boot ceremony. A subordinate
 	// (intermediate/issuing) node cannot: the node has already staged its own
@@ -279,10 +289,27 @@ func (s *Service) runAdoption(ctx context.Context, msg *fleetv1.AdoptNodeRequest
 		log.Printf("fleet: adopt %s: ceremony complete", nodeName)
 	}
 
+	// A root has its CA now. Record the chain so the manager verifies the node
+	// against it once the node presents a CA-signed management certificate,
+	// which no longer matches the pin. A failure here fails the adoption: a
+	// retry skips the finished ceremony and records the chain again.
+	caCertPath := ""
+	if isRootRole(cfg) {
+		idResp, err := conn.GetIdentity(ctx)
+		if err != nil {
+			return s.adoptFail(send, connect.CodeUnavailable, fmt.Errorf("fleet: read the node's CA chain: %w", err))
+		}
+		recorded, _, err := recordCAChain(store.Node{Name: nodeName, AdminCert: adminCertPath}, idResp.GetIdentity().GetChainDer())
+		if err != nil {
+			return s.adoptFail(send, connect.CodeInternal, err)
+		}
+		caCertPath = recorded.CACert
+	}
+
 	// Register the node with the manager-held bootstrap admin credentials so
 	// managed operations can dial its mTLS endpoint immediately (Option A: the
 	// manager minted and kept this node's admin key).
-	adopted := s.registerAdoptedNode(cfg, endpoint, adminCertPath, adminKeyPath)
+	adopted := s.registerAdoptedNode(cfg, endpoint, adminCertPath, adminKeyPath, caCertPath)
 	log.Printf("fleet: adopt %s: registered in the inventory as node %s", nodeName, adopted.ID)
 
 	summary := fmt.Sprintf("Adopted node %s at %s", nodeName, endpoint)
@@ -312,34 +339,64 @@ func (s *Service) runAdoption(ctx context.Context, msg *fleetv1.AdoptNodeRequest
 // one) and confirms a cheap RPC before returning, bounded by rebootWait so a
 // node that never returns streams an error rather than hanging. A grace period
 // lets the node begin rebooting before the first poll.
-func (s *Service) awaitRunningNode(ctx context.Context, name, endpoint, adminCertPath, adminKeyPath string) (NodeConn, error) {
+//
+// With a capture seam, every poll first reads the certificate the node
+// presents and pins it (replacing any pin from an earlier adoption), so the
+// dial verifies the node against it. The node's new certificate has no link
+// to the maintenance certificate the operator confirmed, so this is trust on
+// first use; the returned SHA-256 is streamed for the operator to check
+// against the node's console.
+func (s *Service) awaitRunningNode(ctx context.Context, name, endpoint, adminCertPath, adminKeyPath string) (NodeConn, string, error) {
 	select {
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		return nil, "", ctx.Err()
 	case <-time.After(rebootPollGrace):
 	}
 
 	node := store.Node{Name: name, Endpoint: endpoint, AdminCert: adminCertPath, AdminKey: adminKeyPath}
 	deadline := time.Now().Add(rebootWait)
 	for {
-		conn, err := s.dial(node)
-		if err == nil {
-			// A lazy gRPC client dial can succeed before the server is up;
-			// confirm the node answers a cheap RPC before proceeding.
-			if _, serr := conn.GetStatus(ctx); serr == nil {
-				return conn, nil
+		pinned, perr := s.pinRunningCert(node)
+		if perr == nil {
+			conn, err := s.dial(node)
+			if err == nil {
+				// A lazy gRPC client dial can succeed before the server is up;
+				// confirm the node answers a cheap RPC before proceeding.
+				if _, serr := conn.GetStatus(ctx); serr == nil {
+					return conn, pinned, nil
+				}
+				_ = conn.Close()
 			}
-			_ = conn.Close()
 		}
 		if time.Now().After(deadline) {
-			return nil, fmt.Errorf("fleet: node did not come back in running mode on %s within %s of install", endpoint, rebootWait)
+			return nil, "", fmt.Errorf("fleet: node did not come back in running mode on %s within %s of install", endpoint, rebootWait)
 		}
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return nil, "", ctx.Err()
 		case <-time.After(rebootPollGap):
 		}
 	}
+}
+
+// pinRunningCert captures the certificate node presents and pins it,
+// returning its SHA-256. Without a capture seam it pins nothing.
+func (s *Service) pinRunningCert(node store.Node) (string, error) {
+	if s.captureServerCert == nil {
+		return "", nil
+	}
+	cert, err := s.captureServerCert(node)
+	if err != nil {
+		return "", err
+	}
+	path, err := nodeclient.WritePin(node, cert)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(cert.Raw)
+	fp := hex.EncodeToString(sum[:])
+	log.Printf("fleet: adopt %s: pinned the running node's management certificate sha256 %s at %s (trust on first use; check it against the node's console)", node.Name, fp, path)
+	return fp, nil
 }
 
 // adoptFail streams a terminal error phase and returns the Connect error, so a
@@ -395,13 +452,18 @@ func ceremonyEventDetail(kind cryptosv1.CeremonyEventKind) string {
 // registerAdoptedNode adds the adopted node to the inventory under a new ID
 // if it is not already present, keyed by the config's metadata name (falling
 // back to the endpoint), and returns the inventory node. It carries the
-// endpoint and role; managed mTLS material is attached later via the LINK
-// enrollment path. A retried adoption finds the node already registered and
-// keeps its ID.
-func (s *Service) registerAdoptedNode(cfg *cryptosv1.MachineConfig, endpoint, adminCertPath, adminKeyPath string) store.Node {
+// endpoint, role, admin credentials and, for a root, the recorded CA chain. A
+// retried adoption finds the node already registered and keeps its ID, taking
+// a newly recorded CA chain.
+func (s *Service) registerAdoptedNode(cfg *cryptosv1.MachineConfig, endpoint, adminCertPath, adminKeyPath, caCertPath string) store.Node {
 	name := adoptedNodeName(cfg, endpoint)
 	if n, ok := s.store.Node(name); ok {
 		log.Printf("fleet: adopt %s: already in the inventory as node %s", name, n.ID)
+		if caCertPath != "" && n.CACert != caCertPath {
+			n.CACert = caCertPath
+			s.store.AddNode(n)
+			n, _ = s.store.Node(name)
+		}
 		return n
 	}
 	id := store.NewNodeID()
@@ -413,6 +475,7 @@ func (s *Service) registerAdoptedNode(cfg *cryptosv1.MachineConfig, endpoint, ad
 		Role:      adoptedNodeRole(cfg),
 		AdminCert: adminCertPath,
 		AdminKey:  adminKeyPath,
+		CACert:    caCertPath,
 	})
 	n, _ := s.store.Node(name)
 	return n

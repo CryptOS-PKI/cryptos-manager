@@ -89,15 +89,22 @@ type MCPConfig struct {
 }
 
 // NodeCfg describes one fleet node: where to dial it, its role, and the
-// file paths for the admin mTLS client cert/key and the CA used to pin the
-// node's identity.
+// file paths for the admin mTLS client cert/key and the node's CA chain.
 type NodeCfg struct {
 	Name          string `yaml:"name"`
 	Endpoint      string `yaml:"endpoint"`
 	Role          string `yaml:"role"`
 	AdminCertPath string `yaml:"adminCertPath"`
 	AdminKeyPath  string `yaml:"adminKeyPath"`
-	CACertPath    string `yaml:"caCertPath"`
+	// CACertPath is the node's CA chain, which its management certificate is
+	// verified against once the node signs it with its CA. Optional: a node
+	// without a CA yet is verified by the server.crt pinned next to its admin
+	// certificate.
+	CACertPath string `yaml:"caCertPath"`
+	// InsecureSkipNodeVerify dials the node without verifying its server
+	// certificate, with a warning on every connection. Lab testing only;
+	// never in production.
+	InsecureSkipNodeVerify bool `yaml:"insecureSkipNodeVerify"`
 }
 
 // DatabaseURLEnv overrides database_url when set and non-empty. The DSN
@@ -168,9 +175,6 @@ func (c Config) validate() error {
 		}
 		if n.AdminKeyPath == "" {
 			return fmt.Errorf("nodes[%d] (%s): adminKeyPath must not be empty", i, n.Name)
-		}
-		if n.CACertPath == "" {
-			return fmt.Errorf("nodes[%d] (%s): caCertPath must not be empty", i, n.Name)
 		}
 	}
 

@@ -20,6 +20,7 @@ limitations under the License.
 */
 
 import (
+	"bytes"
 	connect "connectrpc.com/connect"
 	"context"
 	"crypto/tls"
@@ -31,6 +32,7 @@ import (
 	"net/http"
 	"os"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	fleetv1connect "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1/fleetv1connect"
@@ -53,6 +55,9 @@ import (
 func main() {
 	configPath := flag.String("config", "config.yaml", "path to the manager's YAML config file")
 	healthcheck := flag.Bool("healthcheck", false, "probe the running manager's "+healthPath+" and exit 0 when healthy (the image's HEALTHCHECK)")
+	checkNodeTrust := flag.Bool("check-node-trust", false, "list how each node's server certificate is verified and exit 1 if any node would be refused")
+	pinNodeName := flag.String("pin-node", "", "pin the server certificate the named node presents, if it matches -expect-sha256, and exit")
+	expectSHA256 := flag.String("expect-sha256", "", "with -pin-node: the Mgmt SHA-256 fingerprint shown on the node's console")
 	flag.Parse()
 
 	cfg, err := config.Load(*configPath)
@@ -134,8 +139,36 @@ func main() {
 		log.Printf("manager: using postgres store")
 	}
 
+	insecure := insecureNodes(cfg)
+	if *checkNodeTrust {
+		if reportNodeTrust(os.Stdout, st.Nodes(), insecure) > 0 {
+			os.Exit(1)
+		}
+		return
+	}
+	if *pinNodeName != "" {
+		path, err := pinNode(st.Nodes(), *pinNodeName, *expectSHA256)
+		if err != nil {
+			log.Fatalf("manager: pin node: %v", err)
+		}
+		fmt.Printf("pinned node %s: %s\n", *pinNodeName, path)
+		return
+	}
+	// Every node is verified on every connection; say at startup which ones
+	// will be refused and which skip verification.
+	var trustReport bytes.Buffer
+	refused := reportNodeTrust(&trustReport, st.Nodes(), insecure)
+	for _, line := range strings.Split(strings.TrimSpace(trustReport.String()), "\n") {
+		if line != "" {
+			log.Printf("manager: %s", line)
+		}
+	}
+	if refused > 0 {
+		log.Printf("manager: WARNING %d node(s) will be refused until they are pinned or have a recorded CA chain; see docs/node-trust.md", refused)
+	}
+
 	dial := func(n store.Node) (fleet.NodeConn, error) {
-		c, err := nodeclient.Dial(n)
+		c, err := nodeclient.Dial(n, insecure.options(n)...)
 		if err != nil {
 			return nil, err
 		}
@@ -143,7 +176,9 @@ func main() {
 		return c, nil
 	}
 
-	svc := fleet.New(st, dial)
+	svc := fleet.New(st, dial).
+		WithServerCertCapture(nodeclient.FetchServerCert).
+		WithUnverifiedNodes(insecure.skip)
 
 	pemDial := func(endpoint, certPEM, keyPEM, caPEM string) (fleet.NodeConn, error) {
 		return nodeclient.DialPEM(endpoint, certPEM, keyPEM, caPEM)

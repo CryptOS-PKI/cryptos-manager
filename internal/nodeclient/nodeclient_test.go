@@ -259,7 +259,8 @@ func TestDial_GetStatus_GetIdentity(t *testing.T) {
 	defer stop()
 
 	adminPair := clientCA.issueLeaf(t, "manager-admin", []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth})
-	certPath, keyPath := writePEMFiles(t, t.TempDir(), adminPair)
+	dir := t.TempDir()
+	certPath, keyPath := writePEMFiles(t, dir, adminPair)
 
 	node := store.Node{
 		Name:      "fake-node",
@@ -267,10 +268,7 @@ func TestDial_GetStatus_GetIdentity(t *testing.T) {
 		Role:      "root",
 		AdminCert: certPath,
 		AdminKey:  keyPath,
-		// The node's server cert is ephemeral self-signed in real deployments,
-		// so Dial does not pin/verify a server CA; CACert is left empty here
-		// to reflect that Dial must not depend on it.
-		CACert: "",
+		CACert:    writeCAChainPEM(t, dir, serverCA),
 	}
 
 	client, err := Dial(node)
@@ -445,8 +443,9 @@ func TestClient_GetIssuedCertificate(t *testing.T) {
 	defer stop()
 
 	adminPair := clientCA.issueLeaf(t, "manager-admin", []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth})
-	certPath, keyPath := writePEMFiles(t, t.TempDir(), adminPair)
-	client, err := Dial(store.Node{Name: "fake-node", Endpoint: addr, Role: "issuing", AdminCert: certPath, AdminKey: keyPath})
+	dir := t.TempDir()
+	certPath, keyPath := writePEMFiles(t, dir, adminPair)
+	client, err := Dial(store.Node{Name: "fake-node", Endpoint: addr, Role: "issuing", AdminCert: certPath, AdminKey: keyPath, CACert: writeCAChainPEM(t, dir, serverCA)})
 	if err != nil {
 		t.Fatalf("Dial() error = %v, want nil", err)
 	}
