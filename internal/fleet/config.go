@@ -25,6 +25,7 @@ import (
 	"time"
 
 	connect "connectrpc.com/connect"
+	log "github.com/Bugs5382/go-log"
 	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
 	"github.com/CryptOS-PKI/manager/internal/auditlog"
 	"github.com/CryptOS-PKI/manager/internal/authz"
@@ -71,8 +72,12 @@ func (s *Service) GetNodeConfig(ctx context.Context, req *connect.Request[fleetv
 // node's ApplyConfig -- a whole-config replace, so the caller must have merged
 // its edits onto the fetched baseline before calling. On success it appends a
 // single "config-applied" audit event and returns the node's config generation
-// and requires_reboot. A denied caller, a nil config, an unknown node, or a
-// node error never writes an audit event.
+// and requires_reboot. A config that carries a protocol block is first compared
+// with the node's current config: each protocol it switches on or off gets its
+// own audit event ahead of "config-applied", and a reboot-required switch is
+// recorded against the node until the node reports it running. If that
+// baseline cannot be read, nothing is applied. A denied caller, a nil config,
+// an unknown node, or a node error never writes an audit event.
 func (s *Service) ApplyNodeConfig(ctx context.Context, req *connect.Request[fleetv1.ApplyNodeConfigRequest]) (*connect.Response[fleetv1.ApplyNodeConfigResponse], error) {
 	id, err := operatorLevel(ctx)
 	if err != nil {
@@ -99,9 +104,30 @@ func (s *Service) ApplyNodeConfig(ctx context.Context, req *connect.Request[flee
 	}
 	defer func() { _ = conn.Close() }()
 
+	l := s.log.Ctx(ctx).With(log.F("node", name))
+	var switches []protocolSwitch
+	if carriesProtocolBlock(cfg) {
+		current, err := conn.GetConfig(ctx)
+		if err != nil {
+			l.Error(err, "apply node config: read the baseline for the protocol audit")
+			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("%w: %w", errNoBaseline, err))
+		}
+		switches = protocolSwitches(current.GetConfig().GetPki(), cfg.GetPki())
+		l.Debug("apply node config: protocol switches in this apply", log.F("switches", len(switches)))
+	}
+
 	applied, err := conn.ApplyConfig(ctx, cfg)
 	if err != nil {
+		l.Error(err, "apply node config: node refused the config")
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("fleet: apply config: %w", err))
+	}
+	l.Info("apply node config: applied", log.F("generation", applied.GetGeneration()), log.F("requires_reboot", applied.GetRequiresReboot()))
+
+	for _, sw := range switches {
+		if applied.GetRequiresReboot() {
+			s.reboots.record(name, sw.protocol, sw.enabled)
+		}
+		s.auditProtocol(ctx, name, sw.protocol, sw.enabled, applied.GetRequiresReboot(), "config apply")
 	}
 
 	auditlog.Record(ctx, s.store, store.AuditEvent{

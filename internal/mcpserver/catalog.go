@@ -92,6 +92,7 @@ var Catalog = []Spec{
 	{Name: "preview_adoption", RPC: "PreviewAdoption", Policy: Excluded, Reason: "part of disk provisioning"},
 	{Name: "list_install_disks", RPC: "ListInstallDisks", Policy: Excluded, Reason: "part of disk provisioning"},
 	{Name: "apply_node_config", RPC: "ApplyNodeConfig", Policy: Excluded, Reason: "replaces a node's network, revocation and trust configuration"},
+	{Name: "set_node_protocol", RPC: "SetNodeProtocol", Policy: Excluded, Reason: "opens or closes a node's enrolment endpoint at its next reboot"},
 	{Name: "rekey_node", RPC: "RekeyNode", Policy: Excluded, Reason: "rotates a CA key"},
 	{Name: "enrollment_create", RPC: "CreateEnrollment", Policy: Excluded, Reason: "carries node admin credentials"},
 	{Name: "enrollment_approve", RPC: "ApproveEnrollment", Policy: Excluded, Reason: "signs a subordinate CA or links a node"},

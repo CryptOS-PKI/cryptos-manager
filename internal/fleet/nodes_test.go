@@ -143,6 +143,9 @@ type fakeConn struct {
 	// applyConfigResp, when set, is returned by ApplyConfig instead of the
 	// zero-value response (it carries the generation and requires_reboot).
 	applyConfigResp *cryptosv1.ApplyConfigResponse
+	// applyConfigErr, when set, fails ApplyConfig only (a node refusing the
+	// config), so GetConfig still returns the baseline.
+	applyConfigErr error
 }
 
 func (f *fakeConn) BeginKeyRotation(context.Context) (*cryptosv1.BeginKeyRotationResponse, error) {
@@ -265,6 +268,9 @@ func (f *fakeConn) ApplyConfig(_ context.Context, cfg *cryptosv1.MachineConfig) 
 	f.gotApplyConfig = cfg
 	if f.err != nil {
 		return nil, f.err
+	}
+	if f.applyConfigErr != nil {
+		return nil, f.applyConfigErr
 	}
 	if f.applyConfigResp != nil {
 		return f.applyConfigResp, nil
