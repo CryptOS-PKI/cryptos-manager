@@ -111,24 +111,55 @@ Provision a CryptOS node designated as the operator CA. On first boot it stages
 its own subordinate-CA CSR and waits for a parent signature. Ferry the CSR to
 the fleet root, sign it under `operator-sub-ca`, and return the chain. All three
 commands use `cryptosctl`'s global connection flags (`--endpoint`,
-`--identity`, `--identity-key`, `--trust`).
+`--identity`, `--identity-key`, `--trust`). `--trust` is the node's own
+management certificate, a different file for each node, not your CA chain (see
+[deploying-standalone.md](deploying-standalone.md#1---trust-is-not-your-fleet-ca-chain)).
+
+`cryptosctl` prints the CSR and the signed chain on standard output, so save
+them with a redirect. `-o` picks the output format (`human`, `json` or `yaml`);
+it does not name a file.
+
+**Linux / macOS**
 
 ```bash
-# On the operator-CA node (child): emit its subordinate-CA CSR.
-cryptosctl --endpoint pki-operca.acme.com:443 \
-  --identity admin.crt --identity-key admin.key --trust ca.pem \
-  ca get-subordinate-csr -o operca.csr
+# On the operator-CA node (child): save its subordinate-CA CSR.
+cryptosctl --endpoint pki-operca.example.org:443 \
+  --identity admin.crt --identity-key admin.key --trust pki-operca.crt \
+  ca get-subordinate-csr > operca.csr
 
 # On the fleet root (parent): sign it under the operator-sub-ca profile.
-cryptosctl --endpoint pki-root.acme.com:443 \
-  --identity admin.crt --identity-key admin.key --trust ca.pem \
-  ca sign-subordinate --csr operca.csr --profile operator-sub-ca -o operca-chain.pem
+cryptosctl --endpoint pki-root.example.org:443 \
+  --identity admin.crt --identity-key admin.key --trust pki-root.crt \
+  ca sign-subordinate --csr operca.csr --profile operator-sub-ca > operca-chain.pem
 
 # Back on the operator-CA node (child): adopt the signed chain.
-cryptosctl --endpoint pki-operca.acme.com:443 \
-  --identity admin.crt --identity-key admin.key --trust ca.pem \
+cryptosctl --endpoint pki-operca.example.org:443 \
+  --identity admin.crt --identity-key admin.key --trust pki-operca.crt \
   ca submit-subordinate-cert --chain operca-chain.pem
 ```
+
+**Windows (PowerShell)**
+
+```powershell
+# On the operator-CA node (child): save its subordinate-CA CSR.
+cryptosctl --endpoint pki-operca.example.org:443 `
+  --identity admin.crt --identity-key admin.key --trust pki-operca.crt `
+  ca get-subordinate-csr | Out-File -Encoding ascii operca.csr
+
+# On the fleet root (parent): sign it under the operator-sub-ca profile.
+cryptosctl --endpoint pki-root.example.org:443 `
+  --identity admin.crt --identity-key admin.key --trust pki-root.crt `
+  ca sign-subordinate --csr operca.csr --profile operator-sub-ca | Out-File -Encoding ascii operca-chain.pem
+
+# Back on the operator-CA node (child): adopt the signed chain.
+cryptosctl --endpoint pki-operca.example.org:443 `
+  --identity admin.crt --identity-key admin.key --trust pki-operca.crt `
+  ca submit-subordinate-cert --chain operca-chain.pem
+```
+
+> [!CAUTION]
+> In Windows PowerShell 5.1, `>` writes UTF-16 text, which `cryptosctl` and
+> `openssl` can't read back. Use `Out-File -Encoding ascii` as shown.
 
 ## 3. Mint the first `admin` operator certificate
 
@@ -138,10 +169,22 @@ leaf under the `operator-admin` profile from the operator CA:
 ```bash
 openssl ecparam -name secp384r1 -genkey -noout -out operator-admin.key
 openssl req -new -key operator-admin.key -subj "/CN=you@acme.example" -out operator-admin.csr
+```
 
-cryptosctl --endpoint pki-operca.acme.com:443 \
-  --identity admin.crt --identity-key admin.key --trust ca.pem \
-  ca issue-leaf --csr operator-admin.csr --profile operator-admin -o operator-admin.crt
+**Linux / macOS**
+
+```bash
+cryptosctl --endpoint pki-operca.example.org:443 \
+  --identity admin.crt --identity-key admin.key --trust pki-operca.crt \
+  ca issue-leaf --csr operator-admin.csr --profile operator-admin > operator-admin.crt
+```
+
+**Windows (PowerShell)**
+
+```powershell
+cryptosctl --endpoint pki-operca.example.org:443 `
+  --identity admin.crt --identity-key admin.key --trust pki-operca.crt `
+  ca issue-leaf --csr operator-admin.csr --profile operator-admin | Out-File -Encoding ascii operator-admin.crt
 ```
 
 Confirm the level extension is present:
