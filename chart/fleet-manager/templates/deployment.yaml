@@ -22,6 +22,10 @@ spec:
   template:
     metadata:
       labels: {{- include "fleet-manager.labels" . | nindent 8 }}
+      annotations:
+        # A config-only upgrade changes the ConfigMap but not the pod spec;
+        # this makes it roll the pod so the manager reads the new config.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
     spec:
       securityContext:
         runAsNonRoot: true
@@ -101,6 +105,11 @@ spec:
               mountPath: /etc/cryptos/fleet/operator-ca
               readOnly: true
             {{- end }}
+            {{- if .Values.operatorCRL.configMap }}
+            - name: operator-crl
+              mountPath: {{ include "fleet-manager.operatorCRLDir" . }}
+              readOnly: true
+            {{- end }}
       volumes:
         - name: config
           configMap:
@@ -124,4 +133,9 @@ spec:
         - name: operator-ca
           configMap:
             name: {{ required "operatorCA.configMap is required when authBypass is false" .Values.operatorCA.configMap }}
+        {{- end }}
+        {{- if .Values.operatorCRL.configMap }}
+        - name: operator-crl
+          configMap:
+            name: {{ .Values.operatorCRL.configMap | quote }}
         {{- end }}
