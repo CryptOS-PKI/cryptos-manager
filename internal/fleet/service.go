@@ -101,6 +101,10 @@ type Service struct {
 	// until the node reports them running.
 	reboots *rebootTracker
 
+	// adoptions holds the adoptions waiting for the operator to confirm the
+	// installed node's fingerprint.
+	adoptions adoptionWaits
+
 	log log.Logger
 }
 

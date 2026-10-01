@@ -87,10 +87,27 @@ func fakeRunningCert(t *testing.T) *x509.Certificate {
 	return cert
 }
 
-// Adoption pins the certificate the installed node presents, streams its
-// fingerprint for the operator to compare with the console, and records the
-// root's CA chain so the node is verified by its CA once its management
-// certificate is CA-signed.
+// confirmingSink wraps send and confirms the presented fingerprint as soon as
+// the adoption under id asks for it, as an operator whose console matches.
+func confirmingSink(t *testing.T, svc *Service, id string, send phaseSink) phaseSink {
+	return func(phase, detail string, done bool) error {
+		if err := send(phase, detail, done); err != nil {
+			return err
+		}
+		if phase == phaseAwaitingFingerprint {
+			if _, err := svc.ConfirmAdoptionFingerprint(operatorCtx("admin@example.org", authz.LevelAdmin),
+				connect.NewRequest(&fleetv1.ConfirmAdoptionFingerprintRequest{AdoptionId: id, CertSha256: svc.adoptions.presented(id)})); err != nil {
+				t.Errorf("ConfirmAdoptionFingerprint() error = %v", err)
+			}
+		}
+		return nil
+	}
+}
+
+// Adoption pins the certificate the installed node presents once the operator
+// confirms its fingerprint against the console, and records the root's CA
+// chain so the node is verified by its CA once its management certificate is
+// CA-signed.
 func TestRunAdoption_Root_PinsRunningCertAndRecordsCAChain(t *testing.T) {
 	adoptCredsBaseDir = t.TempDir()
 	st := memory.New(nil)
@@ -115,9 +132,9 @@ func TestRunAdoption_Root_PinsRunningCertAndRecordsCAChain(t *testing.T) {
 	defer setRebootTiming(5*time.Millisecond, time.Millisecond, time.Millisecond)()
 
 	sink := &detailSink{}
-	if err := svc.runAdoption(context.Background(), &fleetv1.AdoptNodeRequest{
+	if err := svc.runAdoptionAs(context.Background(), "adopt-root", &fleetv1.AdoptNodeRequest{
 		Endpoint: "192.0.2.30:4443", PinnedCertSha256: "abc", Config: adoptConfig(),
-	}, sink.send); err != nil {
+	}, confirmingSink(t, svc, "adopt-root", sink.send)); err != nil {
 		t.Fatalf("runAdoption() error = %v", err)
 	}
 
@@ -160,9 +177,9 @@ func TestRunAdoption_Subordinate_PinsRunningCertWithoutChain(t *testing.T) {
 	cfg := adoptConfig()
 	cfg.Metadata.Name = "sub-node"
 	cfg.Role = &cryptosv1.Role{Kind: "issuing"}
-	if err := svc.runAdoption(context.Background(), &fleetv1.AdoptNodeRequest{
+	if err := svc.runAdoptionAs(context.Background(), "adopt-sub", &fleetv1.AdoptNodeRequest{
 		Endpoint: "192.0.2.31:4443", PinnedCertSha256: "abc", Config: cfg,
-	}, (&detailSink{}).send); err != nil {
+	}, confirmingSink(t, svc, "adopt-sub", (&detailSink{}).send)); err != nil {
 		t.Fatalf("runAdoption() error = %v", err)
 	}
 

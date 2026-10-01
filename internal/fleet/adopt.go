@@ -19,6 +19,7 @@ limitations under the License.
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -143,10 +144,8 @@ func (s *Service) AdoptNode(ctx context.Context, req *connect.Request[fleetv1.Ad
 	if err := requireAdmin(ctx); err != nil {
 		return err
 	}
-	sink := func(phase, detail string, done bool) error {
-		return stream.Send(s.adoptResponse(req.Msg, phase, detail, done))
-	}
-	return s.runAdoption(ctx, req.Msg, sink)
+	id := newAdoptionID()
+	return s.runAdoptionAs(ctx, id, req.Msg, s.adoptSink(id, req.Msg, stream.Send))
 }
 
 // adoptResponse builds one streamed adoption message. The final message of a
@@ -161,11 +160,17 @@ func (s *Service) adoptResponse(msg *fleetv1.AdoptNodeRequest, phase, detail str
 	return resp
 }
 
-// runAdoption is the transport-independent adoption orchestration, driving the
-// phaseSink so the Connect handler and tests share one code path. A step that
-// fails streams an error phase (done) and returns a Connect error; it never
-// hangs — the reboot wait is bounded.
+// runAdoption runs an adoption under a new adoption ID.
 func (s *Service) runAdoption(ctx context.Context, msg *fleetv1.AdoptNodeRequest, send phaseSink) error {
+	return s.runAdoptionAs(ctx, newAdoptionID(), msg, send)
+}
+
+// runAdoptionAs is the transport-independent adoption orchestration, driving
+// the phaseSink so the Connect handler and tests share one code path. id names
+// the adoption for ConfirmAdoptionFingerprint. A step that fails streams an
+// error phase (done) and returns a Connect error; it never hangs — the reboot
+// and confirmation waits are bounded.
+func (s *Service) runAdoptionAs(ctx context.Context, id string, msg *fleetv1.AdoptNodeRequest, send phaseSink) error {
 	if s.dialMaintenance == nil {
 		return connect.NewError(connect.CodeUnimplemented, errors.New("fleet: adoption not configured"))
 	}
@@ -244,20 +249,33 @@ func (s *Service) runAdoption(ctx context.Context, msg *fleetv1.AdoptNodeRequest
 		}
 	}
 
-	// Wait for the running node, dialing with the admin cert it trusts (a
-	// managed dial, no maintenance pin: the running server cert differs). The
-	// certificate it comes back with is pinned first, so the dial verifies it.
-	conn, pinnedSHA256, err := s.awaitRunningNode(ctx, nodeName, endpoint, adminCertPath, adminKeyPath)
+	// Wait for the running node. The certificate it comes back with has no
+	// link to the maintenance certificate the operator confirmed, so the
+	// adoption pauses until the operator confirms it from the node's console;
+	// only then is it pinned and the node dialed with the admin cert it trusts
+	// (a managed dial, verified against the pin).
+	node := store.Node{Name: nodeName, Endpoint: endpoint, AdminCert: adminCertPath, AdminKey: adminKeyPath}
+	running, err := s.awaitRunningCert(ctx, node)
+	if err != nil {
+		return s.adoptFail(send, connect.CodeDeadlineExceeded, err)
+	}
+	if running != nil {
+		sum := sha256.Sum256(running.Raw)
+		presented := hex.EncodeToString(sum[:])
+		if err := s.awaitFingerprintConfirm(ctx, id, nodeName, endpoint, presented, send); err != nil {
+			return s.adoptFailErr(send, err)
+		}
+		path, err := nodeclient.WritePin(node, running)
+		if err != nil {
+			return s.adoptFail(send, connect.CodeInternal, err)
+		}
+		log.Printf("fleet: adopt %s: pinned the confirmed management certificate sha256 %s at %s", nodeName, presented, path)
+	}
+	conn, err = s.awaitRunningNode(ctx, node)
 	if err != nil {
 		return s.adoptFail(send, connect.CodeDeadlineExceeded, err)
 	}
 	defer func() { _ = conn.Close() }()
-	if pinnedSHA256 != "" {
-		if err := send(phaseAwaitingReboot, fmt.Sprintf(
-			"node is back in running mode; pinned its management certificate sha256 %s. Check it against the Mgmt SHA-256 line on the node's console", pinnedSHA256), false); err != nil {
-			return err
-		}
-	}
 
 	// A root self-signs its CA via the first-boot ceremony. A subordinate
 	// (intermediate/issuing) node cannot: the node has already staged its own
@@ -332,71 +350,62 @@ func (s *Service) runAdoption(ctx context.Context, msg *fleetv1.AdoptNodeRequest
 	return send(phaseEstablished, "node adopted and established", true)
 }
 
-// awaitRunningNode waits for the node to finish installing, self-reboot, and
-// come back in RUNNING mode: serving mTLS with the bootstrap admin trust,
-// awaiting the first-boot ceremony. It dials with a managed admin-cert dial
-// (no maintenance pin — the running server cert differs from the maintenance
-// one) and confirms a cheap RPC before returning, bounded by rebootWait so a
-// node that never returns streams an error rather than hanging. A grace period
-// lets the node begin rebooting before the first poll.
-//
-// With a capture seam, every poll first reads the certificate the node
-// presents and pins it (replacing any pin from an earlier adoption), so the
-// dial verifies the node against it. The node's new certificate has no link
-// to the maintenance certificate the operator confirmed, so this is trust on
-// first use; the returned SHA-256 is streamed for the operator to check
-// against the node's console.
-func (s *Service) awaitRunningNode(ctx context.Context, name, endpoint, adminCertPath, adminKeyPath string) (NodeConn, string, error) {
+// awaitRunningCert waits for the node to finish installing, self-reboot and
+// come back in RUNNING mode, and returns the certificate it presents there.
+// Nothing is pinned: the caller has the operator confirm it first. Without a
+// capture seam it returns nil and the caller dials as before. Bounded by
+// rebootWait after a grace period that lets the node begin rebooting.
+func (s *Service) awaitRunningCert(ctx context.Context, node store.Node) (*x509.Certificate, error) {
 	select {
 	case <-ctx.Done():
-		return nil, "", ctx.Err()
+		return nil, ctx.Err()
 	case <-time.After(rebootPollGrace):
 	}
-
-	node := store.Node{Name: name, Endpoint: endpoint, AdminCert: adminCertPath, AdminKey: adminKeyPath}
+	if s.captureServerCert == nil {
+		return nil, nil
+	}
 	deadline := time.Now().Add(rebootWait)
 	for {
-		pinned, perr := s.pinRunningCert(node)
-		if perr == nil {
-			conn, err := s.dial(node)
-			if err == nil {
-				// A lazy gRPC client dial can succeed before the server is up;
-				// confirm the node answers a cheap RPC before proceeding.
-				if _, serr := conn.GetStatus(ctx); serr == nil {
-					return conn, pinned, nil
-				}
-				_ = conn.Close()
-			}
+		cert, err := s.captureServerCert(node)
+		if err == nil {
+			return cert, nil
 		}
 		if time.Now().After(deadline) {
-			return nil, "", fmt.Errorf("fleet: node did not come back in running mode on %s within %s of install", endpoint, rebootWait)
+			return nil, fmt.Errorf("fleet: node did not come back in running mode on %s within %s of install: %w", node.Endpoint, rebootWait, err)
 		}
 		select {
 		case <-ctx.Done():
-			return nil, "", ctx.Err()
+			return nil, ctx.Err()
 		case <-time.After(rebootPollGap):
 		}
 	}
 }
 
-// pinRunningCert captures the certificate node presents and pins it,
-// returning its SHA-256. Without a capture seam it pins nothing.
-func (s *Service) pinRunningCert(node store.Node) (string, error) {
-	if s.captureServerCert == nil {
-		return "", nil
+// awaitRunningNode dials the running node with a managed admin-cert dial
+// (verified against the confirmed pin) and confirms a cheap RPC before
+// returning, bounded by rebootWait so a node that never answers streams an
+// error rather than hanging.
+func (s *Service) awaitRunningNode(ctx context.Context, node store.Node) (NodeConn, error) {
+	deadline := time.Now().Add(rebootWait)
+	for {
+		conn, err := s.dial(node)
+		if err == nil {
+			// A lazy gRPC client dial can succeed before the server is up;
+			// confirm the node answers a cheap RPC before proceeding.
+			if _, serr := conn.GetStatus(ctx); serr == nil {
+				return conn, nil
+			}
+			_ = conn.Close()
+		}
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("fleet: node did not come back in running mode on %s within %s of install", node.Endpoint, rebootWait)
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(rebootPollGap):
+		}
 	}
-	cert, err := s.captureServerCert(node)
-	if err != nil {
-		return "", err
-	}
-	path, err := nodeclient.WritePin(node, cert)
-	if err != nil {
-		return "", err
-	}
-	sum := sha256.Sum256(cert.Raw)
-	fp := hex.EncodeToString(sum[:])
-	log.Printf("fleet: adopt %s: pinned the running node's management certificate sha256 %s at %s (trust on first use; check it against the node's console)", node.Name, fp, path)
-	return fp, nil
 }
 
 // adoptFail streams a terminal error phase and returns the Connect error, so a
@@ -405,6 +414,17 @@ func (s *Service) pinRunningCert(node store.Node) (string, error) {
 func (s *Service) adoptFail(send phaseSink, code connect.Code, cause error) error {
 	_ = send(phaseError, cause.Error(), true)
 	return connect.NewError(code, cause)
+}
+
+// adoptFailErr is adoptFail for an error that already carries its Connect
+// code.
+func (s *Service) adoptFailErr(send phaseSink, err error) error {
+	var cerr *connect.Error
+	if errors.As(err, &cerr) {
+		_ = send(phaseError, cerr.Message(), true)
+		return err
+	}
+	return s.adoptFail(send, connect.CodeInternal, err)
 }
 
 // relayCeremony forwards every ceremony event as a ceremony phase and reports

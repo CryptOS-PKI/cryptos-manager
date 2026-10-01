@@ -102,28 +102,53 @@ Adoption records what the manager needs to verify the node afterwards:
 
 1. The fingerprint you confirm in the adopt wizard pins the node's
    maintenance-mode certificate for the install steps.
-2. The installed node boots with a new management certificate. When it comes
-   back, the manager saves that certificate as the node's `server.crt` and
-   shows its fingerprint in the adoption progress:
+2. The installed node boots with a new management certificate. Nothing links
+   it to the maintenance certificate you confirmed, so adoption pauses on the
+   `awaiting-fingerprint-confirmation` phase and shows the fingerprint the
+   node presents:
 
    ```text
-   node is back in running mode; pinned its management certificate sha256 5a0e...c3. Check it against the Mgmt SHA-256 line on the node's console
+   the node is back in running mode and presents certificate sha256 5a0e...c3. Compare it with the Mgmt SHA-256 line on the node's console and confirm it to continue
    ```
 
    > [!CAUTION]
-   > This pin is trust on first use: nothing links the installed node's new
-   > certificate to the maintenance certificate you confirmed. Compare the
-   > fingerprint with the `Mgmt SHA-256` line on the node's console. If they
-   > differ, something other than your node answered on its address; stop and
-   > find out what before you use the node.
+   > Compare the fingerprint with the `Mgmt SHA-256` line on the node's
+   > console before you confirm it. If they differ, something other than your
+   > node answered on its address: choose "Does not match" in the wizard and
+   > find out what answered before you adopt again.
+
+   Confirming (the adopt wizard, or `ConfirmAdoptionFingerprint` with the
+   stream's `adoption_id`) resumes the adoption. Only then does the manager
+   save that certificate as the node's `server.crt` and dial the node,
+   verified against it. The comparison ignores case, colons and spaces.
+
+   The adoption stops, and nothing is pinned, recorded or registered, when:
+
+   - the confirmed fingerprint differs from the presented one (the call and
+     the adoption fail with `InvalidArgument`);
+   - nobody confirms within 15 minutes (`DeadlineExceeded`);
+   - the wizard cancels or the adoption stream is closed.
+
+   The manager admin credential minted for the adoption stays, so adopting
+   the node again resumes from here. Both a confirmation and a refused
+   fingerprint are audited (`node-adoption-fingerprint-confirmed`,
+   `node-adoption-fingerprint-rejected`) with the operator who sent it.
+
+   > [!WARNING]
+   > The waiting adoption lives in the manager replica that runs the adoption
+   > stream. With `replicaCount` above 1, a confirmation that reaches another
+   > replica returns `NotFound`; send it again so it reaches the replica that
+   > holds the stream, or adopt with a single replica.
 
 3. A root's ceremony gives it its CA. The manager reads the CA chain from the
    node and saves it as `ca.crt` next to the admin certificate. An intermediate
    or issuing node gets its CA when its subordinate enrollment is approved, and
    the manager saves the signed chain the same way.
 
-A retried adoption replaces the node's old `server.crt` with the certificate
-the re-installed node presents.
+A retried adoption asks you to confirm the certificate the node presents
+again, then replaces the node's old `server.crt` with it. A root that has
+already run its ceremony presents a CA-signed certificate by then; confirm that
+one the same way.
 
 ## 🔄 When the node gets its CA
 
