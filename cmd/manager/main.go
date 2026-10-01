@@ -55,7 +55,7 @@ import (
 func main() {
 	configPath := flag.String("config", "config.yaml", "path to the manager's YAML config file")
 	healthcheck := flag.Bool("healthcheck", false, "probe the running manager's "+healthPath+" and exit 0 when healthy (the image's HEALTHCHECK)")
-	checkNodeTrust := flag.Bool("check-node-trust", false, "list how each node's server certificate is verified and exit 1 if any node would be refused")
+	checkNodeTrust := flag.Bool("check-node-trust", false, "connect to each node, verify its server certificate as every connection does, and exit 1 if any node is refused or unreachable")
 	pinNodeName := flag.String("pin-node", "", "pin the server certificate the named node presents, if it matches -expect-sha256, and exit")
 	expectSHA256 := flag.String("expect-sha256", "", "with -pin-node: the Mgmt SHA-256 fingerprint shown on the node's console")
 	flag.Parse()
@@ -131,7 +131,7 @@ func main() {
 
 	insecure := insecureNodes(cfg)
 	if *checkNodeTrust {
-		if reportNodeTrust(os.Stdout, st.Nodes(), insecure) > 0 {
+		if liveNodeTrust(os.Stdout, st.Nodes(), insecure) > 0 {
 			os.Exit(1)
 		}
 		return
