@@ -263,10 +263,16 @@ func (s *Service) previewOf(reg *registration) *fleetv1.OperatorCA {
 }
 
 // reconfirm previews the current registration for a new session, or records
-// the new session's confirmation of it without changing anything.
+// the new session's confirmation of it without changing anything. With
+// nothing registered the preview is empty.
 func (s *Service) reconfirm(ctx context.Context, sessionHash, confirm string) (*connect.Response[fleetv1.BootstrapServiceRegisterOperatorCAResponse], error) {
 	row := s.activeCA(ctx)
 	if row == nil {
+		// A new session asks for the current registration first. Nothing
+		// registered is an empty answer, not the caller's mistake.
+		if confirm == "" {
+			return connect.NewResponse(&fleetv1.BootstrapServiceRegisterOperatorCAResponse{}), nil
+		}
 		return nil, s.fail(ctx, caRejected(connect.CodeFailedPrecondition, fleetv1.ErrorReason_ERROR_REASON_NOT_CONFIRMED,
 			"no operator CA is registered yet; upload one"))
 	}

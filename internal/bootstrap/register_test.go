@@ -18,6 +18,7 @@ limitations under the License.
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/x509"
 	"net/http"
 	"net/http/httptest"
@@ -304,10 +305,27 @@ func TestRegister_LaterSessionRetiresTheEarlierAndMustReconfirm(t *testing.T) {
 	}
 }
 
+// A new session probes for the current registration. With nothing
+// registered that is an empty preview, not a refusal, and it spends no
+// rate-limit budget, so restarting first run costs the token holder nothing.
+// Confirming a CA that isn't registered is still refused.
 func TestRegister_NothingRegisteredToPreview(t *testing.T) {
 	h := newHarness(t)
 	secret := h.startSession()
-	_, err := h.register(secret, &fleetv1.BootstrapServiceRegisterOperatorCARequest{})
+	for i := 0; i < 10; i++ {
+		resp, err := h.register(secret, &fleetv1.BootstrapServiceRegisterOperatorCARequest{})
+		if err != nil {
+			t.Fatalf("preview %d with nothing registered: %v", i+1, err)
+		}
+		if resp.GetOperatorCa() != nil || resp.GetConfirmed() {
+			t.Fatalf("preview with nothing registered = %+v, want empty", resp)
+		}
+	}
+	bad, _ := NewToken(rand.Reader)
+	_, err := h.client().StartBootstrapSession(h.ctx, connect.NewRequest(&fleetv1.StartBootstrapSessionRequest{Token: bad}))
+	wantCode(t, err, apperr.CodeTokenInvalid, "") // not 1602: the previews spent nothing
+
+	_, err = h.register(secret, &fleetv1.BootstrapServiceRegisterOperatorCARequest{ConfirmSha256: strings.Repeat("ab", 32)})
 	wantCode(t, err, apperr.CodeOperatorCARejected, "NOT_CONFIRMED")
 	if connect.CodeOf(err) != connect.CodeFailedPrecondition {
 		t.Errorf("Connect code %v, want FailedPrecondition", connect.CodeOf(err))

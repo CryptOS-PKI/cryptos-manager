@@ -89,7 +89,8 @@ during first run retires the earlier one at once.
 
 A new session keeps the registration but must confirm it again before it can
 submit a certificate: call with `ca_cert_der` empty for the preview, then with
-its `confirm_sha256`.
+its `confirm_sha256`. With nothing registered, that preview is empty (no
+`operator_ca`) and doesn't count as a failure.
 
 ## 👤 The first admin certificate
 
