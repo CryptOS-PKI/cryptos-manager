@@ -17,12 +17,15 @@ limitations under the License.
 */
 
 import (
+	"context"
 	"reflect"
+	"strings"
 	"testing"
 
 	connect "connectrpc.com/connect"
 	fleetv1 "github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1"
 	fleetv1connect "github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1/fleetv1connect"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/apperr"
 	"github.com/CryptOS-PKI/cryptos-manager/internal/authz"
 )
 
@@ -38,40 +41,19 @@ func TestFleetService_HasNoIssueOperatorCredential(t *testing.T) {
 	}
 }
 
-// Methods the contract has but this build doesn't serve answer Unimplemented,
-// never a success or a generic failure.
-func TestFleetService_UnservedOperatorCAMethodsAreUnimplemented(t *testing.T) {
+// The operator CA methods are served: with no operator CA configured they
+// answer the operator-CA-unconfigured code, never Unimplemented.
+func TestFleetService_OperatorCAMethodsNeedAnOperatorCA(t *testing.T) {
 	svc := New(operatorsStore(), dialFor(nil))
 	ctx := operatorCtx("admin@example.org", authz.LevelAdmin)
-	calls := map[string]func() error{
-		"ListOperatorCAs": func() error {
-			_, err := svc.ListOperatorCAs(ctx, connect.NewRequest(&fleetv1.ListOperatorCAsRequest{}))
-			return err
-		},
-		"RegisterOperatorCA": func() error {
-			_, err := svc.RegisterOperatorCA(ctx, connect.NewRequest(&fleetv1.RegisterOperatorCARequest{}))
-			return err
-		},
-		"RetireOperatorCA": func() error {
-			_, err := svc.RetireOperatorCA(ctx, connect.NewRequest(&fleetv1.RetireOperatorCARequest{}))
-			return err
-		},
-		"SetOperatorCACRLSource": func() error {
-			_, err := svc.SetOperatorCACRLSource(ctx, connect.NewRequest(&fleetv1.SetOperatorCACRLSourceRequest{}))
-			return err
-		},
-		"UploadOperatorCRL": func() error {
-			_, err := svc.UploadOperatorCRL(ctx, connect.NewRequest(&fleetv1.UploadOperatorCRLRequest{}))
-			return err
-		},
-		"SetOperatorCAOCSP": func() error {
-			_, err := svc.SetOperatorCAOCSP(ctx, connect.NewRequest(&fleetv1.SetOperatorCAOCSPRequest{}))
-			return err
-		},
+	calls := writeCalls(svc, strings.Repeat("ab", 32), nil)
+	calls["ListOperatorCAs"] = func(ctx context.Context) error {
+		_, err := svc.ListOperatorCAs(ctx, connect.NewRequest(&fleetv1.ListOperatorCAsRequest{}))
+		return err
 	}
 	for name, call := range calls {
-		if got := connect.CodeOf(call()); got != connect.CodeUnimplemented {
-			t.Errorf("%s: code = %v, want Unimplemented", name, got)
+		if code, _ := apperr.Code(call(ctx)); code != apperr.CodeOperatorCAUnconfigured {
+			t.Errorf("%s: code = %d, want %d", name, code, apperr.CodeOperatorCAUnconfigured)
 		}
 	}
 }

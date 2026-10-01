@@ -19,8 +19,8 @@ limitations under the License.
 import (
 	"testing"
 
-	"github.com/CryptOS-PKI/manager/internal/store"
-	"github.com/CryptOS-PKI/manager/internal/store/storetest"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store/storetest"
 )
 
 // The fake other packages' tests use must keep the Postgres store's

@@ -75,6 +75,9 @@ type Service struct {
 	trust       *operatorca.TrustStore
 	revocations *operatorca.Revocations
 
+	// caAdmin backs the operator CA admin RPCs.
+	caAdmin OperatorCAAdmin
+
 	// previewCert fetches a not-yet-adopted node's maintenance cert
 	// fingerprint + subject (TOFU preview). dialMaintenance opens a
 	// TOFU-pinned maintenance connection. Both are seams so tests inject fakes
