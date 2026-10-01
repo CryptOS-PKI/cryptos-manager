@@ -417,16 +417,6 @@ func selfSignedECDSAPEM(t *testing.T) (certPEM, keyPEM string) {
 	return string(certBlock), string(keyBlock)
 }
 
-func TestDialPEM(t *testing.T) {
-	certPEM, keyPEM := selfSignedECDSAPEM(t)
-
-	client, err := DialPEM("127.0.0.1:0", certPEM, keyPEM, "")
-	if err != nil {
-		t.Fatalf("DialPEM() error = %v, want nil (grpc.NewClient is lazy)", err)
-	}
-	defer func() { _ = client.Close() }()
-}
-
 func TestDialPEM_MalformedKey(t *testing.T) {
 	certPEM, _ := selfSignedECDSAPEM(t)
 

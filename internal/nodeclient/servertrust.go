@@ -43,6 +43,19 @@ import (
 // as --trust.
 const ServerCertFile = "server.crt"
 
+// ErrNodeUntrusted is wrapped by every refusal of a node's server
+// certificate: it chained to nothing the manager trusts for the node, and
+// matched no pin.
+var ErrNodeUntrusted = errors.New("nodeclient: node server certificate refused")
+
+// ErrNodeUnreachable is wrapped when DialPEM can't complete a TLS handshake
+// with the node for a reason other than the node's certificate.
+var ErrNodeUnreachable = errors.New("nodeclient: node unreachable")
+
+// ErrCAPEMRequired is returned by DialPEM when caPEM holds no PEM
+// certificate, so there is nothing to verify the node against.
+var ErrCAPEMRequired = errors.New("nodeclient: ca_pem with at least one PEM certificate is required to verify the node")
+
 // Option adjusts how Dial verifies a node.
 type Option func(*dialOptions)
 
@@ -93,15 +106,29 @@ func NodeTrust(node store.Node, opts ...Option) (TrustMode, error) {
 // serverTrust is what a node's server certificate is checked against on one
 // dial.
 type serverTrust struct {
-	node      store.Node
-	host      string
-	insecure  bool
-	chain     *x509.CertPool
-	chainPath string
-	pinRoots  *x509.CertPool
-	pinned    [][]byte
-	pinPath   string
+	node     store.Node
+	host     string
+	insecure bool
+	chain    *x509.CertPool
+	// chainLabel names the chain in a refusal: the recorded file for an
+	// inventory node, the request's ca_pem for LINK.
+	chainLabel string
+	// exact holds certificates accepted as an exact copy without a chain
+	// or host check (LINK's ca_pem doubling as a pin).
+	exact    [][]byte
+	pinRoots *x509.CertPool
+	pinned   [][]byte
+	pinPath  string
+	// hint ends a refusal with what the operator should check.
+	hint string
 }
+
+// refusal is a refused node certificate. Its text is what the operator
+// reads; it wraps ErrNodeUntrusted so callers can classify it.
+type refusal struct{ msg string }
+
+func (r *refusal) Error() string { return r.msg }
+func (r *refusal) Unwrap() error { return ErrNodeUntrusted }
 
 // missingChainWarned records nodes already logged as having a recorded chain
 // path with no file behind it, so the line is not repeated on every dial.
@@ -116,7 +143,13 @@ func loadServerTrust(node store.Node, opts []Option) (*serverTrust, error) {
 	if err != nil {
 		return nil, fmt.Errorf("nodeclient: endpoint %q for %s: %w", node.Endpoint, node.Name, err)
 	}
-	t := &serverTrust{node: node, host: host, insecure: o.insecureSkipNodeVerify, pinPath: PinPath(node)}
+	t := &serverTrust{
+		node:     node,
+		host:     host,
+		insecure: o.insecureSkipNodeVerify,
+		pinPath:  PinPath(node),
+		hint:     "If the node rebooted before its CA ceremony it has a new certificate: check it against the node's console and re-pin it",
+	}
 	if t.insecure {
 		return t, nil
 	}
@@ -135,7 +168,7 @@ func loadServerTrust(node store.Node, opts []Option) (*serverTrust, error) {
 			for _, c := range certs {
 				t.chain.AddCert(c)
 			}
-			t.chainPath = node.CACert
+			t.chainLabel = "the recorded CA chain " + node.CACert
 		}
 	}
 
@@ -154,6 +187,44 @@ func loadServerTrust(node store.Node, opts []Option) (*serverTrust, error) {
 	return t, nil
 }
 
+// pemServerTrust is the trust for a LINK dial: every certificate in caPEM is
+// both a chain root and an exact pin.
+func pemServerTrust(endpoint, caPEM string) (*serverTrust, error) {
+	host, _, err := net.SplitHostPort(endpoint)
+	if err != nil {
+		return nil, fmt.Errorf("nodeclient: endpoint %q: %w", endpoint, err)
+	}
+	certs, err := parseCertsPEM([]byte(caPEM), "ca_pem")
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrCAPEMRequired, err)
+	}
+	t := &serverTrust{
+		node:       store.Node{Name: "at " + endpoint, Endpoint: endpoint},
+		host:       host,
+		chain:      x509.NewCertPool(),
+		chainLabel: "the supplied ca_pem",
+		hint:       "Check that ca_pem holds the CA certificate that signed the node's management certificate (cryptosctl identity show -o pem prints the chain), or the node's exact management certificate",
+	}
+	for _, c := range certs {
+		t.chain.AddCert(c)
+		t.exact = append(t.exact, c.Raw)
+	}
+	return t, nil
+}
+
+// probe completes one TLS handshake with endpoint under cfg and closes it,
+// so a refused or unreachable node is reported before any RPC is sent.
+func probe(endpoint string, cfg *tls.Config) error {
+	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 10 * time.Second}, "tcp", endpoint, cfg)
+	if err != nil {
+		if errors.Is(err, ErrNodeUntrusted) {
+			return err
+		}
+		return fmt.Errorf("%w: %s: %w", ErrNodeUnreachable, endpoint, err)
+	}
+	return conn.Close()
+}
+
 // readCertFile parses every PEM certificate in path. A file with none is an
 // error: it would otherwise read as trust that verifies nothing.
 func readCertFile(path string) ([]*x509.Certificate, error) {
@@ -161,6 +232,12 @@ func readCertFile(path string) ([]*x509.Certificate, error) {
 	if err != nil {
 		return nil, err
 	}
+	return parseCertsPEM(pemBytes, path)
+}
+
+// parseCertsPEM parses every PEM certificate in pemBytes, naming them by
+// source in errors. Input with none is an error.
+func parseCertsPEM(pemBytes []byte, source string) ([]*x509.Certificate, error) {
 	var certs []*x509.Certificate
 	for rest := pemBytes; ; {
 		var block *pem.Block
@@ -173,12 +250,12 @@ func readCertFile(path string) ([]*x509.Certificate, error) {
 		}
 		cert, err := x509.ParseCertificate(block.Bytes)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", path, err)
+			return nil, fmt.Errorf("%s: %w", source, err)
 		}
 		certs = append(certs, cert)
 	}
 	if len(certs) == 0 {
-		return nil, fmt.Errorf("%s holds no PEM certificate", path)
+		return nil, fmt.Errorf("%s holds no PEM certificate", source)
 	}
 	return certs, nil
 }
@@ -215,6 +292,12 @@ func (t *serverTrust) verify(cs tls.ConnectionState) error {
 		return nil
 	}
 
+	for _, raw := range t.exact {
+		if bytes.Equal(raw, leaf.Raw) {
+			return nil
+		}
+	}
+
 	intermediates := x509.NewCertPool()
 	for _, c := range cs.PeerCertificates[1:] {
 		intermediates.AddCert(c)
@@ -235,7 +318,7 @@ func (t *serverTrust) verify(cs tls.ConnectionState) error {
 		if err == nil {
 			return nil
 		}
-		reasons = append(reasons, fmt.Sprintf("does not verify against the recorded CA chain %s for host %s: %v", t.chainPath, t.host, err))
+		reasons = append(reasons, fmt.Sprintf("does not verify against %s for host %s: %v", t.chainLabel, t.host, err))
 	}
 	if t.pinned != nil {
 		for _, raw := range t.pinned {
@@ -250,18 +333,17 @@ func (t *serverTrust) verify(cs tls.ConnectionState) error {
 		reasons = append(reasons, fmt.Sprintf("does not match the pinned server certificate %s: %v", t.pinPath, err))
 	}
 
-	var refusal error
+	var r *refusal
 	if len(reasons) == 0 {
-		refusal = fmt.Errorf("nodeclient: node %s refused: its server certificate (sha256 %s) cannot be verified: no CA chain is recorded and no server certificate is pinned. "+
+		r = &refusal{msg: fmt.Sprintf("nodeclient: node %s refused: its server certificate (sha256 %s) cannot be verified: no CA chain is recorded and no server certificate is pinned. "+
 			"Check the fingerprint against the Mgmt SHA-256 line on the node's console, then pin it by saving the certificate as %s or with manager -pin-node %q -expect-sha256 <fingerprint>",
-			t.node.Name, fingerprint, t.pinPath, t.node.Name)
+			t.node.Name, fingerprint, t.pinPath, t.node.Name)}
 	} else {
-		refusal = fmt.Errorf("nodeclient: node %s refused: its server certificate (sha256 %s) %s. "+
-			"If the node rebooted before its CA ceremony it has a new certificate: check it against the node's console and re-pin it",
-			t.node.Name, fingerprint, strings.Join(reasons, "; and it "))
+		r = &refusal{msg: fmt.Sprintf("nodeclient: node %s refused: its server certificate (sha256 %s) %s. %s",
+			t.node.Name, fingerprint, strings.Join(reasons, "; and it "), t.hint)}
 	}
-	log.Print(refusal)
-	return refusal
+	log.Print(r)
+	return r
 }
 
 // FetchServerCert performs a TLS handshake with node's endpoint, presenting

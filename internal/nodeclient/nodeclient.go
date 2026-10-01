@@ -98,21 +98,39 @@ func Dial(node store.Node, opts ...Option) (*Client, error) {
 }
 
 // DialPEM dials a node presenting the given admin client cert/key (PEM), for
-// operator-initiated enrollment where the material is supplied at request
-// time rather than from the node inventory. Server verification is relaxed
-// (the node enforces client-auth); caPEM is accepted for future server
-// pinning.
+// LINK enrollment, where the material is supplied with the request rather
+// than read from the node inventory.
+//
+// The node is verified the way Dial verifies an inventory node: its
+// certificate must chain to a certificate in caPEM and be valid for the
+// endpoint's host, or be an exact copy of a certificate in caPEM (a pinned,
+// self-signed management certificate). caPEM is required. DialPEM performs
+// one TLS handshake before returning, so a node that fails verification is
+// refused here, with ErrNodeUntrusted, before any RPC is sent to it; an
+// endpoint that can't be reached returns ErrNodeUnreachable. The returned
+// client verifies the node again on every later handshake.
 func DialPEM(endpoint, certPEM, keyPEM, caPEM string) (*Client, error) {
 	adminCert, err := tls.X509KeyPair([]byte(certPEM), []byte(keyPEM))
 	if err != nil {
 		return nil, fmt.Errorf("nodeclient: parse admin cert/key PEM: %w", err)
 	}
 
-	_ = caPEM // reserved for future server-cert pinning (Dial also relaxes server verify today)
+	trust, err := pemServerTrust(endpoint, caPEM)
+	if err != nil {
+		return nil, err
+	}
 
 	tlsCfg := &tls.Config{
-		Certificates:       []tls.Certificate{adminCert},
-		InsecureSkipVerify: true, //nolint:gosec // node's server cert is ephemeral self-signed; client-cert auth is the trust boundary here.
+		GetClientCertificate: func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
+			return &adminCert, nil
+		},
+		InsecureSkipVerify: true, //nolint:gosec // verified in VerifyConnection against caPEM; see DialPEM's doc comment.
+		VerifyConnection:   trust.verify,
+		MinVersion:         tls.VersionTLS12,
+	}
+
+	if err := probe(endpoint, tlsCfg.Clone()); err != nil {
+		return nil, err
 	}
 
 	conn, err := grpc.NewClient(endpoint, grpc.WithTransportCredentials(credentials.NewTLS(tlsCfg)))

@@ -292,6 +292,34 @@ so a node renamed in the manager is verified again.
 
 ## 🪪 Linking a running node
 
-A `LINK` enrollment checks the node another way: at request and at approval,
-the node proves it holds its CA identity key, and approval is refused if that
-key changed in between. This check does not use `server.crt`.
+A `LINK` enrollment verifies the node's management certificate before it
+sends anything, at request and again at approval, with the same check as
+every other connection. The request's `ca_pem` is what the node is checked
+against:
+
+- the CA certificate that signed the node's management certificate (the
+  root CA certificate the node chains to, from `cryptosctl identity show -o pem`). The certificate
+  the node presents must chain to it and be valid for the endpoint's host;
+- or the node's exact management certificate, for a node still on a
+  self-signed one. It is accepted as an exact copy, like a pin.
+
+> [!CAUTION]
+> A request with no `ca_pem` is refused with error 1107, and a node whose
+> certificate doesn't verify against it is refused with error 1106 before
+> the admin credential or any request reaches it. The manager log names the
+> certificate the node presented by SHA-256: compare it with the node's
+> console before you try again.
+
+The node then proves it holds its CA identity key, and approval is refused if
+that key changed in between.
+
+On approval the node joins the inventory, as an adopted node does. Its name
+comes from its CA's common name in lowercase, with other characters turned
+into hyphens (`Example Root CA G1` becomes `example-root-ca-g1`); rename it
+afterwards if you want another. The admin certificate and key from the
+request are saved in the node's credentials folder, and `ca_pem` is saved
+next to them as `ca.crt` (its recorded CA chain), or as `server.crt` when it
+is the node's own certificate. Every later connection verifies the node with
+them. A node already in the inventory at the same endpoint keeps its entry,
+and approval is refused with error 1102 when another node already has the
+name.
