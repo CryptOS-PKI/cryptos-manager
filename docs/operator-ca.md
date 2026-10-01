@@ -194,6 +194,26 @@ firstRun: auto
 Unknown keys are refused at load, so a misspelt key fails loudly rather than
 being ignored.
 
+With the Helm chart these keys come from values: `operatorCRL.urls` gives the `url`
+entries; `operatorCRL.configMap` names a ConfigMap of CRL files, mounted read-only at
+`/etc/cryptos/fleet/operator-crl`, and `operatorCRL.files` lists the keys to load as `path`
+entries. The manager re-reads those files on every refresh, so an updated ConfigMap
+reaches it without a restart (the kubelet takes up to a minute or two to update the
+mount). `operatorRevocationPolicy` and `operatorOCSP.mode`/`operatorOCSP.url` pass
+through. A config change rolls the pod.
+
+```yaml
+operatorCRL:
+  urls:
+    - http://pki.example.org/fleetos-operator.crl
+  configMap: fm-operator-crl
+  files:
+    - fleetos-operator.crl.pem
+operatorRevocationPolicy: soft
+operatorOCSP:
+  mode: aia
+```
+
 `mcp.enabled` needs `database_url` and `authBypass: false`. It no longer needs
 `operator_ca_node` or `operatorCAPath`.
 

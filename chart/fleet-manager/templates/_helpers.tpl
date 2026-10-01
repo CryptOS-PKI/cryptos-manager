@@ -48,3 +48,68 @@ be a boolean.
 {{- end }}
 {{- toJson $nodes }}
 {{- end -}}
+
+{{/*
+Where the operatorCRL.configMap files are mounted.
+*/}}
+{{- define "fleet-manager.operatorCRLDir" -}}
+/etc/cryptos/fleet/operator-crl
+{{- end -}}
+
+{{/*
+The operator revocation keys for config.yaml, checked the way the manager
+checks them so a bad value fails the render instead of the start.
+*/}}
+{{- define "fleet-manager.operatorRevocation" -}}
+{{- $crl := .Values.operatorCRL | default dict }}
+{{- $urls := $crl.urls | default list }}
+{{- $files := $crl.files | default list }}
+{{- $ocsp := .Values.operatorOCSP | default dict }}
+{{- $policy := .Values.operatorRevocationPolicy | default "" }}
+{{- $set := or $urls $files $crl.configMap $policy $ocsp.mode $ocsp.url }}
+{{- if and .Values.authBypass $set }}
+{{- fail "operatorCRL, operatorRevocationPolicy and operatorOCSP need authBypass: false and an operator CA (operatorCA.configMap)" }}
+{{- end }}
+{{- if and $crl.configMap (not $files) }}
+{{- fail "operatorCRL.configMap needs operatorCRL.files: the keys in the ConfigMap to load as CRLs" }}
+{{- end }}
+{{- if and $files (not $crl.configMap) }}
+{{- fail "operatorCRL.files needs operatorCRL.configMap: the ConfigMap that holds them" }}
+{{- end }}
+{{- if not (has $policy (list "" "soft" "hard")) }}
+{{- fail (printf "operatorRevocationPolicy must be soft or hard, not %q" $policy) }}
+{{- end }}
+{{- if not (has ($ocsp.mode | default "") (list "" "off" "aia" "url")) }}
+{{- fail (printf "operatorOCSP.mode must be off, aia or url, not %q" $ocsp.mode) }}
+{{- end }}
+{{- if and (eq ($ocsp.mode | default "") "url") (not $ocsp.url) }}
+{{- fail "operatorOCSP.url is required with operatorOCSP.mode url" }}
+{{- end }}
+{{- if and $ocsp.url (ne ($ocsp.mode | default "") "url") }}
+{{- fail "operatorOCSP.url is only used with operatorOCSP.mode url" }}
+{{- end }}
+{{- range $i, $u := $urls }}
+{{- if not (regexMatch "^https?://[^/]+" $u) }}
+{{- fail (printf "operatorCRL.urls[%d] must be an http or https URL, not %q" $i $u) }}
+{{- end }}
+{{- end }}
+{{- if or $urls $files }}
+operatorCRL:
+{{- range $urls }}
+  - url: {{ . | quote }}
+{{- end }}
+{{- range $files }}
+  - path: {{ printf "%s/%s" (include "fleet-manager.operatorCRLDir" $) . | quote }}
+{{- end }}
+{{- end }}
+{{- if $policy }}
+operatorRevocationPolicy: {{ $policy | quote }}
+{{- end }}
+{{- if $ocsp.mode }}
+operatorOCSP:
+  mode: {{ $ocsp.mode | quote }}
+  {{- if $ocsp.url }}
+  url: {{ $ocsp.url | quote }}
+  {{- end }}
+{{- end }}
+{{- end -}}

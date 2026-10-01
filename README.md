@@ -209,6 +209,16 @@ uid 65532 with a read-only root filesystem and every capability dropped. Readine
 `/healthz`, so a pod whose database is down leaves the Service. Startup and liveness only
 check that the listener accepts connections, so a database outage does not restart it.
 
+Revocation for the operator CA has its own values: `operatorCRL.urls` (CRL URLs),
+`operatorCRL.configMap` with `operatorCRL.files` (CRL files mounted read-only from a
+ConfigMap and re-read on every refresh), `operatorRevocationPolicy` and
+`operatorOCSP.mode`/`operatorOCSP.url`. The chart checks them as the manager does and
+refuses to render a bad value, or any of them with `authBypass`. See
+[`docs/operator-ca.md`](docs/operator-ca.md).
+
+The pod template carries a `checksum/config` annotation, so a `helm upgrade` that only
+changes the config rolls the pod.
+
 The MCP endpoint is off in the chart too. `mcp.enabled` and `mcp.publicURL` turn it on; the chart refuses to render it with `authBypass`. See [`docs/mcp.md`](docs/mcp.md#with-the-helm-chart).
 
 ## 🔌 MCP endpoint

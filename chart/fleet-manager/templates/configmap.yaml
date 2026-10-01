@@ -18,6 +18,9 @@ data:
     tlsKey: /etc/cryptos/fleet/tls/tls.key
     operatorCAPath: /etc/cryptos/fleet/operator-ca/operator-ca.pem
     {{- end }}
+    {{- with include "fleet-manager.operatorRevocation" . | trim }}
+    {{- . | nindent 4 }}
+    {{- end }}
     {{- if .Values.operatorCANode }}
     {{- fail "operatorCANode is no longer supported: CryptOS nodes can't be the operator CA. Use an external operator CA (operatorCA.configMap) and, for revocation, a CRL and the Fleet Manager denylist. See docs: migrating from operator_ca_node" }}
     {{- end }}
