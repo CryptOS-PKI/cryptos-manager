@@ -70,6 +70,9 @@ checks them so a bad value fails the render instead of the start.
 {{- if and .Values.authBypass $set }}
 {{- fail "operatorCRL, operatorRevocationPolicy and operatorOCSP need authBypass: false and an operator CA (operatorCA.configMap)" }}
 {{- end }}
+{{- if and $set (not .Values.authBypass) (not .Values.operatorCA.configMap) (or $urls $files $crl.configMap $ocsp.mode $ocsp.url) }}
+{{- fail "operatorCRL and operatorOCSP need an operator CA in operatorCA.configMap: a registered operator CA keeps its CRL and OCSP settings on its own record" }}
+{{- end }}
 {{- if and $crl.configMap (not $files) }}
 {{- fail "operatorCRL.configMap needs operatorCRL.files: the keys in the ConfigMap to load as CRLs" }}
 {{- end }}

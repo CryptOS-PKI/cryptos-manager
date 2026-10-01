@@ -29,14 +29,30 @@ authBypass: false
 
 corsOrigins: []
 
-# Bring-your-own trust material (object names in the release namespace).
+# Bring-your-own trust material (object names in the release namespace). Both
+# are optional. Leave them empty for day zero: the manager serves a self-signed
+# certificate (kept in Postgres, so every pod serves the same one) and prints a
+# single-use bootstrap token in its log, and first run registers the operator
+# CA. See docs/first-run.md.
 tls:
-  certSecret: ""     # TLS secret with tls.crt / tls.key for the server cert
+  # TLS Secret with tls.crt and tls.key for the server certificate. Set it
+  # once you have a real certificate; the self-signed one is then dropped.
+  certSecret: ""
 operatorCA:
-  configMap: ""      # ConfigMap with operator-ca.pem (client-auth trust anchor)
+  # ConfigMap with operator-ca.pem. Setting it makes that file the only
+  # operator CA source: first run doesn't apply and any CA registered in the
+  # database is ignored.
+  configMap: ""
 
-# Revocation for the operator CA in operatorCA.configMap. None of these can be
-# set with authBypass: true. See docs/operator-ca.md.
+# First run with no operatorCA.configMap: auto (open until the first admin
+# signs in) or disabled (never open; only an operator CA already registered
+# in the database is trusted).
+firstRun: auto
+
+# Revocation for the operator CA in operatorCA.configMap. operatorCRL and
+# operatorOCSP need operatorCA.configMap (a registered operator CA keeps them on
+# its own record); none of these can be set with authBypass: true. See
+# docs/operator-ca.md.
 operatorCRL:
   # http or https URLs the manager fetches the operator CA's CRLs from. Each
   # CRL is matched to the CA that signed it.

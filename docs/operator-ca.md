@@ -200,7 +200,10 @@ entries; `operatorCRL.configMap` names a ConfigMap of CRL files, mounted read-on
 entries. The manager re-reads those files on every refresh, so an updated ConfigMap
 reaches it without a restart (the kubelet takes up to a minute or two to update the
 mount). `operatorRevocationPolicy` and `operatorOCSP.mode`/`operatorOCSP.url` pass
-through. A config change rolls the pod.
+through. A config change rolls the pod. `operatorCRL` and `operatorOCSP` need
+`operatorCA.configMap`, as the config keys need `operatorCAPath`; without it the chart
+refuses to render them. Leaving `operatorCA.configMap` (and `tls.certSecret`) empty is
+day zero: see [first-run.md](first-run.md).
 
 ```yaml
 operatorCRL:

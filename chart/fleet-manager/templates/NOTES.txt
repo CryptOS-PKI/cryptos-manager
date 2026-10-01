@@ -17,3 +17,18 @@ This is for lab testing only and must never be used in production. The manager
 logs a warning on every connection to these nodes. Remove insecureSkipNodeVerify
 and pin each node or record its CA chain instead.
 {{- end }}
+{{- if and (not .Values.authBypass) (not .Values.tls.certSecret) }}
+
+No tls.certSecret: the manager serves a SELF-SIGNED certificate. Its SHA-256
+fingerprint is in the log; check it in the browser before entering anything:
+
+  kubectl -n {{ .Release.Namespace }} logs deploy/{{ include "fleet-manager.name" . }} | grep 'SELF-SIGNED'
+{{- end }}
+{{- if and (not .Values.authBypass) (not .Values.operatorCA.configMap) (eq .Values.firstRun "auto") }}
+
+No operatorCA.configMap: the operator CA is registered through first run.
+While first run is open the manager logs a single-use bootstrap token, so keep
+log access tight. To find it:
+
+  kubectl -n {{ .Release.Namespace }} logs deploy/{{ include "fleet-manager.name" . }} | grep 'bootstrap token'
+{{- end }}

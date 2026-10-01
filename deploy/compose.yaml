@@ -6,21 +6,36 @@
 #
 #   docker compose -f deploy/compose.yaml up -d
 #
-# Before the first run, on the host:
+# Before the first start, on the host:
 #
 #   sudo install -d -m 0755 /etc/cryptos/fleet
-#   sudo install -d -o 65532 -g 65532 -m 0750 /etc/cryptos/fleet/{tls,operator-ca}
 #   sudo install -d -m 0700 /etc/cryptos/fleet/secrets
 #   sudo install -o 65532 -g 65532 -m 0400 config.yaml /etc/cryptos/fleet/config.yaml
-#   sudo install -o 65532 -g 65532 -m 0444 fullchain.pem /etc/cryptos/fleet/tls/tls.crt
-#   sudo install -o 65532 -g 65532 -m 0400 server.key /etc/cryptos/fleet/tls/tls.key
-#   sudo install -o 65532 -g 65532 -m 0444 operator-ca.crt /etc/cryptos/fleet/operator-ca/operator-ca.pem
 #   printf 'POSTGRES_PASSWORD=%s\n' "$(openssl rand -base64 24)" \
 #     | sudo install -m 0400 /dev/stdin /etc/cryptos/fleet/secrets/postgres.env
 #
+# That is enough for day zero: with no tlsCert and no operatorCAPath in
+# config.yaml the manager serves a self-signed certificate and prints a
+# single-use bootstrap token in its log (docker compose logs manager), and
+# first run registers your operator CA (docs/first-run.md).
+#
+# Optional, each with its mount uncommented below and its key set in
+# config.yaml:
+#
+#   # A real server certificate (tlsCert, tlsKey):
+#   sudo install -d -o 65532 -g 65532 -m 0750 /etc/cryptos/fleet/tls
+#   sudo install -o 65532 -g 65532 -m 0444 fullchain.pem /etc/cryptos/fleet/tls/tls.crt
+#   sudo install -o 65532 -g 65532 -m 0400 server.key /etc/cryptos/fleet/tls/tls.key
+#   # The operator CA from a file instead of first run (operatorCAPath):
+#   sudo install -d -o 65532 -g 65532 -m 0750 /etc/cryptos/fleet/operator-ca
+#   sudo install -o 65532 -g 65532 -m 0444 operator-ca.crt /etc/cryptos/fleet/operator-ca/operator-ca.pem
+#   # CRL files for that operator CA (operatorCRL path entries):
+#   sudo install -d -o 65532 -g 65532 -m 0750 /etc/cryptos/fleet/operator-crl
+#   sudo install -o 65532 -g 65532 -m 0444 operator-ca.crl /etc/cryptos/fleet/operator-crl/operator-ca.crl
+#
 # Two different readers, and mixing them up is the trap here:
 #
-#   * config.yaml, tls/ and operator-ca/ are read by the MANAGER, which is
+#   * config.yaml, tls/, operator-ca/ and operator-crl/ are read by the MANAGER, which is
 #     distroless nonroot, so they must be readable by uid 65532.
 #   * secrets/postgres.env is read by the COMPOSE CLI on the host before any
 #     container starts, so it must be readable by whoever runs `docker compose`
@@ -93,8 +108,14 @@ services:
     volumes:
       # config.yaml holds the Postgres DSN, so it is a secret, not config.
       - /etc/cryptos/fleet/config.yaml:/etc/cryptos/fleet/config.yaml:ro
-      - /etc/cryptos/fleet/tls:/etc/cryptos/fleet/tls:ro
-      - /etc/cryptos/fleet/operator-ca:/etc/cryptos/fleet/operator-ca:ro
+      # Optional, commented out for day zero. Uncomment each one together with
+      # its key in config.yaml: tls with tlsCert and tlsKey, operator-ca with
+      # operatorCAPath (which turns first run off), operator-crl with
+      # operatorCRL path entries (only with operatorCAPath). The manager
+      # re-reads CRL files on every refresh, so replacing one needs no restart.
+      # - /etc/cryptos/fleet/tls:/etc/cryptos/fleet/tls:ro
+      # - /etc/cryptos/fleet/operator-ca:/etc/cryptos/fleet/operator-ca:ro
+      # - /etc/cryptos/fleet/operator-crl:/etc/cryptos/fleet/operator-crl:ro
       # The one writable path: the admin key the manager mints for each node it
       # adopts. Lose it and the manager is locked out of every adopted node, so
       # back this volume up with the database. On first use Docker copies the

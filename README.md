@@ -125,7 +125,11 @@ docker compose -f deploy/compose.yaml up -d
 ```
 
 It publishes 80 and 443, waits for Postgres to be healthy before starting the manager,
-and keeps its database in a named volume. Three details in there are load-bearing and
+and keeps its database in a named volume. It starts for day zero with only `config.yaml`
+and the Postgres password: the `tls`, `operator-ca` and `operator-crl` read-only mounts are
+commented out, so the manager serves a self-signed certificate and first run registers the
+operator CA ([`docs/first-run.md`](docs/first-run.md)). Uncomment a mount together with its
+key in `config.yaml` (`tlsCert`/`tlsKey`, `operatorCAPath`, `operatorCRL` path entries). Three details in there are load-bearing and
 worth knowing before you adapt it:
 
 - **The Postgres volume mounts at `/var/lib/postgresql`, not `/var/lib/postgresql/data`.**
@@ -135,8 +139,8 @@ worth knowing before you adapt it:
 - **Node credentials get their own volume.** The manager runs read-only, and
   `node-creds` is the one writable path: the admin key minted for each adopted node. It
   is state as much as the database is, so back both up together.
-- **Two different things read the mounted files.** `config.yaml`, `tls/` and
-  `operator-ca/` are read by the manager, so they must be readable by uid 65532.
+- **Two different things read the mounted files.** `config.yaml` and, when mounted,
+  `tls/`, `operator-ca/` and `operator-crl/` are read by the manager, so they must be readable by uid 65532.
   `secrets/postgres.env` is read by the `docker compose` CLI on the host before any
   container starts, so it must be readable by whoever runs compose — do *not* chown that
   one to 65532.
@@ -182,8 +186,12 @@ helm install fleet oci://ghcr.io/cryptos-pki/charts/fleet-manager --version X.Y.
   --set-json 'nodes=[{"name":"pki-root","endpoint":"pki-root.example:443","role":"root","adminCertPath":"...","adminKeyPath":"...","caCertPath":"..."}]'
 ```
 
-`chart/fleet-manager` is the supported chart. Beyond the TLS Secret and operator CA
-ConfigMap it needs a Postgres DSN: `database.existingSecret` names a Secret whose
+`chart/fleet-manager` is the supported chart. `tls.certSecret` and `operatorCA.configMap`
+are optional: leave both empty for day zero and the manager serves a self-signed
+certificate and opens first run, with the bootstrap token in its log (the install notes
+print the commands to find it). `firstRun: disabled` keeps first run shut. Setting
+`operatorCA.configMap` makes that file the only operator CA source; `operatorCRL` and
+`operatorOCSP` need it. The chart needs a Postgres DSN: `database.existingSecret` names a Secret whose
 `database.secretKey` (default `database-url`) holds it, and the chart passes it to the
 manager as `MANAGER_DATABASE_URL` so the password never appears in the rendered config. It
 refuses to render without one unless `authBypass` is on. The node credentials go on a
