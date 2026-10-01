@@ -28,8 +28,8 @@ import (
 	"strings"
 	"unicode"
 
-	cryptosv1 "github.com/CryptOS-PKI/api/go/cryptos/v1"
-	"github.com/CryptOS-PKI/manager/internal/store"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
+	nodev1 "github.com/CryptOS-PKI/cryptos-node/gen/go/cryptos/node/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
@@ -37,7 +37,7 @@ import (
 // Client is a per-node mTLS gRPC connection to a fleet node's NodeService.
 type Client struct {
 	conn *grpc.ClientConn
-	node cryptosv1.NodeServiceClient
+	node nodev1.NodeServiceClient
 }
 
 // Dial opens a gRPC connection to node's endpoint, presenting node's admin
@@ -93,7 +93,7 @@ func Dial(node store.Node, opts ...Option) (*Client, error) {
 
 	return &Client{
 		conn: conn,
-		node: cryptosv1.NewNodeServiceClient(conn),
+		node: nodev1.NewNodeServiceClient(conn),
 	}, nil
 }
 
@@ -140,7 +140,7 @@ func DialPEM(endpoint, certPEM, keyPEM, caPEM string) (*Client, error) {
 
 	return &Client{
 		conn: conn,
-		node: cryptosv1.NewNodeServiceClient(conn),
+		node: nodev1.NewNodeServiceClient(conn),
 	}, nil
 }
 
@@ -221,7 +221,7 @@ func DialMaintenance(endpoint, pinnedSHA256, clientCertPEM, clientKeyPEM string)
 
 	return &Client{
 		conn: conn,
-		node: cryptosv1.NewNodeServiceClient(conn),
+		node: nodev1.NewNodeServiceClient(conn),
 	}, nil
 }
 
@@ -238,55 +238,55 @@ func normalizeFingerprint(s string) string {
 }
 
 // GetStatus returns the node's current status.
-func (c *Client) GetStatus(ctx context.Context) (*cryptosv1.GetStatusResponse, error) {
-	return c.node.GetStatus(ctx, &cryptosv1.GetStatusRequest{})
+func (c *Client) GetStatus(ctx context.Context) (*nodev1.GetStatusResponse, error) {
+	return c.node.GetStatus(ctx, &nodev1.GetStatusRequest{})
 }
 
 // ListInstallDisks returns the node's candidate install block devices (served
 // in maintenance mode, for the adopt wizard).
-func (c *Client) ListInstallDisks(ctx context.Context) (*cryptosv1.ListInstallDisksResponse, error) {
-	return c.node.ListInstallDisks(ctx, &cryptosv1.ListInstallDisksRequest{})
+func (c *Client) ListInstallDisks(ctx context.Context) (*nodev1.ListInstallDisksResponse, error) {
+	return c.node.ListInstallDisks(ctx, &nodev1.ListInstallDisksRequest{})
 }
 
 // GetIdentity returns the node's current certificate identity.
-func (c *Client) GetIdentity(ctx context.Context) (*cryptosv1.GetIdentityResponse, error) {
-	return c.node.GetIdentity(ctx, &cryptosv1.GetIdentityRequest{})
+func (c *Client) GetIdentity(ctx context.Context) (*nodev1.GetIdentityResponse, error) {
+	return c.node.GetIdentity(ctx, &nodev1.GetIdentityRequest{})
 }
 
 // ListIssued returns the certificates this node has issued.
-func (c *Client) ListIssued(ctx context.Context) (*cryptosv1.ListIssuedResponse, error) {
-	return c.node.ListIssued(ctx, &cryptosv1.ListIssuedRequest{})
+func (c *Client) ListIssued(ctx context.Context) (*nodev1.ListIssuedResponse, error) {
+	return c.node.ListIssued(ctx, &nodev1.ListIssuedRequest{})
 }
 
 // ListRevocations returns this node's revoked certificates.
-func (c *Client) ListRevocations(ctx context.Context) (*cryptosv1.ListRevocationsResponse, error) {
-	return c.node.ListRevocations(ctx, &cryptosv1.ListRevocationsRequest{})
+func (c *Client) ListRevocations(ctx context.Context) (*nodev1.ListRevocationsResponse, error) {
+	return c.node.ListRevocations(ctx, &nodev1.ListRevocationsRequest{})
 }
 
 // GetIssuedCertificate returns a certificate this node issued, with its chain
 // and status, by hex serial. The node answers NotFound for a serial it did
 // not issue.
-func (c *Client) GetIssuedCertificate(ctx context.Context, serialHex string) (*cryptosv1.GetIssuedCertificateResponse, error) {
-	return c.node.GetIssuedCertificate(ctx, &cryptosv1.GetIssuedCertificateRequest{SerialHex: serialHex})
+func (c *Client) GetIssuedCertificate(ctx context.Context, serialHex string) (*nodev1.GetIssuedCertificateResponse, error) {
+	return c.node.GetIssuedCertificate(ctx, &nodev1.GetIssuedCertificateRequest{SerialHex: serialHex})
 }
 
 // Attest asks the node to sign nonce with its identity key, proving
 // possession of the private key behind its current certificate.
-func (c *Client) Attest(ctx context.Context, nonce []byte) (*cryptosv1.AttestResponse, error) {
-	return c.node.Attest(ctx, &cryptosv1.AttestRequest{Nonce: nonce})
+func (c *Client) Attest(ctx context.Context, nonce []byte) (*nodev1.AttestResponse, error) {
+	return c.node.Attest(ctx, &nodev1.AttestRequest{Nonce: nonce})
 }
 
 // GetSubordinateCSR returns the node's own DER-encoded PKCS#10 CSR, generated
 // when it is provisioning as a subordinate awaiting a parent's signature.
-func (c *Client) GetSubordinateCSR(ctx context.Context) (*cryptosv1.GetSubordinateCSRResponse, error) {
-	return c.node.GetSubordinateCSR(ctx, &cryptosv1.GetSubordinateCSRRequest{})
+func (c *Client) GetSubordinateCSR(ctx context.Context) (*nodev1.GetSubordinateCSRResponse, error) {
+	return c.node.GetSubordinateCSR(ctx, &nodev1.GetSubordinateCSRRequest{})
 }
 
 // SignSubordinateCSR asks a parent node to sign a child's DER CSR under the
 // named certificate profile (which sets CA:TRUE + pathLen), returning the
 // signed cert and full issuing chain.
-func (c *Client) SignSubordinateCSR(ctx context.Context, csrDER []byte, profile string) (*cryptosv1.SignSubordinateCSRResponse, error) {
-	return c.node.SignSubordinateCSR(ctx, &cryptosv1.SignSubordinateCSRRequest{
+func (c *Client) SignSubordinateCSR(ctx context.Context, csrDER []byte, profile string) (*nodev1.SignSubordinateCSRResponse, error) {
+	return c.node.SignSubordinateCSR(ctx, &nodev1.SignSubordinateCSRRequest{
 		CsrDer:      csrDER,
 		ProfileName: profile,
 	})
@@ -295,37 +295,37 @@ func (c *Client) SignSubordinateCSR(ctx context.Context, csrDER []byte, profile 
 // SubmitSubordinateCertificate delivers a parent-signed chain (leaf-first:
 // this node's cert, parent, ..., root) back to the subordinate node so it
 // can adopt its new identity.
-func (c *Client) SubmitSubordinateCertificate(ctx context.Context, chainDER [][]byte, chainPEM string) (*cryptosv1.SubmitSubordinateCertificateResponse, error) {
-	return c.node.SubmitSubordinateCertificate(ctx, &cryptosv1.SubmitSubordinateCertificateRequest{
+func (c *Client) SubmitSubordinateCertificate(ctx context.Context, chainDER [][]byte, chainPEM string) (*nodev1.SubmitSubordinateCertificateResponse, error) {
+	return c.node.SubmitSubordinateCertificate(ctx, &nodev1.SubmitSubordinateCertificateRequest{
 		ChainDer: chainDER,
 		ChainPem: chainPEM,
 	})
 }
 
 // ApplyConfig pushes a machine configuration to the node.
-func (c *Client) ApplyConfig(ctx context.Context, cfg *cryptosv1.MachineConfig) (*cryptosv1.ApplyConfigResponse, error) {
-	return c.node.ApplyConfig(ctx, &cryptosv1.ApplyConfigRequest{Config: cfg})
+func (c *Client) ApplyConfig(ctx context.Context, cfg *nodev1.MachineConfig) (*nodev1.ApplyConfigResponse, error) {
+	return c.node.ApplyConfig(ctx, &nodev1.ApplyConfigRequest{Config: cfg})
 }
 
 // GetConfig fetches the dialed node's current machine configuration, so a
 // caller can read the full config before editing a subset and applying the
 // whole config back via ApplyConfig.
-func (c *Client) GetConfig(ctx context.Context) (*cryptosv1.GetConfigResponse, error) {
-	return c.node.GetConfig(ctx, &cryptosv1.GetConfigRequest{})
+func (c *Client) GetConfig(ctx context.Context) (*nodev1.GetConfigResponse, error) {
+	return c.node.GetConfig(ctx, &nodev1.GetConfigRequest{})
 }
 
 // SetManagement merges Fleet-Manager managed-state into the node's persisted
 // config: it marks the node as managed by this operator CN, adds the
 // operator CA as a trusted client CA, and optionally makes the node's own
 // operator surface read-only.
-func (c *Client) SetManagement(ctx context.Context, m *cryptosv1.Management) (*cryptosv1.SetManagementResponse, error) {
-	return c.node.SetManagement(ctx, &cryptosv1.SetManagementRequest{Management: m})
+func (c *Client) SetManagement(ctx context.Context, m *nodev1.Management) (*nodev1.SetManagementResponse, error) {
+	return c.node.SetManagement(ctx, &nodev1.SetManagementRequest{Management: m})
 }
 
 // RevokeCertificate revokes an issued certificate on the dialed node,
 // identified by its hex serial, recording the RFC 5280 reason code.
-func (c *Client) RevokeCertificate(ctx context.Context, serialHex string, reasonCode int32) (*cryptosv1.RevokeCertificateResponse, error) {
-	return c.node.RevokeCertificate(ctx, &cryptosv1.RevokeCertificateRequest{
+func (c *Client) RevokeCertificate(ctx context.Context, serialHex string, reasonCode int32) (*nodev1.RevokeCertificateResponse, error) {
+	return c.node.RevokeCertificate(ctx, &nodev1.RevokeCertificateRequest{
 		SerialHex:  serialHex,
 		ReasonCode: reasonCode,
 	})
@@ -333,8 +333,8 @@ func (c *Client) RevokeCertificate(ctx context.Context, serialHex string, reason
 
 // IssueLeaf signs a leaf certificate on the dialed node from a DER PKCS#10
 // CSR under the named issuance profile, returning the signed leaf in DER.
-func (c *Client) IssueLeaf(ctx context.Context, csrDER []byte, profileName string) (*cryptosv1.IssueLeafResponse, error) {
-	return c.node.IssueLeaf(ctx, &cryptosv1.IssueLeafRequest{
+func (c *Client) IssueLeaf(ctx context.Context, csrDER []byte, profileName string) (*nodev1.IssueLeafResponse, error) {
+	return c.node.IssueLeaf(ctx, &nodev1.IssueLeafRequest{
 		CsrDer:      csrDER,
 		ProfileName: profileName,
 	})
@@ -344,21 +344,21 @@ func (c *Client) IssueLeaf(ctx context.Context, csrDER []byte, profileName strin
 // wipe over its mTLS surface. confirmCN must equal the node's current Root CA
 // CN or the node refuses (PermissionDenied); on success the node wipes its
 // identity and data and reboots into maintenance.
-func (c *Client) RemoteReset(ctx context.Context, confirmCN string) (*cryptosv1.RemoteResetResponse, error) {
-	return c.node.RemoteReset(ctx, &cryptosv1.RemoteResetRequest{ConfirmCommonName: confirmCN})
+func (c *Client) RemoteReset(ctx context.Context, confirmCN string) (*nodev1.RemoteResetResponse, error) {
+	return c.node.RemoteReset(ctx, &nodev1.RemoteResetRequest{ConfirmCommonName: confirmCN})
 }
 
 // CeremonyStream is the receive side of a StartCeremony server stream, narrowed
 // to what the adoption orchestrator consumes so it can be faked in tests.
 type CeremonyStream interface {
-	Recv() (*cryptosv1.StartCeremonyResponse, error)
+	Recv() (*nodev1.StartCeremonyResponse, error)
 }
 
 // StartCeremony drives the node's first-boot ceremony, applying the operator's
 // machine config (YAML) and streaming the ceremony events back. It is used
 // during adoption once the node is reachable on the maintenance endpoint.
-func (c *Client) StartCeremony(ctx context.Context, kind cryptosv1.CeremonyKind, machineConfigYAML []byte) (CeremonyStream, error) {
-	return c.node.StartCeremony(ctx, &cryptosv1.StartCeremonyRequest{
+func (c *Client) StartCeremony(ctx context.Context, kind nodev1.CeremonyKind, machineConfigYAML []byte) (CeremonyStream, error) {
+	return c.node.StartCeremony(ctx, &nodev1.StartCeremonyRequest{
 		Kind:              kind,
 		MachineConfigYaml: machineConfigYAML,
 	})
@@ -367,15 +367,15 @@ func (c *Client) StartCeremony(ctx context.Context, kind cryptosv1.CeremonyKind,
 // BeginKeyRotation starts a CA key rotation on the dialed node and returns the
 // DER CSR for the newly generated key, to be ferried to the parent's
 // SignSubordinateCSR.
-func (c *Client) BeginKeyRotation(ctx context.Context) (*cryptosv1.BeginKeyRotationResponse, error) {
-	return c.node.BeginKeyRotation(ctx, &cryptosv1.BeginKeyRotationRequest{})
+func (c *Client) BeginKeyRotation(ctx context.Context) (*nodev1.BeginKeyRotationResponse, error) {
+	return c.node.BeginKeyRotation(ctx, &nodev1.BeginKeyRotationRequest{})
 }
 
 // CompleteKeyRotation delivers the parent-signed chain (leaf-first: the node's
 // new cert, parent, ..., root) back to the dialed node so it adopts the rotated
 // key as its new identity.
-func (c *Client) CompleteKeyRotation(ctx context.Context, chainDER [][]byte, chainPEM string) (*cryptosv1.CompleteKeyRotationResponse, error) {
-	return c.node.CompleteKeyRotation(ctx, &cryptosv1.CompleteKeyRotationRequest{
+func (c *Client) CompleteKeyRotation(ctx context.Context, chainDER [][]byte, chainPEM string) (*nodev1.CompleteKeyRotationResponse, error) {
+	return c.node.CompleteKeyRotation(ctx, &nodev1.CompleteKeyRotationRequest{
 		ChainDer: chainDER,
 		ChainPem: chainPEM,
 	})
@@ -385,15 +385,15 @@ func (c *Client) CompleteKeyRotation(ctx context.Context, chainDER [][]byte, cha
 // encrypted backup envelope using the operator passphrase. The node performs
 // the encryption; the passphrase is relayed in transit only and never
 // persisted by the manager.
-func (c *Client) ExportCAKey(ctx context.Context, passphrase []byte) (*cryptosv1.ExportCAKeyResponse, error) {
-	return c.node.ExportCAKey(ctx, &cryptosv1.ExportCAKeyRequest{Passphrase: passphrase})
+func (c *Client) ExportCAKey(ctx context.Context, passphrase []byte) (*nodev1.ExportCAKeyResponse, error) {
+	return c.node.ExportCAKey(ctx, &nodev1.ExportCAKeyRequest{Passphrase: passphrase})
 }
 
 // ImportCAKey delivers an encrypted backup envelope and its passphrase to the
 // dialed node so it can decrypt and adopt the restored CA identity. The
 // passphrase is relayed in transit only and never persisted by the manager.
-func (c *Client) ImportCAKey(ctx context.Context, envelope, passphrase []byte) (*cryptosv1.ImportCAKeyResponse, error) {
-	return c.node.ImportCAKey(ctx, &cryptosv1.ImportCAKeyRequest{Envelope: envelope, Passphrase: passphrase})
+func (c *Client) ImportCAKey(ctx context.Context, envelope, passphrase []byte) (*nodev1.ImportCAKeyResponse, error) {
+	return c.node.ImportCAKey(ctx, &nodev1.ImportCAKeyRequest{Envelope: envelope, Passphrase: passphrase})
 }
 
 // Close releases the underlying gRPC connection.

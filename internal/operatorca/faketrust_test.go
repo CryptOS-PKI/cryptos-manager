@@ -24,7 +24,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/CryptOS-PKI/manager/internal/store"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
 )
 
 // fakeTrust is an in-memory store.OperatorTrust that behaves like the

@@ -21,7 +21,7 @@ import (
 	"fmt"
 
 	connect "connectrpc.com/connect"
-	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
+	fleetv1 "github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1"
 )
 
 // The operator CA management RPCs are part of the contract but not served by

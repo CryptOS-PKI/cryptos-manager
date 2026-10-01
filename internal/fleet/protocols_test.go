@@ -21,19 +21,19 @@ import (
 	"testing"
 
 	connect "connectrpc.com/connect"
-	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
-	cryptosv1 "github.com/CryptOS-PKI/api/go/cryptos/v1"
-	"github.com/CryptOS-PKI/manager/internal/authz"
-	"github.com/CryptOS-PKI/manager/internal/store"
-	"github.com/CryptOS-PKI/manager/internal/store/memory"
+	fleetv1 "github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/authz"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store/memory"
+	nodev1 "github.com/CryptOS-PKI/cryptos-node/gen/go/cryptos/node/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
 
 const (
-	acme = cryptosv1.ServiceProtocol_SERVICE_PROTOCOL_ACME
-	est  = cryptosv1.ServiceProtocol_SERVICE_PROTOCOL_EST
+	acme = nodev1.ServiceProtocol_SERVICE_PROTOCOL_ACME
+	est  = nodev1.ServiceProtocol_SERVICE_PROTOCOL_EST
 )
 
 func protocolTestStore() store.Store {
@@ -42,32 +42,32 @@ func protocolTestStore() store.Store {
 
 // protocolConfigFixture is an issuing node's config as GetConfig returns it:
 // both protocol blocks explicit, write-only secrets blank.
-func protocolConfigFixture() *cryptosv1.MachineConfig {
-	return &cryptosv1.MachineConfig{
+func protocolConfigFixture() *nodev1.MachineConfig {
+	return &nodev1.MachineConfig{
 		ApiVersion: "cryptos.dev/v1alpha1",
 		Kind:       "MachineConfig",
-		Metadata:   &cryptosv1.Metadata{Name: "issuing-1"},
-		Role:       &cryptosv1.Role{Kind: "issuing"},
-		Pki: &cryptosv1.Pki{
+		Metadata:   &nodev1.Metadata{Name: "issuing-1"},
+		Role:       &nodev1.Role{Kind: "issuing"},
+		Pki: &nodev1.Pki{
 			RevocationBaseUrl: "http://ca.acme/crl",
-			Acme: &cryptosv1.Acme{
+			Acme: &nodev1.Acme{
 				Enabled:             false,
 				BaseUrl:             "https://ca.acme/acme",
 				Profile:             "tls-server",
-				ExternalAccountKeys: []*cryptosv1.AcmeExternalAccountKey{{KeyId: "k1"}},
+				ExternalAccountKeys: []*nodev1.AcmeExternalAccountKey{{KeyId: "k1"}},
 			},
-			Est: &cryptosv1.Est{
+			Est: &nodev1.Est{
 				Enabled:           true,
 				Hostnames:         []string{"est.acme"},
 				Profile:           "device",
-				EnrollCredentials: []*cryptosv1.EstEnrollCredential{{Username: "router"}},
+				EnrollCredentials: []*nodev1.EstEnrollCredential{{Username: "router"}},
 			},
 		},
-		Management: &cryptosv1.Management{ManagerCn: "fm-op", TrustPem: "trust-pem"},
+		Management: &nodev1.Management{ManagerCn: "fm-op", TrustPem: "trust-pem"},
 	}
 }
 
-func setProtocol(t *testing.T, svc *Service, level authz.Level, p cryptosv1.ServiceProtocol, enabled bool) (*connect.Response[fleetv1.SetNodeProtocolResponse], error) {
+func setProtocol(t *testing.T, svc *Service, level authz.Level, p nodev1.ServiceProtocol, enabled bool) (*connect.Response[fleetv1.SetNodeProtocolResponse], error) {
 	t.Helper()
 	ctx := operatorCtx("admin@acme.example", level)
 	return svc.SetNodeProtocol(ctx, connect.NewRequest(&fleetv1.SetNodeProtocolRequest{
@@ -77,7 +77,7 @@ func setProtocol(t *testing.T, svc *Service, level authz.Level, p cryptosv1.Serv
 
 func TestSetNodeProtocol_OperatorDenied_NoDialNoAudit(t *testing.T) {
 	st := protocolTestStore()
-	conn := &fakeConn{getConfigResp: &cryptosv1.GetConfigResponse{Config: protocolConfigFixture()}}
+	conn := &fakeConn{getConfigResp: &nodev1.GetConfigResponse{Config: protocolConfigFixture()}}
 	svc := New(st, dialFor(map[string]*fakeConn{"issuing-1": conn}))
 
 	_, err := setProtocol(t, svc, authz.LevelOperator, acme, true)
@@ -94,7 +94,7 @@ func TestSetNodeProtocol_UnswitchableProtocol_InvalidArgument(t *testing.T) {
 	conn := &fakeConn{}
 	svc := New(protocolTestStore(), dialFor(map[string]*fakeConn{"issuing-1": conn}))
 
-	_, err := setProtocol(t, svc, authz.LevelAdmin, cryptosv1.ServiceProtocol_SERVICE_PROTOCOL_UNSPECIFIED, true)
+	_, err := setProtocol(t, svc, authz.LevelAdmin, nodev1.ServiceProtocol_SERVICE_PROTOCOL_UNSPECIFIED, true)
 	requireConnectCode(t, err, connect.CodeInvalidArgument)
 	if conn.closed {
 		t.Error("the node was dialed for a protocol the manager cannot switch")
@@ -112,8 +112,8 @@ func TestSetNodeProtocol_UnknownNode_NotFound(t *testing.T) {
 func TestSetNodeProtocol_EnableACME_FlipsOnlyThatBlock(t *testing.T) {
 	st := protocolTestStore()
 	conn := &fakeConn{
-		getConfigResp:   &cryptosv1.GetConfigResponse{Config: protocolConfigFixture()},
-		applyConfigResp: &cryptosv1.ApplyConfigResponse{Generation: 12, RequiresReboot: true},
+		getConfigResp:   &nodev1.GetConfigResponse{Config: protocolConfigFixture()},
+		applyConfigResp: &nodev1.ApplyConfigResponse{Generation: 12, RequiresReboot: true},
 	}
 	svc := New(st, dialFor(map[string]*fakeConn{"issuing-1": conn}))
 
@@ -156,8 +156,8 @@ func TestSetNodeProtocol_EnableACME_FlipsOnlyThatBlock(t *testing.T) {
 func TestSetNodeProtocol_DisableEST_KeepsItsSettings(t *testing.T) {
 	st := protocolTestStore()
 	conn := &fakeConn{
-		getConfigResp:   &cryptosv1.GetConfigResponse{Config: protocolConfigFixture()},
-		applyConfigResp: &cryptosv1.ApplyConfigResponse{Generation: 3, RequiresReboot: true},
+		getConfigResp:   &nodev1.GetConfigResponse{Config: protocolConfigFixture()},
+		applyConfigResp: &nodev1.ApplyConfigResponse{Generation: 3, RequiresReboot: true},
 	}
 	svc := New(st, dialFor(map[string]*fakeConn{"issuing-1": conn}))
 
@@ -179,22 +179,22 @@ func TestSetNodeProtocol_NoBlockYet_SendsEnabledBlockForTheNodeToValidate(t *tes
 	cfg := protocolConfigFixture()
 	cfg.Pki.Acme = nil
 	conn := &fakeConn{
-		getConfigResp:   &cryptosv1.GetConfigResponse{Config: cfg},
-		applyConfigResp: &cryptosv1.ApplyConfigResponse{Generation: 4, RequiresReboot: true},
+		getConfigResp:   &nodev1.GetConfigResponse{Config: cfg},
+		applyConfigResp: &nodev1.ApplyConfigResponse{Generation: 4, RequiresReboot: true},
 	}
 	svc := New(protocolTestStore(), dialFor(map[string]*fakeConn{"issuing-1": conn}))
 
 	if _, err := setProtocol(t, svc, authz.LevelAdmin, acme, true); err != nil {
 		t.Fatalf("SetNodeProtocol: %v", err)
 	}
-	if !proto.Equal(conn.gotApplyConfig.GetPki().GetAcme(), &cryptosv1.Acme{Enabled: true}) {
+	if !proto.Equal(conn.gotApplyConfig.GetPki().GetAcme(), &nodev1.Acme{Enabled: true}) {
 		t.Errorf("acme block = %v, want a bare enabled block", conn.gotApplyConfig.GetPki().GetAcme())
 	}
 }
 
 func TestSetNodeProtocol_AlreadyInState_NoApplyNoAudit(t *testing.T) {
 	st := protocolTestStore()
-	conn := &fakeConn{getConfigResp: &cryptosv1.GetConfigResponse{Config: protocolConfigFixture()}}
+	conn := &fakeConn{getConfigResp: &nodev1.GetConfigResponse{Config: protocolConfigFixture()}}
 	svc := New(st, dialFor(map[string]*fakeConn{"issuing-1": conn}))
 
 	resp, err := setProtocol(t, svc, authz.LevelAdmin, est, true)
@@ -215,7 +215,7 @@ func TestSetNodeProtocol_AlreadyInState_NoApplyNoAudit(t *testing.T) {
 func TestSetNodeProtocol_NodeRefusal_KeepsItsCodeAndReason(t *testing.T) {
 	st := protocolTestStore()
 	conn := &fakeConn{
-		getConfigResp:  &cryptosv1.GetConfigResponse{Config: protocolConfigFixture()},
+		getConfigResp:  &nodev1.GetConfigResponse{Config: protocolConfigFixture()},
 		applyConfigErr: status.Error(codes.InvalidArgument, `pki.acme: profile "tls-server" not found`),
 	}
 	svc := New(st, dialFor(map[string]*fakeConn{"issuing-1": conn}))
@@ -233,9 +233,9 @@ func TestSetNodeProtocol_NodeRefusal_KeepsItsCodeAndReason(t *testing.T) {
 	}
 }
 
-func protocolStatusResp(protocols []*cryptosv1.ProtocolStatus, pending bool) *cryptosv1.GetStatusResponse {
-	return &cryptosv1.GetStatusResponse{Status: &cryptosv1.NodeStatus{
-		IdentityState:       cryptosv1.IdentityState_IDENTITY_STATE_ESTABLISHED,
+func protocolStatusResp(protocols []*nodev1.ProtocolStatus, pending bool) *nodev1.GetStatusResponse {
+	return &nodev1.GetStatusResponse{Status: &nodev1.NodeStatus{
+		IdentityState:       nodev1.IdentityState_IDENTITY_STATE_ESTABLISHED,
 		Protocols:           protocols,
 		ConfigRebootPending: pending,
 	}}
@@ -252,8 +252,8 @@ func getSummary(t *testing.T, svc *Service) *fleetv1.NodeSummary {
 
 func TestSetNodeProtocol_RebootRequiredUntilTheNodeRunsIt(t *testing.T) {
 	conn := &fakeConn{
-		getConfigResp:   &cryptosv1.GetConfigResponse{Config: protocolConfigFixture()},
-		applyConfigResp: &cryptosv1.ApplyConfigResponse{Generation: 5, RequiresReboot: true},
+		getConfigResp:   &nodev1.GetConfigResponse{Config: protocolConfigFixture()},
+		applyConfigResp: &nodev1.ApplyConfigResponse{Generation: 5, RequiresReboot: true},
 		// A node that predates the protocol report says nothing either way.
 		status: protocolStatusResp(nil, false),
 	}
@@ -268,7 +268,7 @@ func TestSetNodeProtocol_RebootRequiredUntilTheNodeRunsIt(t *testing.T) {
 	}
 
 	// Stored but not booted: the node reports it configured and pending.
-	conn.status = protocolStatusResp([]*cryptosv1.ProtocolStatus{
+	conn.status = protocolStatusResp([]*nodev1.ProtocolStatus{
 		{Protocol: acme, Configured: true, Running: false, RebootPending: true},
 		{Protocol: est, Configured: true, Running: true},
 	}, true)
@@ -281,7 +281,7 @@ func TestSetNodeProtocol_RebootRequiredUntilTheNodeRunsIt(t *testing.T) {
 	}
 
 	// A boot that did not bring ACME up keeps the flag.
-	conn.status = protocolStatusResp([]*cryptosv1.ProtocolStatus{
+	conn.status = protocolStatusResp([]*nodev1.ProtocolStatus{
 		{Protocol: acme, Configured: true, Running: false},
 		{Protocol: est, Configured: true, Running: true},
 	}, false)
@@ -291,7 +291,7 @@ func TestSetNodeProtocol_RebootRequiredUntilTheNodeRunsIt(t *testing.T) {
 	}
 
 	// After the reboot ACME runs and nothing is pending.
-	conn.status = protocolStatusResp([]*cryptosv1.ProtocolStatus{
+	conn.status = protocolStatusResp([]*nodev1.ProtocolStatus{
 		{Protocol: acme, Configured: true, Running: true},
 		{Protocol: est, Configured: true, Running: true},
 	}, false)
@@ -305,7 +305,7 @@ func TestSetNodeProtocol_RebootRequiredUntilTheNodeRunsIt(t *testing.T) {
 }
 
 func TestListNodes_ReportsProtocolStateAndNodeRebootFlag(t *testing.T) {
-	conn := &fakeConn{status: protocolStatusResp([]*cryptosv1.ProtocolStatus{
+	conn := &fakeConn{status: protocolStatusResp([]*nodev1.ProtocolStatus{
 		{Protocol: acme, Configured: false, Running: false},
 		{Protocol: est, Configured: true, Running: true},
 	}, true)}
@@ -327,8 +327,8 @@ func TestListNodes_ReportsProtocolStateAndNodeRebootFlag(t *testing.T) {
 func TestApplyNodeConfig_ProtocolSwitch_AuditedPerProtocolAndTracked(t *testing.T) {
 	st := protocolTestStore()
 	conn := &fakeConn{
-		getConfigResp:   &cryptosv1.GetConfigResponse{Config: protocolConfigFixture()},
-		applyConfigResp: &cryptosv1.ApplyConfigResponse{Generation: 8, RequiresReboot: true},
+		getConfigResp:   &nodev1.GetConfigResponse{Config: protocolConfigFixture()},
+		applyConfigResp: &nodev1.ApplyConfigResponse{Generation: 8, RequiresReboot: true},
 	}
 	svc := New(st, dialFor(map[string]*fakeConn{"issuing-1": conn}))
 
@@ -378,8 +378,8 @@ func TestApplyNodeConfig_ProtocolBlock_BaselineUnreadable_NoApply(t *testing.T) 
 func TestSetNodeProtocol_AuditsAgainstTheNodeID(t *testing.T) {
 	st := protocolTestStore()
 	conn := &fakeConn{
-		getConfigResp:   &cryptosv1.GetConfigResponse{Config: protocolConfigFixture()},
-		applyConfigResp: &cryptosv1.ApplyConfigResponse{Generation: 3},
+		getConfigResp:   &nodev1.GetConfigResponse{Config: protocolConfigFixture()},
+		applyConfigResp: &nodev1.ApplyConfigResponse{Generation: 3},
 	}
 	svc := New(st, dialFor(map[string]*fakeConn{"issuing-1": conn}))
 
@@ -398,8 +398,8 @@ func TestSetNodeProtocol_AuditsAgainstTheNodeID(t *testing.T) {
 func TestApplyNodeConfig_ProtocolSwitch_AuditsAgainstTheNodeID(t *testing.T) {
 	st := protocolTestStore()
 	conn := &fakeConn{
-		getConfigResp:   &cryptosv1.GetConfigResponse{Config: protocolConfigFixture()},
-		applyConfigResp: &cryptosv1.ApplyConfigResponse{Generation: 4},
+		getConfigResp:   &nodev1.GetConfigResponse{Config: protocolConfigFixture()},
+		applyConfigResp: &nodev1.ApplyConfigResponse{Generation: 4},
 	}
 	svc := New(st, dialFor(map[string]*fakeConn{"issuing-1": conn}))
 
@@ -421,8 +421,8 @@ func TestApplyNodeConfig_ProtocolSwitch_AuditsAgainstTheNodeID(t *testing.T) {
 func TestSetNodeProtocol_RebootRecordSurvivesARename(t *testing.T) {
 	st := protocolTestStore()
 	conn := &fakeConn{
-		getConfigResp:   &cryptosv1.GetConfigResponse{Config: protocolConfigFixture()},
-		applyConfigResp: &cryptosv1.ApplyConfigResponse{Generation: 6, RequiresReboot: true},
+		getConfigResp:   &nodev1.GetConfigResponse{Config: protocolConfigFixture()},
+		applyConfigResp: &nodev1.ApplyConfigResponse{Generation: 6, RequiresReboot: true},
 		status:          protocolStatusResp(nil, false),
 	}
 	svc := New(st, dialFor(map[string]*fakeConn{"issuing-1": conn, "issuing-east": conn}))

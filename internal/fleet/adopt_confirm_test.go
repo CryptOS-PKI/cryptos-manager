@@ -29,13 +29,13 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
-	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
-	cryptosv1 "github.com/CryptOS-PKI/api/go/cryptos/v1"
-	"github.com/CryptOS-PKI/manager/internal/auditlog"
-	"github.com/CryptOS-PKI/manager/internal/authz"
-	"github.com/CryptOS-PKI/manager/internal/nodeclient"
-	"github.com/CryptOS-PKI/manager/internal/store"
-	"github.com/CryptOS-PKI/manager/internal/store/memory"
+	fleetv1 "github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/auditlog"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/authz"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/nodeclient"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store/memory"
+	nodev1 "github.com/CryptOS-PKI/cryptos-node/gen/go/cryptos/node/v1"
 )
 
 // pauseSink records phases and signals when the adoption waits for the
@@ -80,12 +80,12 @@ func newConfirmFixture(t *testing.T) confirmFixture {
 	adoptCredsBaseDir = t.TempDir()
 	st := memory.New(nil)
 	running := fakeRunningCert(t)
-	mconn := &fakeConn{applyConfigResp: &cryptosv1.ApplyConfigResponse{RequiresReboot: true, Generation: 1}}
+	mconn := &fakeConn{applyConfigResp: &nodev1.ApplyConfigResponse{RequiresReboot: true, Generation: 1}}
 	runningConn := &fakeConn{
-		status:   &cryptosv1.GetStatusResponse{},
+		status:   &nodev1.GetStatusResponse{},
 		identity: rootIdentity(t),
-		ceremonyStream: &scriptedCeremony{kinds: []cryptosv1.CeremonyEventKind{
-			cryptosv1.CeremonyEventKind_CEREMONY_EVENT_KIND_COMPLETE,
+		ceremonyStream: &scriptedCeremony{kinds: []nodev1.CeremonyEventKind{
+			nodev1.CeremonyEventKind_CEREMONY_EVENT_KIND_COMPLETE,
 		}},
 	}
 	dials := 0

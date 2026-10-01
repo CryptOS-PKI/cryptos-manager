@@ -22,16 +22,16 @@ import (
 	"testing"
 
 	connect "connectrpc.com/connect"
-	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
-	cryptosv1 "github.com/CryptOS-PKI/api/go/cryptos/v1"
-	"github.com/CryptOS-PKI/manager/internal/authz"
+	fleetv1 "github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/authz"
+	nodev1 "github.com/CryptOS-PKI/cryptos-node/gen/go/cryptos/node/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
 func TestDecommissionNode_Admin_ResetsAndAudits(t *testing.T) {
 	st := certsTestStore()
-	conn := &fakeConn{remoteResetResp: &cryptosv1.RemoteResetResponse{Rebooting: true}}
+	conn := &fakeConn{remoteResetResp: &nodev1.RemoteResetResponse{Rebooting: true}}
 	svc := New(st, dialFor(map[string]*fakeConn{"A": conn}))
 
 	ctx := operatorCtx("admin@acme.example", authz.LevelAdmin)

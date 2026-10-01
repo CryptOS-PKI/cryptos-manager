@@ -1,5 +1,27 @@
 version: "3"
 
+# The Go codegen plugins are not taken from PATH: `task tools` installs them at
+# the versions pinned below into .bin/, and buf.gen.yaml runs them from there,
+# so every machine generates the same bytes. The node API protos the fleet
+# protos import come from the cryptos-node module version go.mod pins
+# (`task proto:deps`).
+vars:
+  # Bump a pin, then run `task generate` and commit the regenerated tree in the
+  # same change. protoc-gen-connect-go tracks the connectrpc.com/connect runtime
+  # in go.mod.
+  PROTOC_GEN_GO_VERSION: v1.34.2
+  PROTOC_GEN_GO_GRPC_VERSION: v1.5.1
+  PROTOC_GEN_CONNECT_GO_VERSION: v1.20.0
+  # protoc-gen-go formats its output with the go/format it was compiled with,
+  # so the toolchain that builds the plugins is pinned too. Kept at the go
+  # directive in go.mod.
+  PLUGIN_GO_TOOLCHAIN: go1.26.8
+  TOOLS_BIN: '{{.ROOT_DIR}}/.bin'
+  NODE_PROTO_DIR: '{{.ROOT_DIR}}/.deps/cryptos-node/proto'
+  # The baseline `buf breaking` compares against. Override it to compare
+  # against another ref, for example BREAKING_AGAINST='.git#branch=origin/main'.
+  BREAKING_AGAINST: 'https://github.com/CryptOS-PKI/cryptos-manager.git#branch=main'
+
 tasks:
   build:
     desc: Build every package.
@@ -21,10 +43,75 @@ tasks:
     desc: Run the test suite. Postgres integration tests skip unless MANAGER_TEST_DATABASE_URL is set.
     cmds:
       - go test ./...
+  tools:
+    desc: Install the pinned Go codegen plugins into .bin/
+    # status reads the Go version and module version stamped into each binary,
+    # so a .bin/ left over from an older pin gets reinstalled instead of
+    # silently reused.
+    status:
+      - go version {{.TOOLS_BIN}}/protoc-gen-go {{.TOOLS_BIN}}/protoc-gen-go-grpc {{.TOOLS_BIN}}/protoc-gen-connect-go | awk '$2 != "{{.PLUGIN_GO_TOOLCHAIN}}" {bad=1} END {exit bad || NR != 3}'
+      - go version -m {{.TOOLS_BIN}}/protoc-gen-go | grep -qE '^[[:space:]]+mod[[:space:]]+google.golang.org/protobuf[[:space:]]+{{.PROTOC_GEN_GO_VERSION}}[[:space:]]'
+      - go version -m {{.TOOLS_BIN}}/protoc-gen-go-grpc | grep -qE '^[[:space:]]+mod[[:space:]]+google.golang.org/grpc/cmd/protoc-gen-go-grpc[[:space:]]+{{.PROTOC_GEN_GO_GRPC_VERSION}}[[:space:]]'
+      - go version -m {{.TOOLS_BIN}}/protoc-gen-connect-go | grep -qE '^[[:space:]]+mod[[:space:]]+connectrpc.com/connect[[:space:]]+{{.PROTOC_GEN_CONNECT_GO_VERSION}}[[:space:]]'
+    # GOBIN and GOTOOLCHAIN are set on each command, not in an env: block,
+    # because Task lets an exported shell variable win over env:.
+    cmds:
+      - GOBIN='{{.TOOLS_BIN}}' GOTOOLCHAIN={{.PLUGIN_GO_TOOLCHAIN}} go install google.golang.org/protobuf/cmd/protoc-gen-go@{{.PROTOC_GEN_GO_VERSION}}
+      - GOBIN='{{.TOOLS_BIN}}' GOTOOLCHAIN={{.PLUGIN_GO_TOOLCHAIN}} go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@{{.PROTOC_GEN_GO_GRPC_VERSION}}
+      - GOBIN='{{.TOOLS_BIN}}' GOTOOLCHAIN={{.PLUGIN_GO_TOOLCHAIN}} go install connectrpc.com/connect/cmd/protoc-gen-connect-go@{{.PROTOC_GEN_CONNECT_GO_VERSION}}
+  proto:deps:
+    desc: Copy the node API protos from the cryptos-node module version go.mod pins into .deps/
+    # Always refreshed, so a go.mod bump can't leave stale imports behind.
+    cmds:
+      - |
+        set -eu
+        src="$(go mod download -json github.com/CryptOS-PKI/cryptos-node | sed -n 's/^[[:space:]]*"Dir": "\(.*\)",$/\1/p')/proto"
+        test -d "$src" || { echo "no proto/ in the pinned cryptos-node module ($src)" >&2; exit 1; }
+        mkdir -p '{{.NODE_PROTO_DIR}}'
+        chmod -R u+w '{{.NODE_PROTO_DIR}}'
+        find '{{.NODE_PROTO_DIR}}' -mindepth 1 -delete
+        cp -R "$src/." '{{.NODE_PROTO_DIR}}/'
+        chmod -R u+w '{{.NODE_PROTO_DIR}}'
+  proto:fmt:
+    desc: Format the fleet API protos.
+    cmds:
+      - buf format -w proto
+  proto:lint:
+    desc: Lint the fleet API protos and check their formatting.
+    deps: [proto:deps]
+    cmds:
+      - buf lint
+      - buf format -d --exit-code proto
+  proto:breaking:
+    desc: Check the fleet API protos for breaking changes against main (BREAKING_AGAINST overrides).
+    deps: [proto:deps]
+    cmds:
+      - buf breaking --against '{{.BREAKING_AGAINST}}'
+  generate:
+    desc: Generate the Go stubs under gen/go from the fleet protos with the pinned plugins.
+    deps: [tools, proto:deps]
+    cmds:
+      - buf generate
+  generate:verify:
+    desc: Generate and assert the committed gen/ tree is current.
+    # git status rather than git diff, so a generated file that is new counts
+    # as stale too instead of passing as untracked.
+    cmds:
+      - task: generate
+      - |
+        stale="$(git status --porcelain gen/)"
+        if [ -n "$stale" ]; then
+          echo "Generated output is out of date. Run 'task generate' and commit the result." >&2
+          echo "$stale" >&2
+          git --no-pager diff gen/ >&2
+          exit 1
+        fi
   ci:
-    desc: The full pre-push gate (gofmt, vet, golangci-lint, test); mirrors the git pre-push hook.
+    desc: The full pre-push gate (gofmt, proto lint, generated-code check, vet, golangci-lint, test); mirrors the git pre-push hook.
     cmds:
       - task: fmt
+      - task: proto:lint
+      - task: generate:verify
       - task: vet
       - task: lint
       - task: test

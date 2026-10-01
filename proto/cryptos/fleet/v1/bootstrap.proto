@@ -1,0 +1,174 @@
+syntax = "proto3";
+/*
+   Copyright The CryptOS Authors.
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+*/
+
+package cryptos.fleet.v1;
+
+import "cryptos/fleet/v1/errors.proto";
+import "cryptos/fleet/v1/operator_ca.proto";
+
+option go_package = "github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1;fleetv1";
+
+// BootstrapService stands a Fleet Manager up from nothing: before any
+// operator CA is trusted, the holder of the one-time bootstrap token from the
+// manager's log registers the external operator CA and checks the first
+// admin certificate it signed. It is served only over HTTPS and outside the
+// client-certificate middleware, and it closes for good the first time an
+// admin certificate authenticates.
+//
+// The session procedures (RegisterOperatorCA, SubmitFirstAdminCertificate)
+// take the secret from StartBootstrapSession in the Fleetos-Bootstrap-Session
+// request header, never in the body. Once first run is closed, every
+// procedure except GetBootstrapState returns 1601 before reading a token or
+// session.
+service BootstrapService {
+  // GetBootstrapState reports whether first run is open. Anonymous.
+  rpc GetBootstrapState(GetBootstrapStateRequest) returns (GetBootstrapStateResponse);
+
+  // StartBootstrapSession consumes the bootstrap token and starts the one
+  // live session, ending any earlier one. The manager prints a new token at
+  // once, so the token can't be used twice. A wrong, expired or used token
+  // returns 1600.
+  rpc StartBootstrapSession(StartBootstrapSessionRequest) returns (StartBootstrapSessionResponse);
+
+  // RegisterOperatorCA uploads the external operator CA's certificate and
+  // chooses its CRL source and OCSP mode. The first call checks everything
+  // and returns a preview with the fingerprint; the call is repeated with
+  // confirm_sha256 set to that fingerprint to store and trust the CA, which
+  // retires any CA registered earlier in first run. A new session keeps the
+  // current registration but must confirm it again before submitting a
+  // certificate: calling with ca_cert_der empty returns the current
+  // registration's preview, and calling again with its confirm_sha256
+  // confirms it without changing anything. Session-gated and audited.
+  rpc RegisterOperatorCA(BootstrapServiceRegisterOperatorCARequest) returns (BootstrapServiceRegisterOperatorCAResponse);
+
+  // SubmitFirstAdminCertificate checks and records the first admin's
+  // certificate, which the operator CA signed out of band. With csr_der, the
+  // certificate's key must match the CSR's; without it, this is a pre-flight
+  // for a certificate made entirely at the CA. A later submission with a
+  // different serial puts the earlier first-admin certificate on the
+  // denylist. Session-gated and audited. The manager signs nothing.
+  rpc SubmitFirstAdminCertificate(SubmitFirstAdminCertificateRequest) returns (SubmitFirstAdminCertificateResponse);
+}
+
+// BootstrapState is whether first run is open.
+enum BootstrapState {
+  BOOTSTRAP_STATE_UNSPECIFIED = 0;
+  // The operator CA comes from the config file, so there is no first run.
+  BOOTSTRAP_STATE_NOT_APPLICABLE = 1;
+  // Open, with no session or registration yet.
+  BOOTSTRAP_STATE_OPEN = 2;
+  // Open, and a session was started or an operator CA registered.
+  BOOTSTRAP_STATE_OPEN_IN_PROGRESS = 3;
+  // An admin certificate has authenticated; first run is over.
+  BOOTSTRAP_STATE_CLOSED = 4;
+  // First run can't run; reason_code says why.
+  BOOTSTRAP_STATE_UNAVAILABLE = 5;
+}
+
+message GetBootstrapStateRequest {}
+
+message GetBootstrapStateResponse {
+  BootstrapState state = 1;
+  // reason_code is DATABASE_REQUIRED or FIRST_RUN_DISABLED when state is
+  // unavailable, unspecified otherwise.
+  ErrorReason reason_code = 2;
+  // token_expires_at is when the current bootstrap token expires (RFC3339),
+  // empty unless first run is open. The token itself is only in the log.
+  string token_expires_at = 3;
+}
+
+message StartBootstrapSessionRequest {
+  // token is the bootstrap token printed in the manager's log
+  // (fos_boot_...).
+  string token = 1;
+}
+
+message StartBootstrapSessionResponse {
+  // session_secret (fos_bsess_...) is returned once. Keep it in memory and
+  // send it in the Fleetos-Bootstrap-Session header.
+  string session_secret = 1;
+  // expires_at is the session's absolute expiry (RFC3339). It also ends after
+  // 15 minutes without a call.
+  string expires_at = 2;
+}
+
+// BootstrapServiceRegisterOperatorCARequest has the same fields as the admin
+// RegisterOperatorCARequest.
+message BootstrapServiceRegisterOperatorCARequest {
+  // ca_cert_der is exactly one CA certificate, DER or PEM, at most 8 KiB.
+  // Empty to preview or confirm the current registration.
+  bytes ca_cert_der = 1;
+  // crl_source is how the manager gets the CA's CRL. A CRL given here is
+  // verified against the CA before anything is stored.
+  oneof crl_source {
+    // url is an http or https URL the manager fetches the CRL from, now and
+    // on a schedule.
+    string url = 2;
+    // crl_der is an initial CRL, DER or PEM, at most 4 MiB. Later CRLs come
+    // through UploadOperatorCRL.
+    bytes crl_der = 3;
+    // none, set to true, means no CRL. It needs the NO_CRL acknowledgement.
+    bool none = 4;
+  }
+  // ocsp_mode defaults to OCSP_MODE_AIA when unspecified.
+  OcspMode ocsp_mode = 5;
+  // ocsp_url is the responder for OCSP_MODE_URL, http or https, at most
+  // 2 KiB. The manager probes it before accepting it.
+  string ocsp_url = 6;
+  repeated OperatorCAAcknowledgement acknowledgements = 7;
+  // confirm_sha256 is the fingerprint from the preview. Empty asks for a
+  // preview. Case and colon separators are ignored, so the output of
+  // openssl x509 -fingerprint -sha256 can be pasted.
+  string confirm_sha256 = 8;
+}
+
+// BootstrapServiceRegisterOperatorCAResponse has the same fields as the admin
+// RegisterOperatorCAResponse.
+message BootstrapServiceRegisterOperatorCAResponse {
+  // operator_ca holds the subject, issuer, notAfter, fingerprint, warnings,
+  // CRL status and OCSP mode.
+  OperatorCA operator_ca = 1;
+  // confirmed is false for a preview and true once the CA is stored and
+  // trusted.
+  bool confirmed = 2;
+  // admin_extfile is the OpenSSL extension section for an admin certificate
+  // under this CA.
+  string admin_extfile = 3;
+  // ocsp_probe is the probe result for OCSP_MODE_URL, absent otherwise.
+  OcspProbeResult ocsp_probe = 4;
+}
+
+message SubmitFirstAdminCertificateRequest {
+  // cert_der is exactly one certificate, DER, at most 8 KiB.
+  bytes cert_der = 1;
+  // csr_der is the CSR the certificate was signed from, at most 4 KiB.
+  // Optional.
+  bytes csr_der = 2;
+  // full_name is the admin's name, 1 to 128 characters.
+  string full_name = 3;
+}
+
+message SubmitFirstAdminCertificateResponse {
+  string serial_hex = 1;
+  string not_after = 2;
+  // email is taken from the certificate's CN, lower-cased.
+  string email = 3;
+  // issuer_sha256 is the operator CA's fingerprint.
+  string issuer_sha256 = 4;
+  // warnings, for example a validity over 400 days.
+  repeated string warnings = 5;
+}

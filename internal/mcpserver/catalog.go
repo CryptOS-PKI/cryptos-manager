@@ -19,7 +19,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-import "github.com/CryptOS-PKI/manager/internal/authz"
+import "github.com/CryptOS-PKI/cryptos-manager/internal/authz"
 
 // Policy says how a FleetService operation is exposed over MCP.
 type Policy int

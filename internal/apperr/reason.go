@@ -22,7 +22,7 @@ import (
 	"strconv"
 	"strings"
 
-	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
+	fleetv1 "github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1"
 )
 
 // ReasonKey carries a failure's sub-reason next to its code: the api's

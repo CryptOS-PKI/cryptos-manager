@@ -1,0 +1,13 @@
+version: v2
+modules:
+  # The fleet API this service serves.
+  - path: proto
+    lint:
+      use:
+        - STANDARD
+    breaking:
+      use:
+        - FILE
+  # The node API, imported by the fleet protos. `task proto:deps` copies it
+  # from the cryptos-node module version go.mod pins; never edit it here.
+  - path: .deps/cryptos-node/proto

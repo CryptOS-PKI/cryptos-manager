@@ -21,9 +21,9 @@ import (
 	"testing"
 
 	connect "connectrpc.com/connect"
-	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
-	fleetv1connect "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1/fleetv1connect"
-	"github.com/CryptOS-PKI/manager/internal/authz"
+	fleetv1 "github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1"
+	fleetv1connect "github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1/fleetv1connect"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/authz"
 )
 
 // The manager never signs an operator credential, so the contract it serves

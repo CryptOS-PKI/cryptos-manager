@@ -30,7 +30,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/CryptOS-PKI/manager/internal/authz"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/authz"
 )
 
 // The test PKI. Every name is a fake: example.org, "Example Operator CA".

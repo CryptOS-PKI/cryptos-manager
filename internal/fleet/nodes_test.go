@@ -32,26 +32,26 @@ import (
 	"time"
 
 	connect "connectrpc.com/connect"
-	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
-	cryptosv1 "github.com/CryptOS-PKI/api/go/cryptos/v1"
-	"github.com/CryptOS-PKI/manager/internal/nodeclient"
-	"github.com/CryptOS-PKI/manager/internal/store"
-	"github.com/CryptOS-PKI/manager/internal/store/memory"
+	fleetv1 "github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/nodeclient"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store/memory"
+	nodev1 "github.com/CryptOS-PKI/cryptos-node/gen/go/cryptos/node/v1"
 )
 
 // fakeConn is a canned NodeConn used to drive Service without a real dial.
 type fakeConn struct {
 	// getIssued is returned by GetIssuedCertificate; gotGetSerial records the
 	// serial it was asked for.
-	getIssued    *cryptosv1.GetIssuedCertificateResponse
+	getIssued    *nodev1.GetIssuedCertificateResponse
 	getIssuedErr error
 	gotGetSerial string
 
-	status      *cryptosv1.GetStatusResponse
-	disks       *cryptosv1.ListInstallDisksResponse
-	identity    *cryptosv1.GetIdentityResponse
-	issued      *cryptosv1.ListIssuedResponse
-	revocations *cryptosv1.ListRevocationsResponse
+	status      *nodev1.GetStatusResponse
+	disks       *nodev1.ListInstallDisksResponse
+	identity    *nodev1.GetIdentityResponse
+	issued      *nodev1.ListIssuedResponse
+	revocations *nodev1.ListRevocationsResponse
 	err         error
 	closed      bool
 
@@ -75,13 +75,13 @@ type fakeConn struct {
 
 	// gotManagement records the Management the fake received via
 	// SetManagement, so a test can assert what a LINK approval pushed.
-	gotManagement *cryptosv1.Management
+	gotManagement *nodev1.Management
 	// gotCSRProfile records the profile name SignSubordinateCSR was called
 	// with, so a test can assert the ferry used the enrollment's profile.
 	gotCSRProfile string
 	// signSubordinateResp, when set, is returned by SignSubordinateCSR
 	// instead of the zero-value response.
-	signSubordinateResp *cryptosv1.SignSubordinateCSRResponse
+	signSubordinateResp *nodev1.SignSubordinateCSRResponse
 	// calls records the ordered sequence of ferry-relevant method names
 	// invoked on this fake, so a test can assert call order.
 	calls *[]string
@@ -93,7 +93,7 @@ type fakeConn struct {
 	gotRevokeReason int32
 	// revokeResp, when set, is returned by RevokeCertificate instead of the
 	// zero-value response.
-	revokeResp *cryptosv1.RevokeCertificateResponse
+	revokeResp *nodev1.RevokeCertificateResponse
 
 	// gotIssueCSR and gotIssueProfile record the CSR and profile name
 	// IssueLeaf was called with, so a test can assert the handler forwarded
@@ -102,11 +102,11 @@ type fakeConn struct {
 	gotIssueProfile string
 	// issueResp, when set, is returned by IssueLeaf instead of the
 	// zero-value response.
-	issueResp *cryptosv1.IssueLeafResponse
+	issueResp *nodev1.IssueLeafResponse
 
 	// beginRotationResp, when set, is returned by BeginKeyRotation instead of
 	// the zero-value response (the re-key ferry reads its CSR).
-	beginRotationResp *cryptosv1.BeginKeyRotationResponse
+	beginRotationResp *nodev1.BeginKeyRotationResponse
 	// gotCompleteChainDER and gotCompleteChainPEM record the chain
 	// CompleteKeyRotation was called with, so a re-key test can assert the
 	// ferry delivered the parent-signed chain unchanged.
@@ -114,7 +114,7 @@ type fakeConn struct {
 	gotCompleteChainPEM string
 	// completeRotationResp, when set, is returned by CompleteKeyRotation
 	// instead of the zero-value response (it carries the adopted identity).
-	completeRotationResp *cryptosv1.CompleteKeyRotationResponse
+	completeRotationResp *nodev1.CompleteKeyRotationResponse
 
 	// gotExportPassphrase records the passphrase ExportCAKey was called with,
 	// so an escrow test can assert the handler relayed it to the node and that
@@ -122,7 +122,7 @@ type fakeConn struct {
 	gotExportPassphrase []byte
 	// exportResp, when set, is returned by ExportCAKey instead of the
 	// zero-value response (it carries the encrypted envelope).
-	exportResp *cryptosv1.ExportCAKeyResponse
+	exportResp *nodev1.ExportCAKeyResponse
 
 	// gotImportEnvelope and gotImportPassphrase record the envelope and
 	// passphrase ImportCAKey was called with, so an escrow test can assert the
@@ -131,7 +131,7 @@ type fakeConn struct {
 	gotImportPassphrase []byte
 	// importResp, when set, is returned by ImportCAKey instead of the
 	// zero-value response (it carries the restored identity).
-	importResp *cryptosv1.ImportCAKeyResponse
+	importResp *nodev1.ImportCAKeyResponse
 
 	// gotRemoteResetCN records the confirmation CN RemoteReset was called with,
 	// so a decommission test can assert the handler relayed it unchanged.
@@ -139,7 +139,7 @@ type fakeConn struct {
 	// remoteResetErr, when set, is returned by RemoteReset (e.g. a gRPC
 	// PermissionDenied for a CN mismatch); remoteResetResp is the success reply.
 	remoteResetErr  error
-	remoteResetResp *cryptosv1.RemoteResetResponse
+	remoteResetResp *nodev1.RemoteResetResponse
 
 	// gotCeremonyYAML records the config YAML StartCeremony was called with;
 	// ceremonyStream, when set, is the stream it returns (an adoption test
@@ -150,19 +150,19 @@ type fakeConn struct {
 
 	// getConfigResp, when set, is returned by GetConfig instead of the
 	// zero-value response (the config-push flow fetches the node's baseline).
-	getConfigResp *cryptosv1.GetConfigResponse
+	getConfigResp *nodev1.GetConfigResponse
 	// gotApplyConfig records the MachineConfig ApplyConfig was called with, so
 	// a test can assert the handler pushed the exact config from the request.
-	gotApplyConfig *cryptosv1.MachineConfig
+	gotApplyConfig *nodev1.MachineConfig
 	// applyConfigResp, when set, is returned by ApplyConfig instead of the
 	// zero-value response (it carries the generation and requires_reboot).
-	applyConfigResp *cryptosv1.ApplyConfigResponse
+	applyConfigResp *nodev1.ApplyConfigResponse
 	// applyConfigErr, when set, fails ApplyConfig only (a node refusing the
 	// config), so GetConfig still returns the baseline.
 	applyConfigErr error
 }
 
-func (f *fakeConn) BeginKeyRotation(context.Context) (*cryptosv1.BeginKeyRotationResponse, error) {
+func (f *fakeConn) BeginKeyRotation(context.Context) (*nodev1.BeginKeyRotationResponse, error) {
 	f.record("BeginKeyRotation")
 	if f.err != nil {
 		return nil, f.err
@@ -170,10 +170,10 @@ func (f *fakeConn) BeginKeyRotation(context.Context) (*cryptosv1.BeginKeyRotatio
 	if f.beginRotationResp != nil {
 		return f.beginRotationResp, nil
 	}
-	return &cryptosv1.BeginKeyRotationResponse{}, nil
+	return &nodev1.BeginKeyRotationResponse{}, nil
 }
 
-func (f *fakeConn) CompleteKeyRotation(_ context.Context, chainDER [][]byte, chainPEM string) (*cryptosv1.CompleteKeyRotationResponse, error) {
+func (f *fakeConn) CompleteKeyRotation(_ context.Context, chainDER [][]byte, chainPEM string) (*nodev1.CompleteKeyRotationResponse, error) {
 	f.record("CompleteKeyRotation")
 	f.gotCompleteChainDER = chainDER
 	f.gotCompleteChainPEM = chainPEM
@@ -183,31 +183,31 @@ func (f *fakeConn) CompleteKeyRotation(_ context.Context, chainDER [][]byte, cha
 	if f.completeRotationResp != nil {
 		return f.completeRotationResp, nil
 	}
-	return &cryptosv1.CompleteKeyRotationResponse{}, nil
+	return &nodev1.CompleteKeyRotationResponse{}, nil
 }
 
-func (f *fakeConn) GetStatus(context.Context) (*cryptosv1.GetStatusResponse, error) {
+func (f *fakeConn) GetStatus(context.Context) (*nodev1.GetStatusResponse, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
 	return f.status, nil
 }
 
-func (f *fakeConn) ListInstallDisks(context.Context) (*cryptosv1.ListInstallDisksResponse, error) {
+func (f *fakeConn) ListInstallDisks(context.Context) (*nodev1.ListInstallDisksResponse, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
 	return f.disks, nil
 }
 
-func (f *fakeConn) GetIdentity(context.Context) (*cryptosv1.GetIdentityResponse, error) {
+func (f *fakeConn) GetIdentity(context.Context) (*nodev1.GetIdentityResponse, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
 	return f.identity, nil
 }
 
-func (f *fakeConn) GetIssuedCertificate(_ context.Context, serialHex string) (*cryptosv1.GetIssuedCertificateResponse, error) {
+func (f *fakeConn) GetIssuedCertificate(_ context.Context, serialHex string) (*nodev1.GetIssuedCertificateResponse, error) {
 	f.gotGetSerial = serialHex
 	if f.getIssuedErr != nil {
 		return nil, f.getIssuedErr
@@ -215,27 +215,27 @@ func (f *fakeConn) GetIssuedCertificate(_ context.Context, serialHex string) (*c
 	return f.getIssued, nil
 }
 
-func (f *fakeConn) ListIssued(context.Context) (*cryptosv1.ListIssuedResponse, error) {
+func (f *fakeConn) ListIssued(context.Context) (*nodev1.ListIssuedResponse, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
 	return f.issued, nil
 }
 
-func (f *fakeConn) ListRevocations(context.Context) (*cryptosv1.ListRevocationsResponse, error) {
+func (f *fakeConn) ListRevocations(context.Context) (*nodev1.ListRevocationsResponse, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
 	return f.revocations, nil
 }
 
-func (f *fakeConn) Attest(_ context.Context, nonce []byte) (*cryptosv1.AttestResponse, error) {
+func (f *fakeConn) Attest(_ context.Context, nonce []byte) (*nodev1.AttestResponse, error) {
 	f.gotNonce = nonce
 	if f.err != nil {
 		return nil, f.err
 	}
 	if f.attestKey == nil && f.attestSigner == nil {
-		return &cryptosv1.AttestResponse{}, nil
+		return &nodev1.AttestResponse{}, nil
 	}
 	signed := attestationMessage(nonce)
 	if f.attestLegacy {
@@ -258,13 +258,13 @@ func (f *fakeConn) Attest(_ context.Context, nonce []byte) (*cryptosv1.AttestRes
 	if err != nil {
 		return nil, err
 	}
-	return &cryptosv1.AttestResponse{
+	return &nodev1.AttestResponse{
 		Signature:      sig,
 		IdentityPubDer: pubDER,
 	}, nil
 }
 
-func (f *fakeConn) attestWithSigner(signed, digest []byte) (*cryptosv1.AttestResponse, error) {
+func (f *fakeConn) attestWithSigner(signed, digest []byte) (*nodev1.AttestResponse, error) {
 	var (
 		sig []byte
 		err error
@@ -282,21 +282,21 @@ func (f *fakeConn) attestWithSigner(signed, digest []byte) (*cryptosv1.AttestRes
 	if err != nil {
 		return nil, err
 	}
-	return &cryptosv1.AttestResponse{
+	return &nodev1.AttestResponse{
 		Signature:      sig,
 		IdentityPubDer: pubDER,
 	}, nil
 }
 
-func (f *fakeConn) GetSubordinateCSR(context.Context) (*cryptosv1.GetSubordinateCSRResponse, error) {
+func (f *fakeConn) GetSubordinateCSR(context.Context) (*nodev1.GetSubordinateCSRResponse, error) {
 	f.record("GetSubordinateCSR")
 	if f.err != nil {
 		return nil, f.err
 	}
-	return &cryptosv1.GetSubordinateCSRResponse{}, nil
+	return &nodev1.GetSubordinateCSRResponse{}, nil
 }
 
-func (f *fakeConn) SignSubordinateCSR(_ context.Context, _ []byte, profile string) (*cryptosv1.SignSubordinateCSRResponse, error) {
+func (f *fakeConn) SignSubordinateCSR(_ context.Context, _ []byte, profile string) (*nodev1.SignSubordinateCSRResponse, error) {
 	f.record("SignSubordinateCSR")
 	f.gotCSRProfile = profile
 	if f.err != nil {
@@ -305,18 +305,18 @@ func (f *fakeConn) SignSubordinateCSR(_ context.Context, _ []byte, profile strin
 	if f.signSubordinateResp != nil {
 		return f.signSubordinateResp, nil
 	}
-	return &cryptosv1.SignSubordinateCSRResponse{}, nil
+	return &nodev1.SignSubordinateCSRResponse{}, nil
 }
 
-func (f *fakeConn) SubmitSubordinateCertificate(context.Context, [][]byte, string) (*cryptosv1.SubmitSubordinateCertificateResponse, error) {
+func (f *fakeConn) SubmitSubordinateCertificate(context.Context, [][]byte, string) (*nodev1.SubmitSubordinateCertificateResponse, error) {
 	f.record("SubmitSubordinateCertificate")
 	if f.err != nil {
 		return nil, f.err
 	}
-	return &cryptosv1.SubmitSubordinateCertificateResponse{}, nil
+	return &nodev1.SubmitSubordinateCertificateResponse{}, nil
 }
 
-func (f *fakeConn) ApplyConfig(_ context.Context, cfg *cryptosv1.MachineConfig) (*cryptosv1.ApplyConfigResponse, error) {
+func (f *fakeConn) ApplyConfig(_ context.Context, cfg *nodev1.MachineConfig) (*nodev1.ApplyConfigResponse, error) {
 	f.gotApplyConfig = cfg
 	if f.err != nil {
 		return nil, f.err
@@ -327,28 +327,28 @@ func (f *fakeConn) ApplyConfig(_ context.Context, cfg *cryptosv1.MachineConfig) 
 	if f.applyConfigResp != nil {
 		return f.applyConfigResp, nil
 	}
-	return &cryptosv1.ApplyConfigResponse{}, nil
+	return &nodev1.ApplyConfigResponse{}, nil
 }
 
-func (f *fakeConn) GetConfig(context.Context) (*cryptosv1.GetConfigResponse, error) {
+func (f *fakeConn) GetConfig(context.Context) (*nodev1.GetConfigResponse, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
 	if f.getConfigResp != nil {
 		return f.getConfigResp, nil
 	}
-	return &cryptosv1.GetConfigResponse{}, nil
+	return &nodev1.GetConfigResponse{}, nil
 }
 
-func (f *fakeConn) SetManagement(_ context.Context, m *cryptosv1.Management) (*cryptosv1.SetManagementResponse, error) {
+func (f *fakeConn) SetManagement(_ context.Context, m *nodev1.Management) (*nodev1.SetManagementResponse, error) {
 	f.gotManagement = m
 	if f.err != nil {
 		return nil, f.err
 	}
-	return &cryptosv1.SetManagementResponse{}, nil
+	return &nodev1.SetManagementResponse{}, nil
 }
 
-func (f *fakeConn) RevokeCertificate(_ context.Context, serialHex string, reasonCode int32) (*cryptosv1.RevokeCertificateResponse, error) {
+func (f *fakeConn) RevokeCertificate(_ context.Context, serialHex string, reasonCode int32) (*nodev1.RevokeCertificateResponse, error) {
 	f.gotRevokeSerial = serialHex
 	f.gotRevokeReason = reasonCode
 	if f.err != nil {
@@ -357,10 +357,10 @@ func (f *fakeConn) RevokeCertificate(_ context.Context, serialHex string, reason
 	if f.revokeResp != nil {
 		return f.revokeResp, nil
 	}
-	return &cryptosv1.RevokeCertificateResponse{}, nil
+	return &nodev1.RevokeCertificateResponse{}, nil
 }
 
-func (f *fakeConn) IssueLeaf(_ context.Context, csrDER []byte, profileName string) (*cryptosv1.IssueLeafResponse, error) {
+func (f *fakeConn) IssueLeaf(_ context.Context, csrDER []byte, profileName string) (*nodev1.IssueLeafResponse, error) {
 	f.gotIssueCSR = csrDER
 	f.gotIssueProfile = profileName
 	if f.err != nil {
@@ -369,10 +369,10 @@ func (f *fakeConn) IssueLeaf(_ context.Context, csrDER []byte, profileName strin
 	if f.issueResp != nil {
 		return f.issueResp, nil
 	}
-	return &cryptosv1.IssueLeafResponse{}, nil
+	return &nodev1.IssueLeafResponse{}, nil
 }
 
-func (f *fakeConn) ExportCAKey(_ context.Context, passphrase []byte) (*cryptosv1.ExportCAKeyResponse, error) {
+func (f *fakeConn) ExportCAKey(_ context.Context, passphrase []byte) (*nodev1.ExportCAKeyResponse, error) {
 	f.gotExportPassphrase = passphrase
 	if f.err != nil {
 		return nil, f.err
@@ -380,10 +380,10 @@ func (f *fakeConn) ExportCAKey(_ context.Context, passphrase []byte) (*cryptosv1
 	if f.exportResp != nil {
 		return f.exportResp, nil
 	}
-	return &cryptosv1.ExportCAKeyResponse{}, nil
+	return &nodev1.ExportCAKeyResponse{}, nil
 }
 
-func (f *fakeConn) ImportCAKey(_ context.Context, envelope, passphrase []byte) (*cryptosv1.ImportCAKeyResponse, error) {
+func (f *fakeConn) ImportCAKey(_ context.Context, envelope, passphrase []byte) (*nodev1.ImportCAKeyResponse, error) {
 	f.gotImportEnvelope = envelope
 	f.gotImportPassphrase = passphrase
 	if f.err != nil {
@@ -392,10 +392,10 @@ func (f *fakeConn) ImportCAKey(_ context.Context, envelope, passphrase []byte) (
 	if f.importResp != nil {
 		return f.importResp, nil
 	}
-	return &cryptosv1.ImportCAKeyResponse{}, nil
+	return &nodev1.ImportCAKeyResponse{}, nil
 }
 
-func (f *fakeConn) RemoteReset(_ context.Context, confirmCN string) (*cryptosv1.RemoteResetResponse, error) {
+func (f *fakeConn) RemoteReset(_ context.Context, confirmCN string) (*nodev1.RemoteResetResponse, error) {
 	f.record("RemoteReset")
 	f.gotRemoteResetCN = confirmCN
 	if f.remoteResetErr != nil {
@@ -404,10 +404,10 @@ func (f *fakeConn) RemoteReset(_ context.Context, confirmCN string) (*cryptosv1.
 	if f.remoteResetResp != nil {
 		return f.remoteResetResp, nil
 	}
-	return &cryptosv1.RemoteResetResponse{Rebooting: true}, nil
+	return &nodev1.RemoteResetResponse{Rebooting: true}, nil
 }
 
-func (f *fakeConn) StartCeremony(_ context.Context, _ cryptosv1.CeremonyKind, machineConfigYAML []byte) (nodeclient.CeremonyStream, error) {
+func (f *fakeConn) StartCeremony(_ context.Context, _ nodev1.CeremonyKind, machineConfigYAML []byte) (nodeclient.CeremonyStream, error) {
 	f.record("StartCeremony")
 	f.gotCeremonyYAML = machineConfigYAML
 	if f.ceremonyErr != nil {
@@ -458,10 +458,10 @@ func dialFor(conns map[string]*fakeConn) func(store.Node) (NodeConn, error) {
 
 func TestListNodes_PerNodeDegradation(t *testing.T) {
 	connA := &fakeConn{
-		status: &cryptosv1.GetStatusResponse{
-			Status: &cryptosv1.NodeStatus{
-				Role:          cryptosv1.NodeRole_NODE_ROLE_ROOT,
-				IdentityState: cryptosv1.IdentityState_IDENTITY_STATE_ESTABLISHED,
+		status: &nodev1.GetStatusResponse{
+			Status: &nodev1.NodeStatus{
+				Role:          nodev1.NodeRole_NODE_ROLE_ROOT,
+				IdentityState: nodev1.IdentityState_IDENTITY_STATE_ESTABLISHED,
 			},
 		},
 	}
@@ -519,16 +519,16 @@ func TestListNodes_PerNodeDegradation(t *testing.T) {
 
 func TestGetNode_ReturnsDetailWithIdentity(t *testing.T) {
 	connA := &fakeConn{
-		status: &cryptosv1.GetStatusResponse{
-			Status: &cryptosv1.NodeStatus{
-				Role:          cryptosv1.NodeRole_NODE_ROLE_ROOT,
-				IdentityState: cryptosv1.IdentityState_IDENTITY_STATE_ESTABLISHED,
-				TpmState:      cryptosv1.TpmState_TPM_STATE_OK,
+		status: &nodev1.GetStatusResponse{
+			Status: &nodev1.NodeStatus{
+				Role:          nodev1.NodeRole_NODE_ROLE_ROOT,
+				IdentityState: nodev1.IdentityState_IDENTITY_STATE_ESTABLISHED,
+				TpmState:      nodev1.TpmState_TPM_STATE_OK,
 				BootCount:     3,
 			},
 		},
-		identity: &cryptosv1.GetIdentityResponse{
-			Identity: &cryptosv1.Identity{
+		identity: &nodev1.GetIdentityResponse{
+			Identity: &nodev1.Identity{
 				ChainPem:   "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n",
 				ChainDer:   [][]byte{[]byte("fake-der")},
 				LeafSha256: []byte{0xde, 0xad, 0xbe, 0xef},
@@ -598,14 +598,14 @@ func TestLeafCNs(t *testing.T) {
 	interDER, _, _ := signCert(t, "ACME Intermediate CA", rootCert, rootKey)
 
 	t.Run("self-signed root has issuer == cn", func(t *testing.T) {
-		cn, issuer := leafCNs(&cryptosv1.Identity{ChainDer: [][]byte{rootDER}})
+		cn, issuer := leafCNs(&nodev1.Identity{ChainDer: [][]byte{rootDER}})
 		if cn != "ACME Root CA" || issuer != "ACME Root CA" {
 			t.Errorf("leafCNs(root) = (%q, %q), want (ACME Root CA, ACME Root CA)", cn, issuer)
 		}
 	})
 
 	t.Run("subordinate issuer names the parent CA", func(t *testing.T) {
-		cn, issuer := leafCNs(&cryptosv1.Identity{ChainDer: [][]byte{interDER, rootDER}})
+		cn, issuer := leafCNs(&nodev1.Identity{ChainDer: [][]byte{interDER, rootDER}})
 		if cn != "ACME Intermediate CA" || issuer != "ACME Root CA" {
 			t.Errorf("leafCNs(intermediate) = (%q, %q), want (ACME Intermediate CA, ACME Root CA)", cn, issuer)
 		}
@@ -618,13 +618,13 @@ func TestLeafCNs(t *testing.T) {
 	})
 
 	t.Run("empty chain yields empty", func(t *testing.T) {
-		if cn, issuer := leafCNs(&cryptosv1.Identity{}); cn != "" || issuer != "" {
+		if cn, issuer := leafCNs(&nodev1.Identity{}); cn != "" || issuer != "" {
 			t.Errorf("leafCNs(empty) = (%q, %q), want empty", cn, issuer)
 		}
 	})
 
 	t.Run("unparseable leaf yields empty", func(t *testing.T) {
-		if cn, issuer := leafCNs(&cryptosv1.Identity{ChainDer: [][]byte{[]byte("not-a-cert")}}); cn != "" || issuer != "" {
+		if cn, issuer := leafCNs(&nodev1.Identity{ChainDer: [][]byte{[]byte("not-a-cert")}}); cn != "" || issuer != "" {
 			t.Errorf("leafCNs(garbage) = (%q, %q), want empty", cn, issuer)
 		}
 	})

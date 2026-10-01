@@ -27,28 +27,28 @@ import (
 	"time"
 
 	connect "connectrpc.com/connect"
-	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
-	cryptosv1 "github.com/CryptOS-PKI/api/go/cryptos/v1"
-	"github.com/CryptOS-PKI/manager/internal/authz"
-	"github.com/CryptOS-PKI/manager/internal/store/memory"
+	fleetv1 "github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/authz"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store/memory"
+	nodev1 "github.com/CryptOS-PKI/cryptos-node/gen/go/cryptos/node/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"gopkg.in/yaml.v3"
 )
 
 // scriptedCeremony replays a fixed sequence of ceremony event kinds, then EOF.
 type scriptedCeremony struct {
-	kinds []cryptosv1.CeremonyEventKind
+	kinds []nodev1.CeremonyEventKind
 	i     int
 }
 
-func (s *scriptedCeremony) Recv() (*cryptosv1.StartCeremonyResponse, error) {
+func (s *scriptedCeremony) Recv() (*nodev1.StartCeremonyResponse, error) {
 	if s.i >= len(s.kinds) {
 		return nil, io.EOF
 	}
 	k := s.kinds[s.i]
 	s.i++
-	return &cryptosv1.StartCeremonyResponse{
-		Event: &cryptosv1.CeremonyEvent{Kind: k, Ts: timestamppb.Now()},
+	return &nodev1.StartCeremonyResponse{
+		Event: &nodev1.CeremonyEvent{Kind: k, Ts: timestamppb.Now()},
 	}, nil
 }
 
@@ -66,10 +66,10 @@ func (c *collectSink) send(phase, _ string, done bool) error {
 	return nil
 }
 
-func adoptConfig() *cryptosv1.MachineConfig {
-	return &cryptosv1.MachineConfig{
-		Metadata: &cryptosv1.Metadata{Name: "new-node"},
-		Role:     &cryptosv1.Role{Kind: "root"},
+func adoptConfig() *nodev1.MachineConfig {
+	return &nodev1.MachineConfig{
+		Metadata: &nodev1.Metadata{Name: "new-node"},
+		Role:     &nodev1.Role{Kind: "root"},
 	}
 }
 
@@ -98,7 +98,7 @@ func TestPreviewAdoption_OperatorDenied(t *testing.T) {
 }
 
 func TestListInstallDisks_ReturnsNodeDisks(t *testing.T) {
-	conn := &fakeConn{disks: &cryptosv1.ListInstallDisksResponse{Disks: []*cryptosv1.InstallDisk{
+	conn := &fakeConn{disks: &nodev1.ListInstallDisksResponse{Disks: []*nodev1.InstallDisk{
 		{Path: "/dev/nvme0n1", SizeBytes: 1 << 30, Model: "Test SSD"},
 	}}}
 	svc := New(memory.New(nil), dialFor(nil)).WithAdoption(nil,
@@ -129,16 +129,16 @@ func TestRunAdoption_HappyPath_StreamsPhasesRegistersAndAudits(t *testing.T) {
 	adoptCredsBaseDir = t.TempDir()
 	st := memory.New(nil)
 	// The maintenance dial applies the config (install).
-	mconn := &fakeConn{applyConfigResp: &cryptosv1.ApplyConfigResponse{RequiresReboot: true, Generation: 1}}
+	mconn := &fakeConn{applyConfigResp: &nodev1.ApplyConfigResponse{RequiresReboot: true, Generation: 1}}
 	// After install + self-reboot the node is dialed in running mode (by name,
 	// via s.dial) for the ceremony.
 	running := &fakeConn{
 		identity: rootIdentity(t),
-		status:   &cryptosv1.GetStatusResponse{},
-		ceremonyStream: &scriptedCeremony{kinds: []cryptosv1.CeremonyEventKind{
-			cryptosv1.CeremonyEventKind_CEREMONY_EVENT_KIND_KEY_CREATED,
-			cryptosv1.CeremonyEventKind_CEREMONY_EVENT_KIND_CERT_SIGNED,
-			cryptosv1.CeremonyEventKind_CEREMONY_EVENT_KIND_COMPLETE,
+		status:   &nodev1.GetStatusResponse{},
+		ceremonyStream: &scriptedCeremony{kinds: []nodev1.CeremonyEventKind{
+			nodev1.CeremonyEventKind_CEREMONY_EVENT_KIND_KEY_CREATED,
+			nodev1.CeremonyEventKind_CEREMONY_EVENT_KIND_CERT_SIGNED,
+			nodev1.CeremonyEventKind_CEREMONY_EVENT_KIND_COMPLETE,
 		}},
 	}
 	svc := New(st, dialFor(map[string]*fakeConn{"new-node": running})).WithAdoption(nil,
@@ -181,20 +181,20 @@ func TestRunAdoption_HappyPath_StreamsPhasesRegistersAndAudits(t *testing.T) {
 func TestRunAdoption_Subordinate_AwaitsCertificate_NoCeremony(t *testing.T) {
 	adoptCredsBaseDir = t.TempDir()
 	st := memory.New(nil)
-	mconn := &fakeConn{applyConfigResp: &cryptosv1.ApplyConfigResponse{RequiresReboot: true, Generation: 1}}
+	mconn := &fakeConn{applyConfigResp: &nodev1.ApplyConfigResponse{RequiresReboot: true, Generation: 1}}
 	// A subordinate node comes back running but has NO ceremony: it staged its
 	// own subordinate CSR on boot and awaits a parent-signed chain. The ceremony
 	// stream is intentionally absent — running it would be a bug.
-	running := &fakeConn{status: &cryptosv1.GetStatusResponse{}}
+	running := &fakeConn{status: &nodev1.GetStatusResponse{}}
 	svc := New(st, dialFor(map[string]*fakeConn{"sub-node": running})).WithAdoption(nil,
 		func(endpoint, pin, clientCertPEM, clientKeyPEM string) (NodeConn, error) { return mconn, nil })
 
 	restore := setRebootTiming(5*time.Millisecond, 1*time.Millisecond, 1*time.Millisecond)
 	defer restore()
 
-	cfg := &cryptosv1.MachineConfig{
-		Metadata: &cryptosv1.Metadata{Name: "sub-node"},
-		Role:     &cryptosv1.Role{Kind: "intermediate"},
+	cfg := &nodev1.MachineConfig{
+		Metadata: &nodev1.Metadata{Name: "sub-node"},
+		Role:     &nodev1.Role{Kind: "intermediate"},
 	}
 	sink := &collectSink{}
 	err := svc.runAdoption(context.Background(), &fleetv1.AdoptNodeRequest{
@@ -230,7 +230,7 @@ func TestRunAdoption_RebootNeverReturns_StreamsErrorPhase_NoHang(t *testing.T) {
 	// bounded reboot wait must expire and stream an error phase rather than
 	// blocking forever.
 	mdial := func(endpoint, pin, clientCertPEM, clientKeyPEM string) (NodeConn, error) {
-		return &fakeConn{applyConfigResp: &cryptosv1.ApplyConfigResponse{RequiresReboot: true}}, nil
+		return &fakeConn{applyConfigResp: &nodev1.ApplyConfigResponse{RequiresReboot: true}}, nil
 	}
 	down := &fakeConn{err: errors.New("node down")}
 	svc := New(st, dialFor(map[string]*fakeConn{"new-node": down})).WithAdoption(nil, mdial)
@@ -329,18 +329,18 @@ type nodeConfigMirror struct {
 }
 
 func TestMarshalConfigYAML_MatchesNodeStrictSchema(t *testing.T) {
-	cfg := &cryptosv1.MachineConfig{
+	cfg := &nodev1.MachineConfig{
 		ApiVersion: "cryptos.dev/v1alpha1",
 		Kind:       "MachineConfig",
-		Metadata:   &cryptosv1.Metadata{Name: "cryptos-lab-a"},
-		Role:       &cryptosv1.Role{Kind: "root"},
-		Network:    &cryptosv1.Network{Interface: "eth0", Address: "203.0.113.40/24", Gateway: "203.0.113.1"},
-		Bootstrap:  &cryptosv1.Bootstrap{AdminCertPem: "-----BEGIN CERTIFICATE-----\nMII...\n-----END CERTIFICATE-----\n"},
-		Install:    &cryptosv1.Install{Disk: "/dev/nvme0n1"},
-		StateKey:   &cryptosv1.StateKey{Mode: "nodeid"},
-		Pki: &cryptosv1.Pki{
+		Metadata:   &nodev1.Metadata{Name: "cryptos-lab-a"},
+		Role:       &nodev1.Role{Kind: "root"},
+		Network:    &nodev1.Network{Interface: "eth0", Address: "203.0.113.40/24", Gateway: "203.0.113.1"},
+		Bootstrap:  &nodev1.Bootstrap{AdminCertPem: "-----BEGIN CERTIFICATE-----\nMII...\n-----END CERTIFICATE-----\n"},
+		Install:    &nodev1.Install{Disk: "/dev/nvme0n1"},
+		StateKey:   &nodev1.StateKey{Mode: "nodeid"},
+		Pki: &nodev1.Pki{
 			RootKeyAlg:        "ECDSA-P384",
-			RootSubject:       &cryptosv1.Subject{CommonName: "CryptOS Lab Root CA"},
+			RootSubject:       &nodev1.Subject{CommonName: "CryptOS Lab Root CA"},
 			RootValidityYears: 10,
 		},
 	}
@@ -387,8 +387,8 @@ func setRebootTiming(wait, poll, grace time.Duration) func() {
 
 // runningStatus is a GetStatus reply from a node that booted its installed
 // system, which reports an identity state; a maintenance node leaves it unset.
-func runningStatus(state cryptosv1.IdentityState) *cryptosv1.GetStatusResponse {
-	return &cryptosv1.GetStatusResponse{Status: &cryptosv1.NodeStatus{IdentityState: state}}
+func runningStatus(state nodev1.IdentityState) *nodev1.GetStatusResponse {
+	return &nodev1.GetStatusResponse{Status: &nodev1.NodeStatus{IdentityState: state}}
 }
 
 // recordingMaintenanceDial returns a pinned-dial seam that hands out conn and
@@ -410,7 +410,7 @@ func TestRunAdoption_ReAdoptAfterPartialApply_ReusesAdminAndResumes(t *testing.T
 	// answers in running mode, so the adoption fails after ApplyConfig. The
 	// node now has a staged config pinning the admin minted for this attempt.
 	var presented []string
-	maint := &fakeConn{applyConfigResp: &cryptosv1.ApplyConfigResponse{RequiresReboot: true}}
+	maint := &fakeConn{applyConfigResp: &nodev1.ApplyConfigResponse{RequiresReboot: true}}
 	down := &fakeConn{err: errors.New("node down")}
 	first := New(st, dialFor(map[string]*fakeConn{"new-node": down})).WithAdoption(nil, recordingMaintenanceDial(maint, &presented))
 	if err := first.runAdoption(context.Background(), &fleetv1.AdoptNodeRequest{
@@ -424,12 +424,12 @@ func TestRunAdoption_ReAdoptAfterPartialApply_ReusesAdminAndResumes(t *testing.T
 
 	// Second attempt: the node is up in running mode, awaiting its ceremony,
 	// and only trusts the first attempt's admin.
-	installed := &fakeConn{status: runningStatus(cryptosv1.IdentityState_IDENTITY_STATE_NONE)}
+	installed := &fakeConn{status: runningStatus(nodev1.IdentityState_IDENTITY_STATE_NONE)}
 	running := &fakeConn{
 		identity: rootIdentity(t),
-		status:   &cryptosv1.GetStatusResponse{},
-		ceremonyStream: &scriptedCeremony{kinds: []cryptosv1.CeremonyEventKind{
-			cryptosv1.CeremonyEventKind_CEREMONY_EVENT_KIND_COMPLETE,
+		status:   &nodev1.GetStatusResponse{},
+		ceremonyStream: &scriptedCeremony{kinds: []nodev1.CeremonyEventKind{
+			nodev1.CeremonyEventKind_CEREMONY_EVENT_KIND_COMPLETE,
 		}},
 	}
 	second := New(st, dialFor(map[string]*fakeConn{"new-node": running})).WithAdoption(nil, recordingMaintenanceDial(installed, &presented))
@@ -481,9 +481,9 @@ func TestRunAdoption_ReAdoptEstablishedRoot_RegistersWithoutCeremony(t *testing.
 		t.Fatal(err)
 	}
 	var presented []string
-	installed := &fakeConn{status: runningStatus(cryptosv1.IdentityState_IDENTITY_STATE_ESTABLISHED)}
+	installed := &fakeConn{status: runningStatus(nodev1.IdentityState_IDENTITY_STATE_ESTABLISHED)}
 	running := &fakeConn{
-		identity: rootIdentity(t), status: &cryptosv1.GetStatusResponse{}}
+		identity: rootIdentity(t), status: &nodev1.GetStatusResponse{}}
 	svc := New(st, dialFor(map[string]*fakeConn{"new-node": running})).WithAdoption(nil, recordingMaintenanceDial(installed, &presented))
 
 	sink := &collectSink{}
@@ -520,13 +520,13 @@ func TestRunAdoption_ReAdoptSubordinate_AwaitsCertificate(t *testing.T) {
 		t.Fatal(err)
 	}
 	var presented []string
-	installed := &fakeConn{status: runningStatus(cryptosv1.IdentityState_IDENTITY_STATE_AWAITING_CERT)}
-	running := &fakeConn{status: &cryptosv1.GetStatusResponse{}}
+	installed := &fakeConn{status: runningStatus(nodev1.IdentityState_IDENTITY_STATE_AWAITING_CERT)}
+	running := &fakeConn{status: &nodev1.GetStatusResponse{}}
 	svc := New(st, dialFor(map[string]*fakeConn{"sub-node": running})).WithAdoption(nil, recordingMaintenanceDial(installed, &presented))
 
-	cfg := &cryptosv1.MachineConfig{
-		Metadata: &cryptosv1.Metadata{Name: "sub-node"},
-		Role:     &cryptosv1.Role{Kind: "issuing"},
+	cfg := &nodev1.MachineConfig{
+		Metadata: &nodev1.Metadata{Name: "sub-node"},
+		Role:     &nodev1.Role{Kind: "issuing"},
 	}
 	sink := &collectSink{}
 	if err := svc.runAdoption(context.Background(), &fleetv1.AdoptNodeRequest{
@@ -560,8 +560,8 @@ func TestRunAdoption_ReAdoptAdoptedNode_KeepsItsAdminCreds(t *testing.T) {
 		t.Fatal(err)
 	}
 	var presented []string
-	installed := &fakeConn{status: runningStatus(cryptosv1.IdentityState_IDENTITY_STATE_ESTABLISHED)}
-	running := &fakeConn{status: &cryptosv1.GetStatusResponse{}}
+	installed := &fakeConn{status: runningStatus(nodev1.IdentityState_IDENTITY_STATE_ESTABLISHED)}
+	running := &fakeConn{status: &nodev1.GetStatusResponse{}}
 	svc := New(st, dialFor(map[string]*fakeConn{"new-node": running})).WithAdoption(nil, recordingMaintenanceDial(installed, &presented))
 	_ = svc.runAdoption(context.Background(), &fleetv1.AdoptNodeRequest{
 		Endpoint: "node:4443", PinnedCertSha256: "abc", Config: adoptConfig(),

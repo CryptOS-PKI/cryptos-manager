@@ -10,14 +10,14 @@ it with your own.
 
 ## 0. Before you start: there may be no image to pull
 
-The README's `docker run ghcr.io/cryptos-pki/manager:vX.Y.Z` and
+The README's `docker run ghcr.io/cryptos-pki/cryptos-manager:vX.Y.Z` and
 `helm install ... oci://ghcr.io/cryptos-pki/charts/fleet-manager` both require a
 **published release**. Releases are cut by hand (see *Releasing*), and the image
 and chart are built by the tag. Until the first tag exists, neither path
 resolves and you must build from source:
 
 ```sh
-git clone --depth 1 https://github.com/CryptOS-PKI/manager.git
+git clone --depth 1 https://github.com/CryptOS-PKI/cryptos-manager.git
 cd manager
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
   go build -trimpath -ldflags="-s -w" -o cryptos-fleet-manager ./cmd/manager
@@ -398,7 +398,7 @@ docker run -p 443:8443 -p 80:8080 \
   --read-only --cap-drop ALL --security-opt no-new-privileges:true \
   -v /etc/cryptos/fleet:/etc/cryptos/fleet:ro \
   -v fleet-node-creds:/var/lib/cryptos-manager/node-creds \
-  ghcr.io/cryptos-pki/manager:vX.Y.Z
+  ghcr.io/cryptos-pki/cryptos-manager:vX.Y.Z
 ```
 
 The `node-creds` volume holds the admin key minted for each adopted node and is the only

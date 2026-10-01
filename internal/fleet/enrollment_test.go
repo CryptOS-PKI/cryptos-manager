@@ -25,12 +25,12 @@ import (
 	"testing"
 
 	connect "connectrpc.com/connect"
-	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
-	cryptosv1 "github.com/CryptOS-PKI/api/go/cryptos/v1"
-	"github.com/CryptOS-PKI/manager/internal/authz"
-	"github.com/CryptOS-PKI/manager/internal/nodeclient"
-	"github.com/CryptOS-PKI/manager/internal/store"
-	"github.com/CryptOS-PKI/manager/internal/store/memory"
+	fleetv1 "github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/authz"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/nodeclient"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store/memory"
+	nodev1 "github.com/CryptOS-PKI/cryptos-node/gen/go/cryptos/node/v1"
 )
 
 // operatorCtx returns a context carrying an authenticated identity at the
@@ -345,7 +345,7 @@ func TestApproveEnrollment_Subordinate_Operator(t *testing.T) {
 	childConn := &fakeConn{calls: &calls}
 	parentConn := &fakeConn{
 		calls: &calls,
-		signSubordinateResp: &cryptosv1.SignSubordinateCSRResponse{
+		signSubordinateResp: &nodev1.SignSubordinateCSRResponse{
 			ChainDer: [][]byte{[]byte("child-der"), []byte("parent-der")},
 			ChainPem: "-----BEGIN CERTIFICATE-----\nchain\n-----END CERTIFICATE-----\n",
 		},
@@ -363,13 +363,13 @@ func TestApproveEnrollment_Subordinate_Operator(t *testing.T) {
 	)
 
 	parentIdentityConn := &fakeConn{
-		identity: &cryptosv1.GetIdentityResponse{
-			Identity: &cryptosv1.Identity{ChainDer: [][]byte{issuedLeafDER(t, "ACME Intermediate CA", "ACME Root CA")}},
+		identity: &nodev1.GetIdentityResponse{
+			Identity: &nodev1.Identity{ChainDer: [][]byte{issuedLeafDER(t, "ACME Intermediate CA", "ACME Root CA")}},
 		},
 	}
 	childIdentityConn := &fakeConn{
-		identity: &cryptosv1.GetIdentityResponse{
-			Identity: &cryptosv1.Identity{ChainDer: [][]byte{issuedLeafDER(t, "child-1", "ACME Intermediate CA")}},
+		identity: &nodev1.GetIdentityResponse{
+			Identity: &nodev1.Identity{ChainDer: [][]byte{issuedLeafDER(t, "child-1", "ACME Intermediate CA")}},
 		},
 	}
 
@@ -562,87 +562,87 @@ type routingConn struct {
 	ferry    NodeConn
 }
 
-func (r *routingConn) GetStatus(ctx context.Context) (*cryptosv1.GetStatusResponse, error) {
+func (r *routingConn) GetStatus(ctx context.Context) (*nodev1.GetStatusResponse, error) {
 	return r.ferry.GetStatus(ctx)
 }
 
-func (r *routingConn) ListInstallDisks(ctx context.Context) (*cryptosv1.ListInstallDisksResponse, error) {
+func (r *routingConn) ListInstallDisks(ctx context.Context) (*nodev1.ListInstallDisksResponse, error) {
 	return r.ferry.ListInstallDisks(ctx)
 }
 
-func (r *routingConn) GetIdentity(ctx context.Context) (*cryptosv1.GetIdentityResponse, error) {
+func (r *routingConn) GetIdentity(ctx context.Context) (*nodev1.GetIdentityResponse, error) {
 	return r.identity.GetIdentity(ctx)
 }
 
-func (r *routingConn) ListIssued(ctx context.Context) (*cryptosv1.ListIssuedResponse, error) {
+func (r *routingConn) ListIssued(ctx context.Context) (*nodev1.ListIssuedResponse, error) {
 	return r.ferry.ListIssued(ctx)
 }
 
-func (r *routingConn) GetIssuedCertificate(ctx context.Context, serialHex string) (*cryptosv1.GetIssuedCertificateResponse, error) {
+func (r *routingConn) GetIssuedCertificate(ctx context.Context, serialHex string) (*nodev1.GetIssuedCertificateResponse, error) {
 	return r.ferry.GetIssuedCertificate(ctx, serialHex)
 }
 
-func (r *routingConn) ListRevocations(ctx context.Context) (*cryptosv1.ListRevocationsResponse, error) {
+func (r *routingConn) ListRevocations(ctx context.Context) (*nodev1.ListRevocationsResponse, error) {
 	return r.ferry.ListRevocations(ctx)
 }
 
-func (r *routingConn) Attest(ctx context.Context, nonce []byte) (*cryptosv1.AttestResponse, error) {
+func (r *routingConn) Attest(ctx context.Context, nonce []byte) (*nodev1.AttestResponse, error) {
 	return r.ferry.Attest(ctx, nonce)
 }
 
-func (r *routingConn) GetSubordinateCSR(ctx context.Context) (*cryptosv1.GetSubordinateCSRResponse, error) {
+func (r *routingConn) GetSubordinateCSR(ctx context.Context) (*nodev1.GetSubordinateCSRResponse, error) {
 	return r.ferry.GetSubordinateCSR(ctx)
 }
 
-func (r *routingConn) SignSubordinateCSR(ctx context.Context, csrDER []byte, profile string) (*cryptosv1.SignSubordinateCSRResponse, error) {
+func (r *routingConn) SignSubordinateCSR(ctx context.Context, csrDER []byte, profile string) (*nodev1.SignSubordinateCSRResponse, error) {
 	return r.ferry.SignSubordinateCSR(ctx, csrDER, profile)
 }
 
-func (r *routingConn) SubmitSubordinateCertificate(ctx context.Context, chainDER [][]byte, chainPEM string) (*cryptosv1.SubmitSubordinateCertificateResponse, error) {
+func (r *routingConn) SubmitSubordinateCertificate(ctx context.Context, chainDER [][]byte, chainPEM string) (*nodev1.SubmitSubordinateCertificateResponse, error) {
 	return r.ferry.SubmitSubordinateCertificate(ctx, chainDER, chainPEM)
 }
 
-func (r *routingConn) ApplyConfig(ctx context.Context, cfg *cryptosv1.MachineConfig) (*cryptosv1.ApplyConfigResponse, error) {
+func (r *routingConn) ApplyConfig(ctx context.Context, cfg *nodev1.MachineConfig) (*nodev1.ApplyConfigResponse, error) {
 	return r.ferry.ApplyConfig(ctx, cfg)
 }
 
-func (r *routingConn) GetConfig(ctx context.Context) (*cryptosv1.GetConfigResponse, error) {
+func (r *routingConn) GetConfig(ctx context.Context) (*nodev1.GetConfigResponse, error) {
 	return r.ferry.GetConfig(ctx)
 }
 
-func (r *routingConn) SetManagement(ctx context.Context, m *cryptosv1.Management) (*cryptosv1.SetManagementResponse, error) {
+func (r *routingConn) SetManagement(ctx context.Context, m *nodev1.Management) (*nodev1.SetManagementResponse, error) {
 	return r.ferry.SetManagement(ctx, m)
 }
 
-func (r *routingConn) RevokeCertificate(ctx context.Context, serialHex string, reasonCode int32) (*cryptosv1.RevokeCertificateResponse, error) {
+func (r *routingConn) RevokeCertificate(ctx context.Context, serialHex string, reasonCode int32) (*nodev1.RevokeCertificateResponse, error) {
 	return r.ferry.RevokeCertificate(ctx, serialHex, reasonCode)
 }
 
-func (r *routingConn) IssueLeaf(ctx context.Context, csrDER []byte, profileName string) (*cryptosv1.IssueLeafResponse, error) {
+func (r *routingConn) IssueLeaf(ctx context.Context, csrDER []byte, profileName string) (*nodev1.IssueLeafResponse, error) {
 	return r.ferry.IssueLeaf(ctx, csrDER, profileName)
 }
 
-func (r *routingConn) BeginKeyRotation(ctx context.Context) (*cryptosv1.BeginKeyRotationResponse, error) {
+func (r *routingConn) BeginKeyRotation(ctx context.Context) (*nodev1.BeginKeyRotationResponse, error) {
 	return r.ferry.BeginKeyRotation(ctx)
 }
 
-func (r *routingConn) CompleteKeyRotation(ctx context.Context, chainDER [][]byte, chainPEM string) (*cryptosv1.CompleteKeyRotationResponse, error) {
+func (r *routingConn) CompleteKeyRotation(ctx context.Context, chainDER [][]byte, chainPEM string) (*nodev1.CompleteKeyRotationResponse, error) {
 	return r.ferry.CompleteKeyRotation(ctx, chainDER, chainPEM)
 }
 
-func (r *routingConn) ExportCAKey(ctx context.Context, passphrase []byte) (*cryptosv1.ExportCAKeyResponse, error) {
+func (r *routingConn) ExportCAKey(ctx context.Context, passphrase []byte) (*nodev1.ExportCAKeyResponse, error) {
 	return r.ferry.ExportCAKey(ctx, passphrase)
 }
 
-func (r *routingConn) ImportCAKey(ctx context.Context, envelope, passphrase []byte) (*cryptosv1.ImportCAKeyResponse, error) {
+func (r *routingConn) ImportCAKey(ctx context.Context, envelope, passphrase []byte) (*nodev1.ImportCAKeyResponse, error) {
 	return r.ferry.ImportCAKey(ctx, envelope, passphrase)
 }
 
-func (r *routingConn) RemoteReset(ctx context.Context, confirmCN string) (*cryptosv1.RemoteResetResponse, error) {
+func (r *routingConn) RemoteReset(ctx context.Context, confirmCN string) (*nodev1.RemoteResetResponse, error) {
 	return r.identity.RemoteReset(ctx, confirmCN)
 }
 
-func (r *routingConn) StartCeremony(ctx context.Context, kind cryptosv1.CeremonyKind, machineConfigYAML []byte) (nodeclient.CeremonyStream, error) {
+func (r *routingConn) StartCeremony(ctx context.Context, kind nodev1.CeremonyKind, machineConfigYAML []byte) (nodeclient.CeremonyStream, error) {
 	return r.identity.StartCeremony(ctx, kind, machineConfigYAML)
 }
 

@@ -31,3 +31,7 @@ plan/
 
 # Local runtime config (copy config.example.yaml -> config.yaml).
 /config.yaml
+
+# Pinned protoc plugins (task tools) and the node protos (task proto:deps)
+.bin/
+.deps/

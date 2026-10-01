@@ -25,7 +25,7 @@ limitations under the License.
 import (
 	"fmt"
 
-	"github.com/CryptOS-PKI/manager/internal/apperr"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/apperr"
 )
 
 func main() {

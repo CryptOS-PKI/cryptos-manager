@@ -21,11 +21,11 @@ import (
 	"testing"
 
 	connect "connectrpc.com/connect"
-	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
-	cryptosv1 "github.com/CryptOS-PKI/api/go/cryptos/v1"
-	"github.com/CryptOS-PKI/manager/internal/apperr"
-	"github.com/CryptOS-PKI/manager/internal/authz"
-	"github.com/CryptOS-PKI/manager/internal/store/memory"
+	fleetv1 "github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/apperr"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/authz"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store/memory"
+	nodev1 "github.com/CryptOS-PKI/cryptos-node/gen/go/cryptos/node/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -44,7 +44,7 @@ func requireNodeReason(t *testing.T, err error, want string) {
 func TestSetNodeProtocol_NodeRefusal_CarriesTheNodeReason(t *testing.T) {
 	st := protocolTestStore()
 	conn := &fakeConn{
-		getConfigResp:  &cryptosv1.GetConfigResponse{Config: protocolConfigFixture()},
+		getConfigResp:  &nodev1.GetConfigResponse{Config: protocolConfigFixture()},
 		applyConfigErr: status.Error(codes.InvalidArgument, "pki.est: must not be set on a root node"),
 	}
 	svc := New(st, dialFor(map[string]*fakeConn{"issuing-1": conn}))

@@ -49,7 +49,7 @@ import (
 	"fmt"
 
 	apperr "github.com/Bugs5382/go-apperr"
-	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
+	fleetv1 "github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1"
 )
 
 // Codes the web-facing surface returns. Each one is a promise: the number is

@@ -30,11 +30,11 @@ import (
 	"time"
 
 	connect "connectrpc.com/connect"
-	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
-	cryptosv1 "github.com/CryptOS-PKI/api/go/cryptos/v1"
-	"github.com/CryptOS-PKI/manager/internal/auditlog"
-	"github.com/CryptOS-PKI/manager/internal/nodeclient"
-	"github.com/CryptOS-PKI/manager/internal/store"
+	fleetv1 "github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/auditlog"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/nodeclient"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
+	nodev1 "github.com/CryptOS-PKI/cryptos-node/gen/go/cryptos/node/v1"
 	"google.golang.org/protobuf/encoding/protojson"
 )
 
@@ -197,7 +197,7 @@ func (s *Service) runAdoptionAs(ctx context.Context, id string, msg *fleetv1.Ado
 		return s.adoptFail(send, connect.CodeInternal, err)
 	}
 	if cfg.Bootstrap == nil {
-		cfg.Bootstrap = &cryptosv1.Bootstrap{}
+		cfg.Bootstrap = &nodev1.Bootstrap{}
 	}
 	cfg.Bootstrap.AdminCertPem = string(admin.certPEM)
 	log.Printf("fleet: adopt %s at %s: start (reused admin: %t)", nodeName, endpoint, reused)
@@ -221,7 +221,7 @@ func (s *Service) runAdoptionAs(ctx context.Context, id string, msg *fleetv1.Ado
 			"fleet: node status: %w (an installed node only accepts the admin credential minted by the adoption that installed it; if this manager no longer holds it, reset the node from its console and adopt again)", err))
 	}
 	identity := status.GetStatus().GetIdentityState()
-	installed := identity != cryptosv1.IdentityState_IDENTITY_STATE_UNSPECIFIED
+	installed := identity != nodev1.IdentityState_IDENTITY_STATE_UNSPECIFIED
 	log.Printf("fleet: adopt %s: node identity state %s, installed: %t", nodeName, identity, installed)
 
 	if installed {
@@ -283,7 +283,7 @@ func (s *Service) runAdoptionAs(ctx context.Context, id string, msg *fleetv1.Ado
 	// SUBORDINATE enrollment delivers as a separate admin-approved step. Only a
 	// root reaches "established" during adoption.
 	switch {
-	case isRootRole(cfg) && identity == cryptosv1.IdentityState_IDENTITY_STATE_ESTABLISHED:
+	case isRootRole(cfg) && identity == nodev1.IdentityState_IDENTITY_STATE_ESTABLISHED:
 		log.Printf("fleet: adopt %s: ceremony already completed on an earlier attempt, skipping it", nodeName)
 	case isRootRole(cfg):
 		if err := send(phaseCeremony, "starting first-boot ceremony", false); err != nil {
@@ -293,7 +293,7 @@ func (s *Service) runAdoptionAs(ctx context.Context, id string, msg *fleetv1.Ado
 		if err != nil {
 			return s.adoptFail(send, connect.CodeInternal, fmt.Errorf("fleet: marshal config: %w", err))
 		}
-		cstream, err := conn.StartCeremony(ctx, cryptosv1.CeremonyKind_CEREMONY_KIND_FIRST_BOOT_ROOT, yaml)
+		cstream, err := conn.StartCeremony(ctx, nodev1.CeremonyKind_CEREMONY_KIND_FIRST_BOOT_ROOT, yaml)
 		if err != nil {
 			return s.adoptFail(send, connect.CodeInternal, fmt.Errorf("fleet: start ceremony: %w", err))
 		}
@@ -430,7 +430,7 @@ func (s *Service) adoptFailErr(send phaseSink, err error) error {
 // relayCeremony forwards every ceremony event as a ceremony phase and reports
 // whether the stream reached COMPLETE. io.EOF ends the stream cleanly.
 func relayCeremony(stream interface {
-	Recv() (*cryptosv1.StartCeremonyResponse, error)
+	Recv() (*nodev1.StartCeremonyResponse, error)
 }, send phaseSink) (complete bool, err error) {
 	for {
 		msg, rerr := stream.Recv()
@@ -441,7 +441,7 @@ func relayCeremony(stream interface {
 			return complete, fmt.Errorf("fleet: ceremony stream: %w", rerr)
 		}
 		ev := msg.GetEvent()
-		if ev.GetKind() == cryptosv1.CeremonyEventKind_CEREMONY_EVENT_KIND_COMPLETE {
+		if ev.GetKind() == nodev1.CeremonyEventKind_CEREMONY_EVENT_KIND_COMPLETE {
 			complete = true
 		}
 		if serr := send(phaseCeremony, ceremonyEventDetail(ev.GetKind()), false); serr != nil {
@@ -452,17 +452,17 @@ func relayCeremony(stream interface {
 
 // ceremonyEventDetail renders a ceremony event kind as an operator-facing
 // detail string.
-func ceremonyEventDetail(kind cryptosv1.CeremonyEventKind) string {
+func ceremonyEventDetail(kind nodev1.CeremonyEventKind) string {
 	switch kind {
-	case cryptosv1.CeremonyEventKind_CEREMONY_EVENT_KIND_KEY_CREATED:
+	case nodev1.CeremonyEventKind_CEREMONY_EVENT_KIND_KEY_CREATED:
 		return "key created"
-	case cryptosv1.CeremonyEventKind_CEREMONY_EVENT_KIND_CERT_SIGNED:
+	case nodev1.CeremonyEventKind_CEREMONY_EVENT_KIND_CERT_SIGNED:
 		return "certificate signed"
-	case cryptosv1.CeremonyEventKind_CEREMONY_EVENT_KIND_MANIFEST_WRITTEN:
+	case nodev1.CeremonyEventKind_CEREMONY_EVENT_KIND_MANIFEST_WRITTEN:
 		return "ceremony manifest written"
-	case cryptosv1.CeremonyEventKind_CEREMONY_EVENT_KIND_ADMIN_ROTATED:
+	case nodev1.CeremonyEventKind_CEREMONY_EVENT_KIND_ADMIN_ROTATED:
 		return "admin credential rotated"
-	case cryptosv1.CeremonyEventKind_CEREMONY_EVENT_KIND_COMPLETE:
+	case nodev1.CeremonyEventKind_CEREMONY_EVENT_KIND_COMPLETE:
 		return "ceremony complete"
 	default:
 		return "ceremony in progress"
@@ -475,7 +475,7 @@ func ceremonyEventDetail(kind cryptosv1.CeremonyEventKind) string {
 // endpoint, role, admin credentials and, for a root, the recorded CA chain. A
 // retried adoption finds the node already registered and keeps its ID, taking
 // a newly recorded CA chain.
-func (s *Service) registerAdoptedNode(cfg *cryptosv1.MachineConfig, endpoint, adminCertPath, adminKeyPath, caCertPath string) store.Node {
+func (s *Service) registerAdoptedNode(cfg *nodev1.MachineConfig, endpoint, adminCertPath, adminKeyPath, caCertPath string) store.Node {
 	name := adoptedNodeName(cfg, endpoint)
 	if n, ok := s.store.Node(name); ok {
 		log.Printf("fleet: adopt %s: already in the inventory as node %s", name, n.ID)
@@ -504,7 +504,7 @@ func (s *Service) registerAdoptedNode(cfg *cryptosv1.MachineConfig, endpoint, ad
 // adoptedNodeName derives the inventory name for an adopted node from its
 // config's metadata name, falling back to the endpoint when the config omits
 // it.
-func adoptedNodeName(cfg *cryptosv1.MachineConfig, endpoint string) string {
+func adoptedNodeName(cfg *nodev1.MachineConfig, endpoint string) string {
 	if n := cfg.GetMetadata().GetName(); n != "" {
 		return n
 	}
@@ -513,7 +513,7 @@ func adoptedNodeName(cfg *cryptosv1.MachineConfig, endpoint string) string {
 
 // adoptedNodeRole derives a display role from the config's role kind, defaulting
 // to "node" when the config omits it.
-func adoptedNodeRole(cfg *cryptosv1.MachineConfig) string {
+func adoptedNodeRole(cfg *nodev1.MachineConfig) string {
 	if r := cfg.GetRole().GetKind(); r != "" {
 		return r
 	}
@@ -524,7 +524,7 @@ func adoptedNodeRole(cfg *cryptosv1.MachineConfig) string {
 // that self-signs via the first-boot ceremony. Intermediate and issuing nodes
 // are subordinates, established later by a parent-signed enrollment. An omitted
 // role is treated as root, matching the adopt wizard's default.
-func isRootRole(cfg *cryptosv1.MachineConfig) bool {
+func isRootRole(cfg *nodev1.MachineConfig) bool {
 	kind := cfg.GetRole().GetKind()
 	return kind == "" || strings.EqualFold(kind, "root")
 }
@@ -537,7 +537,7 @@ func isRootRole(cfg *cryptosv1.MachineConfig) bool {
 // emits the proto's snake_case names, which match the node's yaml tags for every
 // field except the k8s-style apiVersion, whose proto name is api_version; we
 // rename that single top-level key so the whole document matches the node schema.
-func marshalConfigYAML(cfg *cryptosv1.MachineConfig) ([]byte, error) {
+func marshalConfigYAML(cfg *nodev1.MachineConfig) ([]byte, error) {
 	raw, err := protojson.MarshalOptions{UseProtoNames: true}.Marshal(cfg)
 	if err != nil {
 		return nil, err

@@ -23,12 +23,12 @@ import (
 	"time"
 
 	connect "connectrpc.com/connect"
-	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
-	cryptosv1 "github.com/CryptOS-PKI/api/go/cryptos/v1"
-	"github.com/CryptOS-PKI/manager/internal/apperr"
-	"github.com/CryptOS-PKI/manager/internal/auditlog"
-	"github.com/CryptOS-PKI/manager/internal/authz"
-	"github.com/CryptOS-PKI/manager/internal/store"
+	fleetv1 "github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/apperr"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/auditlog"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/authz"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
+	nodev1 "github.com/CryptOS-PKI/cryptos-node/gen/go/cryptos/node/v1"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -160,12 +160,12 @@ func (s *Service) ApplyProfileToNode(ctx context.Context, req *connect.Request[f
 
 	// Clone the fetched config and change ONLY pki.profiles, so every other
 	// field survives the whole-config replace that ApplyConfig performs.
-	cfg := proto.Clone(current.GetConfig()).(*cryptosv1.MachineConfig)
+	cfg := proto.Clone(current.GetConfig()).(*nodev1.MachineConfig)
 	if cfg == nil {
-		cfg = &cryptosv1.MachineConfig{}
+		cfg = &nodev1.MachineConfig{}
 	}
 	if cfg.Pki == nil {
-		cfg.Pki = &cryptosv1.Pki{}
+		cfg.Pki = &nodev1.Pki{}
 	}
 	cfg.Pki.Profiles = insertOrReplaceProfile(cfg.Pki.GetProfiles(), profile)
 
@@ -196,7 +196,7 @@ func requireAdmin(ctx context.Context) error {
 }
 
 // validateProfile rejects a nil profile or an empty name and returns the name.
-func validateProfile(profile *cryptosv1.CertificateProfile) (string, error) {
+func validateProfile(profile *nodev1.CertificateProfile) (string, error) {
 	if profile == nil {
 		return "", connect.NewError(connect.CodeInvalidArgument, errors.New("fleet: profile is required"))
 	}
@@ -207,7 +207,7 @@ func validateProfile(profile *cryptosv1.CertificateProfile) (string, error) {
 }
 
 // marshalProfile serializes a profile into its stored form.
-func marshalProfile(profile *cryptosv1.CertificateProfile) (store.Profile, error) {
+func marshalProfile(profile *nodev1.CertificateProfile) (store.Profile, error) {
 	raw, err := proto.Marshal(profile)
 	if err != nil {
 		return store.Profile{}, fmt.Errorf("fleet: marshal profile %q: %w", profile.GetName(), err)
@@ -218,7 +218,7 @@ func marshalProfile(profile *cryptosv1.CertificateProfile) (store.Profile, error
 // insertOrReplaceProfile returns profiles with p inserted, replacing an entry
 // with the same name if one exists and appending otherwise. It does not mutate
 // the input slice's entries in place beyond the matched element.
-func insertOrReplaceProfile(profiles []*cryptosv1.CertificateProfile, p *cryptosv1.CertificateProfile) []*cryptosv1.CertificateProfile {
+func insertOrReplaceProfile(profiles []*nodev1.CertificateProfile, p *nodev1.CertificateProfile) []*nodev1.CertificateProfile {
 	for i, existing := range profiles {
 		if existing.GetName() == p.GetName() {
 			profiles[i] = p

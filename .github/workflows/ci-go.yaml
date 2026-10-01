@@ -63,13 +63,15 @@ jobs:
       # SHA256 together with its VERSION (from the release's checksums file).
       # The golangci-lint binary must be built with a Go at least as new as
       # go.mod's; v2.12.2 is built with go1.26.2.
-      - name: 📦 Install task and golangci-lint
+      - name: 📦 Install task, golangci-lint and buf
         id: tools
         env:
           TASK_VERSION: 3.53.1
           TASK_SHA256: a54a408f6861ff921f6e87774180db31bacd8c1e7c944ca696db9fea49a82fc7
           GOLANGCI_LINT_VERSION: 2.12.2
           GOLANGCI_LINT_SHA256: 8df580d2670fed8fa984aac0507099af8df275e665215f5c7a2ae3943893a553
+          BUF_VERSION: 1.73.0
+          BUF_SHA256: 8f2986298ad08f0cc1bf999b9797b7c383adf32d7edf0f73d6f1e1a701baeac1
         run: |
           set -euo pipefail
           bin="$RUNNER_TEMP/bin"
@@ -88,12 +90,26 @@ jobs:
           echo "${GOLANGCI_LINT_SHA256}  $lint_tgz" | sha256sum -c -
           tar -xzf "$lint_tgz" -C "$bin" --strip-components=1 "${lint_dir}/golangci-lint"
 
+          curl -sSfL -o "$bin/buf" \
+            "https://github.com/bufbuild/buf/releases/download/v${BUF_VERSION}/buf-Linux-x86_64"
+          echo "${BUF_SHA256}  $bin/buf" | sha256sum -c -
+          chmod +x "$bin/buf"
+
           echo "$bin" >> "$GITHUB_PATH"
           "$bin/task" --version
           "$bin/golangci-lint" version
+          "$bin/buf" --version
 
       - name: 🧼 gofmt
         run: task fmt
+
+      - name: 📐 buf lint and format
+        if: ${{ !cancelled() && steps.tools.outcome == 'success' }}
+        run: task proto:lint
+
+      - name: 🧬 Generated output is current
+        if: ${{ !cancelled() && steps.tools.outcome == 'success' }}
+        run: task generate:verify
 
       - name: 🔎 go vet
         if: ${{ !cancelled() && steps.tools.outcome == 'success' }}

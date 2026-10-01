@@ -33,8 +33,8 @@ import (
 	"testing"
 	"time"
 
-	cryptosv1 "github.com/CryptOS-PKI/api/go/cryptos/v1"
-	"github.com/CryptOS-PKI/manager/internal/store"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
+	nodev1 "github.com/CryptOS-PKI/cryptos-node/gen/go/cryptos/node/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
@@ -93,7 +93,7 @@ func startBootedNode(t *testing.T, lis net.Listener, serverCert tls.Certificate,
 		ClientCAs:    clientCA.pool(),
 		MinVersion:   tls.VersionTLS13,
 	})))
-	cryptosv1.RegisterNodeServiceServer(srv, fakeNodeService{})
+	nodev1.RegisterNodeServiceServer(srv, fakeNodeService{})
 	go func() { _ = srv.Serve(lis) }()
 	return srv.Stop
 }

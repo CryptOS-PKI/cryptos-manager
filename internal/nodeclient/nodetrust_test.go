@@ -34,7 +34,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/CryptOS-PKI/manager/internal/store"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
 )
 
 // writeCAChainPEM records ca as a node's CA chain file in dir, the way the

@@ -27,11 +27,11 @@ import (
 	"time"
 
 	connect "connectrpc.com/connect"
-	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
-	"github.com/CryptOS-PKI/api/go/cryptos/fleet/v1/fleetv1connect"
-	cryptosv1 "github.com/CryptOS-PKI/api/go/cryptos/v1"
-	"github.com/CryptOS-PKI/manager/internal/authz"
-	"github.com/CryptOS-PKI/manager/internal/store/memory"
+	fleetv1 "github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1"
+	"github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1/fleetv1connect"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/authz"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store/memory"
+	nodev1 "github.com/CryptOS-PKI/cryptos-node/gen/go/cryptos/node/v1"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"gopkg.in/yaml.v3"
@@ -173,9 +173,9 @@ func requireSameJSON(t *testing.T, leg string, msg proto.Message, want string, d
 }
 
 func TestWireRoundTrip_GetNodeConfig_KeepsEveryField(t *testing.T) {
-	nodeCfg := &cryptosv1.MachineConfig{}
+	nodeCfg := &nodev1.MachineConfig{}
 	mustUnmarshal(t, wireConfigJSON, nodeCfg)
-	connA := &fakeConn{getConfigResp: &cryptosv1.GetConfigResponse{Config: nodeCfg}}
+	connA := &fakeConn{getConfigResp: &nodev1.GetConfigResponse{Config: nodeCfg}}
 	svc := New(certsTestStore(), dialFor(map[string]*fakeConn{"A": connA}))
 	client := wireClient(t, svc, authz.Identity{CN: "op@acme.example", Level: authz.LevelOperator})
 
@@ -187,11 +187,11 @@ func TestWireRoundTrip_GetNodeConfig_KeepsEveryField(t *testing.T) {
 }
 
 func TestWireRoundTrip_ApplyNodeConfig_KeepsEveryField(t *testing.T) {
-	connA := &fakeConn{applyConfigResp: &cryptosv1.ApplyConfigResponse{Generation: 2}}
+	connA := &fakeConn{applyConfigResp: &nodev1.ApplyConfigResponse{Generation: 2}}
 	svc := New(certsTestStore(), dialFor(map[string]*fakeConn{"A": connA}))
 	client := wireClient(t, svc, authz.Identity{CN: "admin@acme.example", Level: authz.LevelAdmin})
 
-	sent := &cryptosv1.MachineConfig{}
+	sent := &nodev1.MachineConfig{}
 	mustUnmarshal(t, wireConfigJSON, sent)
 	if _, err := client.ApplyNodeConfig(context.Background(), connect.NewRequest(&fleetv1.ApplyNodeConfigRequest{
 		NodeName: "A", Config: sent,
@@ -206,12 +206,12 @@ func TestWireRoundTrip_ApplyNodeConfig_KeepsEveryField(t *testing.T) {
 
 func TestWireRoundTrip_AdoptNode_KeepsDNSThroughApplyAndCeremony(t *testing.T) {
 	adoptCredsBaseDir = t.TempDir()
-	mconn := &fakeConn{applyConfigResp: &cryptosv1.ApplyConfigResponse{RequiresReboot: true, Generation: 1}}
+	mconn := &fakeConn{applyConfigResp: &nodev1.ApplyConfigResponse{RequiresReboot: true, Generation: 1}}
 	running := &fakeConn{
 		identity: rootIdentity(t),
-		status:   &cryptosv1.GetStatusResponse{},
-		ceremonyStream: &scriptedCeremony{kinds: []cryptosv1.CeremonyEventKind{
-			cryptosv1.CeremonyEventKind_CEREMONY_EVENT_KIND_COMPLETE,
+		status:   &nodev1.GetStatusResponse{},
+		ceremonyStream: &scriptedCeremony{kinds: []nodev1.CeremonyEventKind{
+			nodev1.CeremonyEventKind_CEREMONY_EVENT_KIND_COMPLETE,
 		}},
 	}
 	svc := New(memory.New(nil), dialFor(map[string]*fakeConn{"A": running})).WithAdoption(nil,
@@ -220,7 +220,7 @@ func TestWireRoundTrip_AdoptNode_KeepsDNSThroughApplyAndCeremony(t *testing.T) {
 	defer restore()
 	client := wireClient(t, svc, authz.Identity{CN: "admin@acme.example", Level: authz.LevelAdmin})
 
-	cfg := &cryptosv1.MachineConfig{}
+	cfg := &nodev1.MachineConfig{}
 	mustUnmarshal(t, wireAdoptConfigJSON, cfg)
 	stream, err := client.AdoptNode(context.Background(), connect.NewRequest(&fleetv1.AdoptNodeRequest{
 		Endpoint: "node:4443", PinnedCertSha256: "abc", Config: cfg,
@@ -261,7 +261,7 @@ func TestWireRoundTrip_Profile_KeepsEveryField(t *testing.T) {
 	svc := New(memory.New(nil), nil)
 	client := wireClient(t, svc, authz.Identity{CN: "admin@acme.example", Level: authz.LevelAdmin})
 
-	p := &cryptosv1.CertificateProfile{}
+	p := &nodev1.CertificateProfile{}
 	mustUnmarshal(t, wireProfileJSON, p)
 	if _, err := client.CreateProfile(context.Background(), connect.NewRequest(&fleetv1.CreateProfileRequest{Profile: p})); err != nil {
 		t.Fatalf("CreateProfile over JSON: %v", err)
@@ -312,11 +312,11 @@ const wireProtocolConfigJSON = `{
 }`
 
 func TestWireRoundTrip_ProtocolBlocks_KeepEveryField(t *testing.T) {
-	nodeCfg := &cryptosv1.MachineConfig{}
+	nodeCfg := &nodev1.MachineConfig{}
 	mustUnmarshal(t, wireProtocolConfigJSON, nodeCfg)
 	connA := &fakeConn{
-		getConfigResp:   &cryptosv1.GetConfigResponse{Config: nodeCfg},
-		applyConfigResp: &cryptosv1.ApplyConfigResponse{Generation: 2, RequiresReboot: true},
+		getConfigResp:   &nodev1.GetConfigResponse{Config: nodeCfg},
+		applyConfigResp: &nodev1.ApplyConfigResponse{Generation: 2, RequiresReboot: true},
 	}
 	svc := New(certsTestStore(), dialFor(map[string]*fakeConn{"A": connA}))
 	client := wireClient(t, svc, authz.Identity{CN: "admin@acme.example", Level: authz.LevelAdmin})

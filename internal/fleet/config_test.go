@@ -22,29 +22,29 @@ import (
 	"testing"
 
 	connect "connectrpc.com/connect"
-	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
-	cryptosv1 "github.com/CryptOS-PKI/api/go/cryptos/v1"
-	"github.com/CryptOS-PKI/manager/internal/authz"
+	fleetv1 "github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/authz"
+	nodev1 "github.com/CryptOS-PKI/cryptos-node/gen/go/cryptos/node/v1"
 	"google.golang.org/protobuf/proto"
 )
 
 // configFixture returns a fully-populated MachineConfig standing in for the
 // node's current config, so the fleet flow has real management/role/pki content
 // to round-trip.
-func configFixture() *cryptosv1.MachineConfig {
-	return &cryptosv1.MachineConfig{
+func configFixture() *nodev1.MachineConfig {
+	return &nodev1.MachineConfig{
 		ApiVersion: "cryptos.dev/v1alpha1",
 		Kind:       "MachineConfig",
-		Metadata:   &cryptosv1.Metadata{Name: "A"},
-		Role:       &cryptosv1.Role{Kind: "root"},
-		Pki:        &cryptosv1.Pki{RootKeyAlg: "ECDSA-P384", RevocationBaseUrl: "http://ca.acme/crl"},
-		Management: &cryptosv1.Management{ManagerCn: "fm-op", TrustPem: "trust-pem"},
+		Metadata:   &nodev1.Metadata{Name: "A"},
+		Role:       &nodev1.Role{Kind: "root"},
+		Pki:        &nodev1.Pki{RootKeyAlg: "ECDSA-P384", RevocationBaseUrl: "http://ca.acme/crl"},
+		Management: &nodev1.Management{ManagerCn: "fm-op", TrustPem: "trust-pem"},
 	}
 }
 
 func TestGetNodeConfig_ViewerDenied_NoDial(t *testing.T) {
 	st := certsTestStore()
-	connA := &fakeConn{getConfigResp: &cryptosv1.GetConfigResponse{Config: configFixture()}}
+	connA := &fakeConn{getConfigResp: &nodev1.GetConfigResponse{Config: configFixture()}}
 	svc := New(st, dialFor(map[string]*fakeConn{"A": connA}))
 
 	before := len(st.Audit())
@@ -72,7 +72,7 @@ func TestGetNodeConfig_UnknownNode_NotFound(t *testing.T) {
 func TestGetNodeConfig_Operator_ReturnsConfig_NoAudit(t *testing.T) {
 	st := certsTestStore()
 	want := configFixture()
-	connA := &fakeConn{getConfigResp: &cryptosv1.GetConfigResponse{Config: want}}
+	connA := &fakeConn{getConfigResp: &nodev1.GetConfigResponse{Config: want}}
 	svc := New(st, dialFor(map[string]*fakeConn{"A": connA}))
 
 	before := len(st.Audit())
@@ -156,7 +156,7 @@ func TestApplyNodeConfig_UnknownNode_NotFound(t *testing.T) {
 
 func TestApplyNodeConfig_Admin_AppliesExactConfig_AuditsOnce(t *testing.T) {
 	st := certsTestStore()
-	connA := &fakeConn{applyConfigResp: &cryptosv1.ApplyConfigResponse{Generation: 7, RequiresReboot: true}}
+	connA := &fakeConn{applyConfigResp: &nodev1.ApplyConfigResponse{Generation: 7, RequiresReboot: true}}
 	svc := New(st, dialFor(map[string]*fakeConn{"A": connA}))
 
 	sent := configFixture()

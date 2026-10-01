@@ -33,13 +33,13 @@ import (
 	"testing"
 	"time"
 
-	cryptosv1 "github.com/CryptOS-PKI/api/go/cryptos/v1"
-	"github.com/CryptOS-PKI/manager/internal/approval"
-	"github.com/CryptOS-PKI/manager/internal/authz"
-	"github.com/CryptOS-PKI/manager/internal/fleet"
-	"github.com/CryptOS-PKI/manager/internal/mcpauth"
-	"github.com/CryptOS-PKI/manager/internal/store"
-	"github.com/CryptOS-PKI/manager/internal/store/memory"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/approval"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/authz"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/fleet"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/mcpauth"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store/memory"
+	nodev1 "github.com/CryptOS-PKI/cryptos-node/gen/go/cryptos/node/v1"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -53,7 +53,7 @@ type fakeNode struct {
 	fleet.NodeConn
 
 	role     string
-	profiles []*cryptosv1.CertificateProfile
+	profiles []*nodev1.CertificateProfile
 
 	mu      sync.Mutex
 	issued  int
@@ -61,14 +61,14 @@ type fakeNode struct {
 	applied int
 }
 
-func (f *fakeNode) GetConfig(context.Context) (*cryptosv1.GetConfigResponse, error) {
-	return &cryptosv1.GetConfigResponse{Config: &cryptosv1.MachineConfig{
-		Role: &cryptosv1.Role{Kind: f.role},
-		Pki:  &cryptosv1.Pki{Profiles: f.profiles},
+func (f *fakeNode) GetConfig(context.Context) (*nodev1.GetConfigResponse, error) {
+	return &nodev1.GetConfigResponse{Config: &nodev1.MachineConfig{
+		Role: &nodev1.Role{Kind: f.role},
+		Pki:  &nodev1.Pki{Profiles: f.profiles},
 	}}, nil
 }
 
-func (f *fakeNode) IssueLeaf(_ context.Context, csrDER []byte, _ string) (*cryptosv1.IssueLeafResponse, error) {
+func (f *fakeNode) IssueLeaf(_ context.Context, csrDER []byte, _ string) (*nodev1.IssueLeafResponse, error) {
 	f.mu.Lock()
 	f.issued++
 	f.mu.Unlock()
@@ -82,21 +82,21 @@ func (f *fakeNode) IssueLeaf(_ context.Context, csrDER []byte, _ string) (*crypt
 	if err != nil {
 		return nil, err
 	}
-	return &cryptosv1.IssueLeafResponse{CertDer: der}, nil
+	return &nodev1.IssueLeafResponse{CertDer: der}, nil
 }
 
-func (f *fakeNode) RevokeCertificate(context.Context, string, int32) (*cryptosv1.RevokeCertificateResponse, error) {
+func (f *fakeNode) RevokeCertificate(context.Context, string, int32) (*nodev1.RevokeCertificateResponse, error) {
 	f.mu.Lock()
 	f.revoked++
 	f.mu.Unlock()
-	return &cryptosv1.RevokeCertificateResponse{}, nil
+	return &nodev1.RevokeCertificateResponse{}, nil
 }
 
-func (f *fakeNode) ApplyConfig(context.Context, *cryptosv1.MachineConfig) (*cryptosv1.ApplyConfigResponse, error) {
+func (f *fakeNode) ApplyConfig(context.Context, *nodev1.MachineConfig) (*nodev1.ApplyConfigResponse, error) {
 	f.mu.Lock()
 	f.applied++
 	f.mu.Unlock()
-	return &cryptosv1.ApplyConfigResponse{Generation: 2}, nil
+	return &nodev1.ApplyConfigResponse{Generation: 2}, nil
 }
 
 // changes counts every signing or configuration change the node was asked
@@ -115,41 +115,41 @@ func (f *fakeNode) issuedCount() int {
 
 // GetIssuedCertificate knows serial 0a1b (valid) and dead (revoked); any
 // other serial is NotFound, as a node reports it.
-func (f *fakeNode) GetIssuedCertificate(_ context.Context, serialHex string) (*cryptosv1.GetIssuedCertificateResponse, error) {
+func (f *fakeNode) GetIssuedCertificate(_ context.Context, serialHex string) (*nodev1.GetIssuedCertificateResponse, error) {
 	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	tmpl := &x509.Certificate{SerialNumber: big.NewInt(0x0a1b), Subject: pkix.Name{CommonName: "svc.example.org"}, NotBefore: time.Now(), NotAfter: time.Now().Add(time.Hour)}
 	der, _ := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
 	switch serialHex {
 	case "0a1b":
-		return &cryptosv1.GetIssuedCertificateResponse{CertificateDer: der, ChainDer: [][]byte{der}, Status: "valid"}, nil
+		return &nodev1.GetIssuedCertificateResponse{CertificateDer: der, ChainDer: [][]byte{der}, Status: "valid"}, nil
 	case "dead":
-		return &cryptosv1.GetIssuedCertificateResponse{CertificateDer: der, ChainDer: [][]byte{der}, Status: "revoked", RevokedAt: "2026-09-01T00:00:00Z"}, nil
+		return &nodev1.GetIssuedCertificateResponse{CertificateDer: der, ChainDer: [][]byte{der}, Status: "revoked", RevokedAt: "2026-09-01T00:00:00Z"}, nil
 	default:
 		return nil, status.Error(codes.NotFound, "no such serial")
 	}
 }
 
-func (f *fakeNode) ListIssued(context.Context) (*cryptosv1.ListIssuedResponse, error) {
-	return &cryptosv1.ListIssuedResponse{}, nil
+func (f *fakeNode) ListIssued(context.Context) (*nodev1.ListIssuedResponse, error) {
+	return &nodev1.ListIssuedResponse{}, nil
 }
 
-func (f *fakeNode) ListRevocations(context.Context) (*cryptosv1.ListRevocationsResponse, error) {
-	return &cryptosv1.ListRevocationsResponse{}, nil
+func (f *fakeNode) ListRevocations(context.Context) (*nodev1.ListRevocationsResponse, error) {
+	return &nodev1.ListRevocationsResponse{}, nil
 }
 
-func (f *fakeNode) GetStatus(context.Context) (*cryptosv1.GetStatusResponse, error) {
+func (f *fakeNode) GetStatus(context.Context) (*nodev1.GetStatusResponse, error) {
 	return nil, errors.New("offline in tests")
 }
 
-func (f *fakeNode) GetIdentity(context.Context) (*cryptosv1.GetIdentityResponse, error) {
+func (f *fakeNode) GetIdentity(context.Context) (*nodev1.GetIdentityResponse, error) {
 	return nil, errors.New("offline in tests")
 }
 
 func (f *fakeNode) Close() error { return nil }
 
 var (
-	leafProfile = &cryptosv1.CertificateProfile{Name: "tls-server", BasicConstraints: &cryptosv1.BasicConstraints{IsCa: false}}
-	caProfile   = &cryptosv1.CertificateProfile{Name: "sub-ca", BasicConstraints: &cryptosv1.BasicConstraints{IsCa: true}}
+	leafProfile = &nodev1.CertificateProfile{Name: "tls-server", BasicConstraints: &nodev1.BasicConstraints{IsCa: false}}
+	caProfile   = &nodev1.CertificateProfile{Name: "sub-ca", BasicConstraints: &nodev1.BasicConstraints{IsCa: true}}
 )
 
 // harness is a manager with the MCP endpoint mounted behind the key
@@ -187,11 +187,11 @@ func newHarness(t *testing.T) *harness {
 	t.Helper()
 	h := &harness{t: t}
 	h.nodes = map[string]*fakeNode{
-		"pki-root":    {role: "root", profiles: []*cryptosv1.CertificateProfile{leafProfile}},
-		"pki-issuing": {role: "issuing", profiles: []*cryptosv1.CertificateProfile{leafProfile, caProfile}},
+		"pki-root":    {role: "root", profiles: []*nodev1.CertificateProfile{leafProfile}},
+		"pki-issuing": {role: "issuing", profiles: []*nodev1.CertificateProfile{leafProfile, caProfile}},
 		// The inventory says issuing, but the node itself reports root: the
 		// node's own config wins.
-		"pki-liar": {role: "root", profiles: []*cryptosv1.CertificateProfile{leafProfile}},
+		"pki-liar": {role: "root", profiles: []*nodev1.CertificateProfile{leafProfile}},
 	}
 	catalogProfile, _ := proto.Marshal(leafProfile)
 	h.st = memory.NewWithCatalog([]store.Node{

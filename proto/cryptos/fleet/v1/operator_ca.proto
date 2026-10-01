@@ -1,0 +1,150 @@
+syntax = "proto3";
+/*
+   Copyright The CryptOS Authors.
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+*/
+
+package cryptos.fleet.v1;
+
+option go_package = "github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1;fleetv1";
+
+// The operator CA is external: an offline OpenSSL CA or an enterprise CA,
+// never a CryptOS node. The manager learns only its certificate (the trust
+// anchor), never its key, and never signs an operator credential. These types
+// are shared by BootstrapService and the FleetService operator-CA RPCs.
+
+// OperatorCAState is where a registered operator CA is in its life.
+enum OperatorCAState {
+  OPERATOR_CA_STATE_UNSPECIFIED = 0;
+  // Trusted, and the only CA new credentials are recorded under.
+  OPERATOR_CA_STATE_ACTIVE = 1;
+  // Still trusted during a rotation, but no new credentials are recorded
+  // under it.
+  OPERATOR_CA_STATE_RETIRING = 2;
+  // No longer trusted. Kept for the record.
+  OPERATOR_CA_STATE_RETIRED = 3;
+}
+
+// CrlSource is where the manager gets an operator CA's CRL.
+enum CrlSource {
+  CRL_SOURCE_UNSPECIFIED = 0;
+  // No CRL. Revocations made at the CA aren't seen, and MCP is refused for
+  // certificates under the CA.
+  CRL_SOURCE_NONE = 1;
+  // Fetched from an http or https URL.
+  CRL_SOURCE_URL = 2;
+  // Uploaded with UploadOperatorCRL.
+  CRL_SOURCE_UPLOAD = 3;
+  // A file the manager reads (config-file operator CAs only).
+  CRL_SOURCE_PATH = 4;
+}
+
+// OcspMode is how the manager finds an operator CA's OCSP responder.
+enum OcspMode {
+  // Treated as OCSP_MODE_AIA when registering.
+  OCSP_MODE_UNSPECIFIED = 0;
+  // No OCSP.
+  OCSP_MODE_OFF = 1;
+  // The OCSP URI in each leaf's authorityInfoAccess. A leaf without one gets
+  // no OCSP.
+  OCSP_MODE_AIA = 2;
+  // The responder at ocsp_url.
+  OCSP_MODE_URL = 3;
+}
+
+// OcspSigner is who signed an OCSP response.
+enum OcspSigner {
+  OCSP_SIGNER_UNSPECIFIED = 0;
+  // The operator CA itself.
+  OCSP_SIGNER_ANCHOR = 1;
+  // A delegated responder certificate the operator CA issued, with EKU
+  // OCSPSigning.
+  OCSP_SIGNER_DELEGATED = 2;
+}
+
+// OperatorCAAcknowledgement is a risk the caller accepts explicitly when
+// registering an operator CA or changing its CRL source.
+enum OperatorCAAcknowledgement {
+  OPERATOR_CA_ACKNOWLEDGEMENT_UNSPECIFIED = 0;
+  // No CRL: revocations made at the CA won't be seen by the manager, and MCP
+  // is refused under this CA. Required with crl_source none.
+  OPERATOR_CA_ACKNOWLEDGEMENT_NO_CRL = 1;
+}
+
+// OperatorCA is one trusted, or formerly trusted, operator CA. Timestamps are
+// RFC3339 strings, empty when unset.
+message OperatorCA {
+  // sha256 is the lowercase hex SHA-256 of the DER certificate, with no
+  // separators. It identifies the CA in every other request.
+  string sha256 = 1;
+  // subject is the certificate subject as an RFC 4514 string.
+  string subject = 2;
+  // issuer is the certificate issuer as an RFC 4514 string.
+  string issuer = 3;
+  string not_after = 4;
+  // state is unspecified on a registration preview that isn't stored yet.
+  OperatorCAState state = 5;
+  CrlSource crl_source = 6;
+  // crl_location is the CRL URL, or the file path for CRL_SOURCE_PATH.
+  string crl_location = 7;
+  // crl describes the CRL the manager holds; absent when it holds none.
+  CrlStatus crl = 8;
+  OcspMode ocsp_mode = 9;
+  // ocsp_url is the responder for OCSP_MODE_URL, empty otherwise.
+  string ocsp_url = 10;
+  // ocsp_last_error is the last OCSP failure this replica saw for a
+  // certificate under the CA, empty when none.
+  string ocsp_last_error = 11;
+  // warnings the caller should see, for example that the CA was issued by a
+  // CryptOS node's CA.
+  repeated string warnings = 12;
+  repeated OperatorCAAcknowledgement acknowledgements = 13;
+  string registered_at = 14;
+  string retired_at = 15;
+  // retired_reason is "superseded" or "retired", empty unless retired.
+  string retired_reason = 16;
+  // managed_by_config is true for a CA from the manager's config file. It
+  // can't be changed through the API.
+  bool managed_by_config = 17;
+}
+
+// CrlStatus describes the CRL the manager holds for an operator CA. It is
+// verified against the CA before it is stored or used.
+message CrlStatus {
+  string this_update = 1;
+  string next_update = 2;
+  int64 revoked_count = 3;
+  // crl_number is the cRLNumber in decimal, empty when the CRL has none.
+  string crl_number = 4;
+  // fetched_at is when the manager last stored a new CRL.
+  string fetched_at = 5;
+  // last_error is the last fetch or verification failure, empty when the
+  // last attempt succeeded.
+  string last_error = 6;
+  // stale is true once the CRL is past next_update.
+  bool stale = 7;
+}
+
+// OcspProbeResult is the answer the manager got when it probed an OCSP
+// responder with a random serial. Any certificate status passes the probe;
+// only a validly signed response is required.
+message OcspProbeResult {
+  OcspSigner signer = 1;
+  // signer_subject is the delegated responder certificate's subject, or the
+  // CA's subject when the CA signed.
+  string signer_subject = 2;
+  string signer_not_after = 3;
+  // cert_status is "good", "revoked" or "unknown" for the probed serial.
+  string cert_status = 4;
+}

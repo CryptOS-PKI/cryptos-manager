@@ -24,11 +24,11 @@ import (
 	"time"
 
 	connect "connectrpc.com/connect"
-	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
-	cryptosv1 "github.com/CryptOS-PKI/api/go/cryptos/v1"
-	"github.com/CryptOS-PKI/manager/internal/authz"
-	"github.com/CryptOS-PKI/manager/internal/store"
-	"github.com/CryptOS-PKI/manager/internal/store/memory"
+	fleetv1 "github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/authz"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store/memory"
+	nodev1 "github.com/CryptOS-PKI/cryptos-node/gen/go/cryptos/node/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -43,8 +43,8 @@ func TestListCertificates_MergesIssuedAndRevoked_SkipsBadNode(t *testing.T) {
 	now := time.Now()
 
 	connA := &fakeConn{
-		issued: &cryptosv1.ListIssuedResponse{
-			Issued: []*cryptosv1.IssuedCert{
+		issued: &nodev1.ListIssuedResponse{
+			Issued: []*nodev1.IssuedCert{
 				{
 					SerialHex:   "01",
 					SubjectDn:   "CN=leaf.acme.com",
@@ -71,8 +71,8 @@ func TestListCertificates_MergesIssuedAndRevoked_SkipsBadNode(t *testing.T) {
 				},
 			},
 		},
-		revocations: &cryptosv1.ListRevocationsResponse{
-			Revocations: []*cryptosv1.Revocation{
+		revocations: &nodev1.ListRevocationsResponse{
+			Revocations: []*nodev1.Revocation{
 				{
 					SerialHex:  "01",
 					RevokedAt:  timestamppb.New(now.Add(-time.Minute)),
@@ -145,8 +145,8 @@ func TestListCertificates_MergesIssuedAndRevoked_SkipsBadNode(t *testing.T) {
 
 func TestListCertificates_ScopedToOneNode(t *testing.T) {
 	connA := &fakeConn{
-		issued: &cryptosv1.ListIssuedResponse{
-			Issued: []*cryptosv1.IssuedCert{
+		issued: &nodev1.ListIssuedResponse{
+			Issued: []*nodev1.IssuedCert{
 				{SerialHex: "01", NotBefore: timestamppb.Now(), NotAfter: timestamppb.New(time.Now().Add(time.Hour))},
 			},
 		},
@@ -250,8 +250,8 @@ func TestRevokeCertificate_Operator_RevokesAndAudits(t *testing.T) {
 	now := time.Now().UTC()
 	st := certsTestStore()
 	connA := &fakeConn{
-		revokeResp: &cryptosv1.RevokeCertificateResponse{
-			Revocation: &cryptosv1.Revocation{
+		revokeResp: &nodev1.RevokeCertificateResponse{
+			Revocation: &nodev1.Revocation{
 				SerialHex:  "0a1b",
 				RevokedAt:  timestamppb.New(now),
 				ReasonCode: 4,
@@ -403,7 +403,7 @@ func TestIssueLeaf_UnknownNode_NotFound(t *testing.T) {
 func TestIssueLeaf_Operator_SignsAndAudits(t *testing.T) {
 	st := certsTestStore()
 	connA := &fakeConn{
-		issueResp: &cryptosv1.IssueLeafResponse{CertDer: []byte("signed-leaf-der")},
+		issueResp: &nodev1.IssueLeafResponse{CertDer: []byte("signed-leaf-der")},
 	}
 	svc := New(st, dialFor(map[string]*fakeConn{"A": connA}))
 

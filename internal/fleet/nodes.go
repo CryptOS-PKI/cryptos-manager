@@ -23,9 +23,9 @@ import (
 	"sync"
 
 	connect "connectrpc.com/connect"
-	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
-	cryptosv1 "github.com/CryptOS-PKI/api/go/cryptos/v1"
-	"github.com/CryptOS-PKI/manager/internal/store"
+	fleetv1 "github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
+	nodev1 "github.com/CryptOS-PKI/cryptos-node/gen/go/cryptos/node/v1"
 )
 
 // ListNodes returns a summary for every node in the store. Each node is
@@ -88,7 +88,7 @@ func (s *Service) GetNode(ctx context.Context, req *connect.Request[fleetv1.GetN
 		Node: &fleetv1.NodeDetail{
 			Summary:      s.withProtocolState(ctx, s.withTrustState(n, upSummary(n, status, cn, issuer)), status),
 			Identity:     mapIdentity(identityResp.GetIdentity()),
-			TpmAvailable: status.GetTpmState() == cryptosv1.TpmState_TPM_STATE_OK,
+			TpmAvailable: status.GetTpmState() == nodev1.TpmState_TPM_STATE_OK,
 			BootCount:    status.GetBootCount(),
 		},
 	}), nil
@@ -122,7 +122,7 @@ func (s *Service) summarize(ctx context.Context, n store.Node) *fleetv1.NodeSumm
 // upSummary maps a successfully probed node's status to a NodeSummary. cn and
 // issuer come from the node's leaf cert (see leafCNs); issuer lets the UI draw
 // the trust edge to the node's parent CA.
-func upSummary(n store.Node, status *cryptosv1.NodeStatus, cn, issuer string) *fleetv1.NodeSummary {
+func upSummary(n store.Node, status *nodev1.NodeStatus, cn, issuer string) *fleetv1.NodeSummary {
 	return &fleetv1.NodeSummary{
 		Id:            n.ID,
 		Name:          n.Name,
@@ -139,7 +139,7 @@ func upSummary(n store.Node, status *cryptosv1.NodeStatus, cn, issuer string) *f
 // subject and issuer common names, empty if the chain is missing/unparseable.
 // A self-signed root has subject == issuer, so the UI treats it as having no
 // parent; a subordinate's issuer names its parent CA's subject CN.
-func leafCNs(id *cryptosv1.Identity) (cn, issuer string) {
+func leafCNs(id *nodev1.Identity) (cn, issuer string) {
 	if id == nil || len(id.GetChainDer()) == 0 {
 		return "", ""
 	}
@@ -163,25 +163,25 @@ func downSummary(n store.Node, err error) *fleetv1.NodeSummary {
 	}
 }
 
-// mapIdentityState maps the node's cryptos.v1.IdentityState enum to the
-// fleetv1.NodeSummary's string field. cryptos.v1.IdentityState has no
+// mapIdentityState maps the node's cryptos.node.v1.IdentityState enum to the
+// fleetv1.NodeSummary's string field. cryptos.node.v1.IdentityState has no
 // REVOKED value today; NONE/CEREMONY_IN_PROGRESS/UNSPECIFIED all surface as
 // UNKNOWN to the fleet view.
-func mapIdentityState(s cryptosv1.IdentityState) string {
+func mapIdentityState(s nodev1.IdentityState) string {
 	switch s {
-	case cryptosv1.IdentityState_IDENTITY_STATE_ESTABLISHED:
+	case nodev1.IdentityState_IDENTITY_STATE_ESTABLISHED:
 		return "ESTABLISHED"
-	case cryptosv1.IdentityState_IDENTITY_STATE_AWAITING_CERT:
+	case nodev1.IdentityState_IDENTITY_STATE_AWAITING_CERT:
 		return "AWAITING_CERT"
 	default:
 		return "UNKNOWN"
 	}
 }
 
-// mapIdentity maps cryptos.v1.Identity to the FleetService's own
+// mapIdentity maps cryptos.node.v1.Identity to the FleetService's own
 // NodeIdentity message. LeafSha256 is hex-encoded: the source field is raw
 // digest bytes, but fleetv1.NodeIdentity.leaf_sha256 is a display string.
-func mapIdentity(id *cryptosv1.Identity) *fleetv1.NodeIdentity {
+func mapIdentity(id *nodev1.Identity) *fleetv1.NodeIdentity {
 	return &fleetv1.NodeIdentity{
 		ChainPem:   id.GetChainPem(),
 		ChainDer:   id.GetChainDer(),

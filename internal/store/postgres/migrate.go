@@ -24,7 +24,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/CryptOS-PKI/manager/internal/store"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -36,7 +36,7 @@ import (
 var schemaSQL string
 
 // v2ProfilesSQL widens the profiles table to hold the full marshaled
-// cryptos.v1.CertificateProfile (name + spec bytes) rather than the flat
+// cryptos.node.v1.CertificateProfile (name + spec bytes) rather than the flat
 // projection v1 shipped. A database that first migrates at v2 already has the
 // new table shape from schema.sql, so this DROPs and recreates it to bring an
 // existing v1 database to the same shape. Profiles are seeded (not

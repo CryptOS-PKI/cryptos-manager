@@ -21,12 +21,12 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/CryptOS-PKI/manager/internal/approval"
-	"github.com/CryptOS-PKI/manager/internal/fleet"
-	"github.com/CryptOS-PKI/manager/internal/mcpauth"
-	"github.com/CryptOS-PKI/manager/internal/mcpserver"
-	"github.com/CryptOS-PKI/manager/internal/oauth"
-	"github.com/CryptOS-PKI/manager/internal/store"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/approval"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/fleet"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/mcpauth"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/mcpserver"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/oauth"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
 )
 
 // mcpMount builds the routes for the MCP endpoint and its login. It refuses

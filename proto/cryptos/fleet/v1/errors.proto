@@ -1,0 +1,157 @@
+syntax = "proto3";
+/*
+   Copyright The CryptOS Authors.
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+*/
+
+package cryptos.fleet.v1;
+
+option go_package = "github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1;fleetv1";
+
+// ErrorCode is the 1600-1699 block of the Fleet Manager's error codes: first
+// run, operator CAs, operator-certificate revocation and operator credential
+// requests. The manager owns the 1000-1999 block and defines the other ranges
+// itself; this range is part of the contract because the web branches on it.
+//
+// A failure carries its code, in decimal, on the x-cryptos-error-code error
+// metadata, and its sub-reason, when it has one, on x-cryptos-error-reason as
+// the ErrorReason value name without the ERROR_REASON_ prefix (for example
+// "IS_NODE_CA"). The numbers are stable.
+enum ErrorCode {
+  ERROR_CODE_UNSPECIFIED = 0;
+  // The bootstrap token is wrong, expired or already used. The three cases
+  // are not told apart.
+  ERROR_CODE_TOKEN_INVALID = 1600;
+  // First run is closed. Returned before any token or session is read.
+  ERROR_CODE_CLOSED = 1601;
+  // Too many failures from this client; wait and try again.
+  ERROR_CODE_RATE_LIMITED = 1602;
+  // First run can't run here. Sub-reasons: DATABASE_REQUIRED,
+  // FIRST_RUN_DISABLED. Also returned by a denylist write without Postgres
+  // (DATABASE_REQUIRED).
+  ERROR_CODE_UNAVAILABLE = 1603;
+  // The bootstrap session is unknown, expired or ended.
+  ERROR_CODE_SESSION_INVALID = 1604;
+  // The operator CA or its CRL or OCSP settings were refused. Sub-reasons:
+  // NOT_A_CA, EXPIRING, KEY_TYPE, IS_NODE_CA, CRL_SIGN_MISSING,
+  // NO_CRL_NOT_ACKNOWLEDGED, CRL_UNREACHABLE, CRL_INVALID, CRL_ROLLBACK,
+  // OCSP_UNREACHABLE, OCSP_INVALID, NOT_CONFIRMED, ROTATION_IN_PROGRESS.
+  ERROR_CODE_OPERATOR_CA_REJECTED = 1605;
+  // The CSR was refused. Sub-reasons: SIZE, SIGNATURE, SUBJECT_MISMATCH,
+  // KEY_TYPE.
+  ERROR_CODE_CSR_REJECTED = 1606;
+  // The operator CA comes from the manager's config file, so it can't be
+  // changed through the API.
+  ERROR_CODE_OPERATOR_CA_MANAGED_BY_CONFIG = 1607;
+  // No fresh revocation data for the certificate. Sub-reasons: STALE_CRL,
+  // STALE_OCSP, STALE_DENYLIST, NO_CRL, DATABASE_REQUIRED.
+  ERROR_CODE_NO_REVOCATION_SOURCE = 1608;
+  // Retiring this operator CA would leave no trusted active CA.
+  ERROR_CODE_OPERATOR_CA_IN_USE = 1609;
+  // The operator certificate was refused. Sub-reasons: NOT_CHAINED,
+  // NOT_ACTIVE_ANCHOR, WRONG_LEVEL, LEVEL_EXT_CRITICAL, EKU, KEY_USAGE,
+  // BASIC_CONSTRAINTS, SUBJECT_MISMATCH, KEY_TYPE, KEY_MISMATCH, EXPIRING,
+  // REVOKED, REVOKED_OCSP, OCSP_UNKNOWN, DUPLICATE.
+  ERROR_CODE_CERT_REJECTED = 1610;
+  // The credential request can't be used. Sub-reasons: NOT_FOUND, EXPIRED,
+  // NOT_PENDING.
+  ERROR_CODE_REQUEST_INVALID = 1611;
+}
+
+// ErrorReason names why a 16xx code was returned. A name can appear under
+// more than one code (KEY_TYPE under 1605, 1606 and 1610), so read it with
+// the code. GetBootstrapStateResponse.reason_code uses it too.
+enum ErrorReason {
+  ERROR_REASON_UNSPECIFIED = 0;
+  // 1603, 1608: the manager runs without Postgres.
+  ERROR_REASON_DATABASE_REQUIRED = 1;
+  // 1603: firstRun is set to disabled.
+  ERROR_REASON_FIRST_RUN_DISABLED = 2;
+  // 1605: not CA:TRUE, or no keyCertSign.
+  ERROR_REASON_NOT_A_CA = 3;
+  // 1605: under 30 days left. 1610: under 1 day left.
+  ERROR_REASON_EXPIRING = 4;
+  // 1605, 1606, 1610: the key isn't P-384 (P-256 is also allowed for a CA)
+  // or RSA of 3072 bits or more.
+  ERROR_REASON_KEY_TYPE = 5;
+  // 1605: the certificate, or its public key, is a CryptOS node's CA.
+  ERROR_REASON_IS_NODE_CA = 6;
+  // 1605: a CRL source is set but the CA's key usage lacks cRLSign.
+  ERROR_REASON_CRL_SIGN_MISSING = 7;
+  // 1605: no CRL source without the NO_CRL acknowledgement.
+  ERROR_REASON_NO_CRL_NOT_ACKNOWLEDGED = 8;
+  // 1605: the CRL URL could not be fetched.
+  ERROR_REASON_CRL_UNREACHABLE = 9;
+  // 1605: the CRL failed verification against the CA.
+  ERROR_REASON_CRL_INVALID = 10;
+  // 1605: the CRL is older than the stored one.
+  ERROR_REASON_CRL_ROLLBACK = 11;
+  // 1605: the OCSP responder didn't answer the probe.
+  ERROR_REASON_OCSP_UNREACHABLE = 12;
+  // 1605: the OCSP probe response failed validation.
+  ERROR_REASON_OCSP_INVALID = 13;
+  // 1605: confirm_sha256 is missing or doesn't match, or this session hasn't
+  // confirmed the registration yet.
+  ERROR_REASON_NOT_CONFIRMED = 14;
+  // 1605: a retiring operator CA already exists.
+  ERROR_REASON_ROTATION_IN_PROGRESS = 15;
+  // 1606: the CSR is over 4 KiB.
+  ERROR_REASON_SIZE = 16;
+  // 1606: the CSR signature doesn't verify.
+  ERROR_REASON_SIGNATURE = 17;
+  // 1606, 1610: the subject isn't exactly one RDN, CN=<email>.
+  ERROR_REASON_SUBJECT_MISMATCH = 18;
+  // 1608: the CA's CRL is past nextUpdate.
+  ERROR_REASON_STALE_CRL = 19;
+  // 1608: OCSP is configured for the certificate, with no fresh response and
+  // no fresh CRL.
+  ERROR_REASON_STALE_OCSP = 20;
+  // 1608: this replica's last denylist poll is over 5 minutes old.
+  ERROR_REASON_STALE_DENYLIST = 21;
+  // 1608: MCP refused because the certificate's CA has no CRL source.
+  ERROR_REASON_NO_CRL = 22;
+  // 1610: doesn't verify against the CA for client auth.
+  ERROR_REASON_NOT_CHAINED = 23;
+  // 1610: chains to a retiring CA, not the active one.
+  ERROR_REASON_NOT_ACTIVE_ANCHOR = 24;
+  // 1610: the level extension is missing or names the wrong level.
+  ERROR_REASON_WRONG_LEVEL = 25;
+  // 1610: the level extension is marked critical.
+  ERROR_REASON_LEVEL_EXT_CRITICAL = 26;
+  // 1610: extended key usage isn't exactly clientAuth.
+  ERROR_REASON_EKU = 27;
+  // 1610: key usage lacks digitalSignature, or has keyCertSign or cRLSign.
+  ERROR_REASON_KEY_USAGE = 28;
+  // 1610: basicConstraints is absent or CA:TRUE.
+  ERROR_REASON_BASIC_CONSTRAINTS = 29;
+  // 1610: the public key differs from the CSR's or the request's.
+  ERROR_REASON_KEY_MISMATCH = 30;
+  // 1610: on the manager's denylist or in the CA's CRL.
+  ERROR_REASON_REVOKED = 31;
+  // 1610: the CA's OCSP responder says revoked.
+  ERROR_REASON_REVOKED_OCSP = 32;
+  // 1610: the CA's OCSP responder says unknown, which counts as revoked.
+  ERROR_REASON_OCSP_UNKNOWN = 33;
+  // 1610: the certificate is already recorded.
+  ERROR_REASON_DUPLICATE = 34;
+  // 1611: no credential request has that id.
+  ERROR_REASON_NOT_FOUND = 35;
+  // 1611: the credential request has expired.
+  ERROR_REASON_EXPIRED = 36;
+  // 1611: the credential request was already completed or cancelled.
+  ERROR_REASON_NOT_PENDING = 37;
+  // 1610: the full name is empty, longer than 128 characters, or has a
+  // control character.
+  ERROR_REASON_FULL_NAME = 38;
+}

@@ -31,7 +31,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/CryptOS-PKI/manager/internal/store"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
 )
 
 // selfSignedValidity is the lifetime of a generated bootstrap certificate. It
