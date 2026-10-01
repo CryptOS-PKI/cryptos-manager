@@ -126,6 +126,8 @@ validity over 400 days.
 | 1610 `WRONG_LEVEL`, `SUBJECT_MISMATCH`, `KEY_MISMATCH` | It doesn't match the request |
 | 1610 `DUPLICATE` | It is already recorded |
 | 1610 `REVOKED` | It is on the denylist or in the CA's CRL |
+| 1610 `REVOKED_OCSP`, `OCSP_UNKNOWN` | The CA's OCSP responder says it is revoked, or doesn't know it |
+| 1608 `STALE_OCSP`, `STALE_CRL` | No fresh revocation data, and `operatorRevocationPolicy` is `hard` |
 | 1610 `EKU`, `KEY_USAGE`, `BASIC_CONSTRAINTS`, `KEY_TYPE`, `EXPIRING` | It breaks the profile |
 | 1611 `NOT_FOUND`, `EXPIRED`, `NOT_PENDING` | The request can't be used |
 
