@@ -44,22 +44,6 @@ func TestFleetService_UnservedOperatorCAMethodsAreUnimplemented(t *testing.T) {
 	svc := New(operatorsStore(), dialFor(nil))
 	ctx := operatorCtx("admin@example.org", authz.LevelAdmin)
 	calls := map[string]func() error{
-		"CreateOperatorCredentialRequest": func() error {
-			_, err := svc.CreateOperatorCredentialRequest(ctx, connect.NewRequest(&fleetv1.CreateOperatorCredentialRequestRequest{}))
-			return err
-		},
-		"ListOperatorCredentialRequests": func() error {
-			_, err := svc.ListOperatorCredentialRequests(ctx, connect.NewRequest(&fleetv1.ListOperatorCredentialRequestsRequest{}))
-			return err
-		},
-		"CancelOperatorCredentialRequest": func() error {
-			_, err := svc.CancelOperatorCredentialRequest(ctx, connect.NewRequest(&fleetv1.CancelOperatorCredentialRequestRequest{}))
-			return err
-		},
-		"RecordOperatorCredential": func() error {
-			_, err := svc.RecordOperatorCredential(ctx, connect.NewRequest(&fleetv1.RecordOperatorCredentialRequest{}))
-			return err
-		},
 		"ListOperatorCAs": func() error {
 			_, err := svc.ListOperatorCAs(ctx, connect.NewRequest(&fleetv1.ListOperatorCAsRequest{}))
 			return err

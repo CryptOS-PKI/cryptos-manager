@@ -24,29 +24,9 @@ import (
 	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
 )
 
-// The operator credential request and operator CA management RPCs are part of
-// the contract but not served by this build yet. Each answers Unimplemented so
-// a client can tell "not here yet" from a refusal.
-
-// CreateOperatorCredentialRequest is not served yet.
-func (s *Service) CreateOperatorCredentialRequest(context.Context, *connect.Request[fleetv1.CreateOperatorCredentialRequestRequest]) (*connect.Response[fleetv1.CreateOperatorCredentialRequestResponse], error) {
-	return nil, notServed("CreateOperatorCredentialRequest")
-}
-
-// ListOperatorCredentialRequests is not served yet.
-func (s *Service) ListOperatorCredentialRequests(context.Context, *connect.Request[fleetv1.ListOperatorCredentialRequestsRequest]) (*connect.Response[fleetv1.ListOperatorCredentialRequestsResponse], error) {
-	return nil, notServed("ListOperatorCredentialRequests")
-}
-
-// CancelOperatorCredentialRequest is not served yet.
-func (s *Service) CancelOperatorCredentialRequest(context.Context, *connect.Request[fleetv1.CancelOperatorCredentialRequestRequest]) (*connect.Response[fleetv1.CancelOperatorCredentialRequestResponse], error) {
-	return nil, notServed("CancelOperatorCredentialRequest")
-}
-
-// RecordOperatorCredential is not served yet.
-func (s *Service) RecordOperatorCredential(context.Context, *connect.Request[fleetv1.RecordOperatorCredentialRequest]) (*connect.Response[fleetv1.RecordOperatorCredentialResponse], error) {
-	return nil, notServed("RecordOperatorCredential")
-}
+// The operator CA management RPCs are part of the contract but not served by
+// this build yet. Each answers Unimplemented so a client can tell "not here
+// yet" from a refusal.
 
 // ListOperatorCAs is not served yet.
 func (s *Service) ListOperatorCAs(context.Context, *connect.Request[fleetv1.ListOperatorCAsRequest]) (*connect.Response[fleetv1.ListOperatorCAsResponse], error) {

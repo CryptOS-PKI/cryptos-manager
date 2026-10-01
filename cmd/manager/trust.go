@@ -23,19 +23,24 @@ import (
 	"os"
 
 	"github.com/CryptOS-PKI/manager/internal/auditlog"
+	"github.com/CryptOS-PKI/manager/internal/authz"
 	"github.com/CryptOS-PKI/manager/internal/config"
 	"github.com/CryptOS-PKI/manager/internal/operatorca"
 	"github.com/CryptOS-PKI/manager/internal/store"
 )
 
 // operatorTrust is the running operator CA trust: the anchors, their
-// revocation data, and the loops that keep both current.
+// revocation data, and the loops that keep both current. web is the
+// authorizer the API path uses: auth, plus recording every certificate seen
+// in use when Postgres is configured.
 type operatorTrust struct {
 	trust     *operatorca.TrustStore
 	rev       *operatorca.Revocations
 	poller    *operatorca.Poller
 	refresher *operatorca.CRLRefresher
 	auth      operatorca.PeerAuthorizer
+	web       authz.PeerAuthorizer
+	observed  *operatorca.ObservedRecorder
 }
 
 // setupOperatorTrust resolves the operator CA source, builds the trust store
@@ -65,6 +70,17 @@ func setupOperatorTrust(ctx context.Context, cfg config.Config, st store.Store, 
 	if src.Kind == operatorca.KindRegistered {
 		rebuilder = trust
 	}
+	auth := operatorca.PeerAuthorizer{Trust: trust, Rev: rev}
+	var (
+		web      authz.PeerAuthorizer = auth
+		observed *operatorca.ObservedRecorder
+	)
+	// Observed credentials are rows in Postgres; the in-memory store has
+	// nowhere to keep them.
+	if cs, ok := st.(store.OperatorCredentialStore); ok && cfg.DatabaseURL != "" {
+		observed = operatorca.NewObservedRecorder(operatorca.ObservedOptions{Store: cs, Logf: logf})
+		web = observed.Authorizer(auth)
+	}
 	return &operatorTrust{
 		trust:  trust,
 		rev:    rev,
@@ -73,7 +89,9 @@ func setupOperatorTrust(ctx context.Context, cfg config.Config, st store.Store, 
 			Rev: rev, Store: ot, ReadFile: os.ReadFile, Logf: logf, FileTargets: src.CRLTargets,
 			Fetch: operatorca.NewFetcher(operatorca.FetchLimits{Timeout: operatorca.DefaultFetchTimeout, MaxBytes: operatorca.MaxCRLSize}),
 		},
-		auth: operatorca.PeerAuthorizer{Trust: trust, Rev: rev},
+		auth:     auth,
+		web:      web,
+		observed: observed,
 	}, nil
 }
 
@@ -92,6 +110,9 @@ func (o *operatorTrust) refreshCRLs(ctx context.Context, logf func(string, ...an
 func (o *operatorTrust) run(ctx context.Context, logf func(string, ...any)) {
 	go o.poller.Run(ctx, operatorca.DefaultPollInterval)
 	go o.refresher.Run(ctx)
+	if o.observed != nil {
+		go o.observed.Run(ctx)
+	}
 	logf("manager: operator CA source %s, revocation policy %s", o.trust.Source().Kind, o.rev.Policy())
 }
 
