@@ -25,8 +25,10 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -52,26 +54,60 @@ import (
 	"github.com/CryptOS-PKI/manager/internal/webui"
 )
 
-func main() {
-	configPath := flag.String("config", "config.yaml", "path to the manager's YAML config file")
-	healthcheck := flag.Bool("healthcheck", false, "probe the running manager's "+healthPath+" and exit 0 when healthy (the image's HEALTHCHECK)")
-	checkNodeTrust := flag.Bool("check-node-trust", false, "connect to each node, verify its server certificate as every connection does, and exit 1 if any node is refused or unreachable")
-	pinNodeName := flag.String("pin-node", "", "pin the server certificate the named node presents, if it matches -expect-sha256, and exit")
-	expectSHA256 := flag.String("expect-sha256", "", "with -pin-node: the Mgmt SHA-256 fingerprint shown on the node's console")
-	flag.Parse()
+// cliFlags is the manager's command line.
+type cliFlags struct {
+	configPath     string
+	healthcheck    bool
+	checkNodeTrust bool
+	pinNodeName    string
+	expectSHA256   string
+	resetFirstRun  bool
+}
 
-	cfg, err := config.Load(*configPath)
+// parseFlags parses args (without the program name). Usage and errors go to
+// out.
+func parseFlags(args []string, out io.Writer) (cliFlags, error) {
+	var f cliFlags
+	fs := flag.NewFlagSet("manager", flag.ContinueOnError)
+	fs.SetOutput(out)
+	fs.StringVar(&f.configPath, "config", "config.yaml", "path to the manager's YAML config file")
+	fs.BoolVar(&f.healthcheck, "healthcheck", false, "probe the running manager's "+healthPath+" and exit 0 when healthy (the image's HEALTHCHECK)")
+	fs.BoolVar(&f.checkNodeTrust, "check-node-trust", false, "connect to each node, verify its server certificate as every connection does, and exit 1 if any node is refused or unreachable")
+	fs.StringVar(&f.pinNodeName, "pin-node", "", "pin the server certificate the named node presents, if it matches -expect-sha256, and exit")
+	fs.StringVar(&f.expectSHA256, "expect-sha256", "", "with -pin-node: the Mgmt SHA-256 fingerprint shown on the node's console")
+	fs.BoolVar(&f.resetFirstRun, "reset-first-run", false, "break-glass: with every replica stopped, reopen first run (retires every registered operator CA, keeps the denylist and CRLs) and exit")
+	err := fs.Parse(args)
+	return f, err
+}
+
+func main() {
+	flags, err := parseFlags(os.Args[1:], os.Stderr)
+	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return
+		}
+		os.Exit(2)
+	}
+
+	cfg, err := config.Load(flags.configPath)
 	if err != nil {
 		log.Fatalf("manager: %v", err)
 	}
 
-	if *healthcheck {
+	if flags.healthcheck {
 		url, err := healthProbeURL(cfg)
 		if err != nil {
 			log.Fatalf("manager: healthcheck: %v", err)
 		}
 		if err := probeHealth(url); err != nil {
 			log.Fatalf("manager: healthcheck: %v", err)
+		}
+		return
+	}
+
+	if flags.resetFirstRun {
+		if err := runResetFirstRun(context.Background(), cfg, os.Stdout); err != nil {
+			log.Fatalf("manager: reset first run: %v", err)
 		}
 		return
 	}
@@ -130,18 +166,18 @@ func main() {
 	}
 
 	insecure := insecureNodes(cfg)
-	if *checkNodeTrust {
+	if flags.checkNodeTrust {
 		if liveNodeTrust(os.Stdout, st.Nodes(), insecure) > 0 {
 			os.Exit(1)
 		}
 		return
 	}
-	if *pinNodeName != "" {
-		path, err := pinNode(st.Nodes(), *pinNodeName, *expectSHA256)
+	if flags.pinNodeName != "" {
+		path, err := pinNode(st.Nodes(), flags.pinNodeName, flags.expectSHA256)
 		if err != nil {
 			log.Fatalf("manager: pin node: %v", err)
 		}
-		fmt.Printf("pinned node %s: %s\n", *pinNodeName, path)
+		fmt.Printf("pinned node %s: %s\n", flags.pinNodeName, path)
 		return
 	}
 	// Every node is verified on every connection; say at startup which ones

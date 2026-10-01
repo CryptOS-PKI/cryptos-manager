@@ -406,6 +406,23 @@ func (f *fakeStore) FirstAdminCredentials(context.Context) ([]store.OperatorCred
 	return out, nil
 }
 
+func (f *fakeStore) ResetFirstRun(_ context.Context, at time.Time) (store.FirstRunReset, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	r := store.FirstRunReset{Previous: f.latch, Sessions: len(f.sessions), Tokens: len(f.tokens)}
+	f.latch = store.BootstrapState{}
+	f.sessions = map[string]store.BootstrapSession{}
+	f.tokens = nil
+	for i := range f.cas {
+		if f.cas[i].State != store.OperatorCARetired {
+			f.cas[i].State, f.cas[i].RetiredAt, f.cas[i].RetiredReason = store.OperatorCARetired, at, store.RetiredReset
+			r.RetiredCAs++
+		}
+	}
+	f.caChange++
+	return r, nil
+}
+
 // fakeClock is a settable clock.
 type fakeClock struct {
 	mu sync.Mutex

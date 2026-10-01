@@ -34,6 +34,10 @@ const (
 // later first-run registration replaced.
 const RetiredSuperseded = "superseded"
 
+// RetiredReset is the retired_reason of an operator CA retired by the
+// break-glass reset.
+const RetiredReset = "reset"
+
 // ErrBootstrapClosed is returned by first-run writes once first run is
 // closed.
 var ErrBootstrapClosed = errors.New("store: first run is closed")
@@ -68,6 +72,16 @@ type BootstrapSession struct {
 	ExpiresAt   time.Time
 	EndedAt     time.Time
 	EndedReason string
+}
+
+// FirstRunReset is what the break-glass reset changed: the latch as it was
+// before, and how many sessions, tokens and operator CA rows it removed or
+// retired.
+type FirstRunReset struct {
+	Previous   BootstrapState
+	Sessions   int
+	Tokens     int
+	RetiredCAs int
 }
 
 // Bootstrap is the storage behind first run: the latch, the token and
@@ -131,4 +145,11 @@ type Bootstrap interface {
 	RecordFirstUse(ctx context.Context, c OperatorCredential, at time.Time) (bool, error)
 	// FirstAdminCredentials returns every first_admin credential.
 	FirstAdminCredentials(ctx context.Context) ([]OperatorCredential, error)
+
+	// ResetFirstRun reopens first run in one step: it clears the latch,
+	// deletes every session and token, and retires every operator CA row
+	// that isn't retired yet (reason RetiredReset, rows kept). The
+	// denylist and stored CRLs are kept, so a CA registered again keeps its
+	// earlier revocations.
+	ResetFirstRun(ctx context.Context, at time.Time) (FirstRunReset, error)
 }
