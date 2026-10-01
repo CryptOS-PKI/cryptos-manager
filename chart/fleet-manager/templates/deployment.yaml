@@ -97,10 +97,12 @@ spec:
               readOnly: true
             {{- end }}
             {{- end }}
-            {{- if not .Values.authBypass }}
+            {{- if and (not .Values.authBypass) .Values.tls.certSecret }}
             - name: tls
               mountPath: /etc/cryptos/fleet/tls
               readOnly: true
+            {{- end }}
+            {{- if and (not .Values.authBypass) .Values.operatorCA.configMap }}
             - name: operator-ca
               mountPath: /etc/cryptos/fleet/operator-ca
               readOnly: true
@@ -126,13 +128,15 @@ spec:
             defaultMode: 0440
         {{- end }}
         {{- end }}
-        {{- if not .Values.authBypass }}
+        {{- if and (not .Values.authBypass) .Values.tls.certSecret }}
         - name: tls
           secret:
-            secretName: {{ required "tls.certSecret is required when authBypass is false" .Values.tls.certSecret }}
+            secretName: {{ .Values.tls.certSecret }}
+        {{- end }}
+        {{- if and (not .Values.authBypass) .Values.operatorCA.configMap }}
         - name: operator-ca
           configMap:
-            name: {{ required "operatorCA.configMap is required when authBypass is false" .Values.operatorCA.configMap }}
+            name: {{ .Values.operatorCA.configMap }}
         {{- end }}
         {{- if .Values.operatorCRL.configMap }}
         - name: operator-crl

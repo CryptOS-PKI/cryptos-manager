@@ -13,10 +13,18 @@ data:
     # The redirect has to name the port clients reach, not the listener's.
     httpsPublicPort: {{ .Values.service.port | quote }}
     {{- end }}
+    {{- if not (has .Values.firstRun (list "auto" "disabled")) }}
+    {{- fail (printf "firstRun must be auto or disabled, not %q" .Values.firstRun) }}
+    {{- end }}
     {{- if not .Values.authBypass }}
+    {{- if .Values.tls.certSecret }}
     tlsCert: /etc/cryptos/fleet/tls/tls.crt
     tlsKey: /etc/cryptos/fleet/tls/tls.key
+    {{- end }}
+    {{- if .Values.operatorCA.configMap }}
     operatorCAPath: /etc/cryptos/fleet/operator-ca/operator-ca.pem
+    {{- end }}
+    firstRun: {{ .Values.firstRun | quote }}
     {{- end }}
     {{- with include "fleet-manager.operatorRevocation" . | trim }}
     {{- . | nindent 4 }}
