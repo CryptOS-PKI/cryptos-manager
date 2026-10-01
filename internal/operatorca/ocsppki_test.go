@@ -252,6 +252,8 @@ type testResponder struct {
 	down bool
 	// wrongKey signs with a key that isn't the anchor's.
 	wrongKey *testCA
+	// delegate signs as a delegated responder the anchor issued.
+	delegate *testCA
 	noNonce  bool
 	noPOST   bool
 	next     time.Duration
@@ -322,7 +324,7 @@ func (r *testResponder) serve(w http.ResponseWriter, req *http.Request) {
 	p.method = req.Method
 	r.mu.Lock()
 	r.seen = append(r.seen, p)
-	down, wrong, noNonce, next, noNext := r.down, r.wrongKey, r.noNonce, r.next, r.noNext
+	down, wrong, delegate, noNonce, next, noNext := r.down, r.wrongKey, r.delegate, r.noNonce, r.next, r.noNext
 	status, ok := r.status[SerialKey(p.serial)]
 	if !ok {
 		status = r.defaultStatus
@@ -336,6 +338,9 @@ func (r *testResponder) serve(w http.ResponseWriter, req *http.Request) {
 	o := respOpts{status: status, serial: p.serial, thisUpdate: now.Add(-time.Minute), nextUpdate: now.Add(next), noNext: noNext}
 	if !noNonce {
 		o.nonce = p.nonce
+	}
+	if delegate != nil {
+		o.signer = delegate
 	}
 	if wrong != nil {
 		o.signer = wrong

@@ -250,6 +250,162 @@ func OperatorTrust(t *testing.T, newStore func(t *testing.T) store.OperatorTrust
 		}
 	})
 
+	t.Run("RotateMovesTheActiveCAToRetiring", func(t *testing.T) {
+		st := newStore(t)
+		mustAddCA(t, st, "a1", store.OperatorCAActive)
+		mustAddCA(t, st, "x1", store.OperatorCARetired)
+		before := trustVersion(t, st)
+
+		next := ca("a2", store.OperatorCAActive)
+		next.CRLSource, next.CRLURL, next.Acknowledgements = store.CRLSourceURL, "http://pki.example.org/g2.crl", []string{}
+		next.OCSPMode, next.OCSPURL = store.OCSPModeURL, "http://ocsp.example.org/"
+		next.RegisteredBy = "admin@example.org"
+		crl := &store.OperatorCRL{IssuerSHA256: "a2", DER: []byte("crl-a2"), Number: big.NewInt(5), ThisUpdate: at, NextUpdate: at.Add(time.Hour), FetchedAt: at, Source: store.CRLSourceURL}
+		if err := st.RotateOperatorCA(ctx, next, crl, acceptAll); err != nil {
+			t.Fatalf("RotateOperatorCA: %v", err)
+		}
+		states := caStates(t, st)
+		if states["a1"] != store.OperatorCARetiring || states["a2"] != store.OperatorCAActive || states["x1"] != store.OperatorCARetired {
+			t.Fatalf("states after a rotation = %v", states)
+		}
+		got := caRow(t, st, "a2")
+		if got.CRLSource != store.CRLSourceURL || got.CRLURL != next.CRLURL || got.OCSPMode != store.OCSPModeURL ||
+			got.OCSPURL != next.OCSPURL || got.RegisteredBy != "admin@example.org" {
+			t.Fatalf("the new row = %+v", got)
+		}
+		crls, _ := st.OperatorCRLs(ctx)
+		if len(crls) != 1 || string(crls[0].DER) != "crl-a2" {
+			t.Fatalf("OperatorCRLs() = %+v, want the new CA's CRL", crls)
+		}
+		after := trustVersion(t, st)
+		if after.CAs == before.CAs || after.Epoch <= before.Epoch {
+			t.Fatalf("trust version %+v -> %+v, want both parts moved", before, after)
+		}
+	})
+
+	t.Run("RotateRefusesWhileACAIsRetiring", func(t *testing.T) {
+		st := newStore(t)
+		mustAddCA(t, st, "a1", store.OperatorCAActive)
+		mustAddCA(t, st, "r1", store.OperatorCARetiring)
+		before := trustVersion(t, st)
+		err := st.RotateOperatorCA(ctx, ca("a2", store.OperatorCAActive), nil, nil)
+		if !errors.Is(err, store.ErrRotationInProgress) {
+			t.Fatalf("RotateOperatorCA error = %v, want ErrRotationInProgress", err)
+		}
+		if states := caStates(t, st); len(states) != 2 || states["a1"] != store.OperatorCAActive || states["r1"] != store.OperatorCARetiring {
+			t.Fatalf("states after a refused rotation = %v", states)
+		}
+		if after := trustVersion(t, st); after != before {
+			t.Fatalf("trust version moved on a refused rotation: %+v -> %+v", before, after)
+		}
+	})
+
+	t.Run("RotateRefusesACAThatIsAlreadyTrusted", func(t *testing.T) {
+		st := newStore(t)
+		mustAddCA(t, st, "a1", store.OperatorCAActive)
+		if err := st.RotateOperatorCA(ctx, ca("a1", store.OperatorCAActive), nil, nil); !errors.Is(err, store.ErrOperatorCATrusted) {
+			t.Fatalf("RotateOperatorCA(the active CA) error = %v, want ErrOperatorCATrusted", err)
+		}
+		if states := caStates(t, st); states["a1"] != store.OperatorCAActive {
+			t.Fatalf("states = %v", states)
+		}
+	})
+
+	t.Run("RotateBringsBackARetiredCA", func(t *testing.T) {
+		st := newStore(t)
+		mustAddCA(t, st, "x1", store.OperatorCARetired)
+		if err := st.SetOperatorCAState(ctx, "x1", store.OperatorCARetired, "retired", at); err != nil {
+			t.Fatal(err)
+		}
+		mustAddCA(t, st, "a1", store.OperatorCAActive)
+		if err := st.RotateOperatorCA(ctx, ca("x1", store.OperatorCAActive), nil, nil); err != nil {
+			t.Fatalf("RotateOperatorCA(a retired CA): %v", err)
+		}
+		got := caRow(t, st, "x1")
+		if got.State != store.OperatorCAActive || !got.RetiredAt.IsZero() || got.RetiredReason != "" {
+			t.Fatalf("the CA brought back = %+v", got)
+		}
+		if states := caStates(t, st); states["a1"] != store.OperatorCARetiring {
+			t.Fatalf("states = %v", states)
+		}
+	})
+
+	t.Run("RotateWithARefusedCRLWritesNothing", func(t *testing.T) {
+		st := newStore(t)
+		mustAddCA(t, st, "a1", store.OperatorCAActive)
+		refuse := errors.New("rollback")
+		crl := &store.OperatorCRL{IssuerSHA256: "a2", DER: []byte("crl"), ThisUpdate: at, NextUpdate: at.Add(time.Hour), FetchedAt: at}
+		err := st.RotateOperatorCA(ctx, ca("a2", store.OperatorCAActive), crl, func(store.OperatorCRL, bool) (bool, error) { return false, refuse })
+		if !errors.Is(err, refuse) {
+			t.Fatalf("RotateOperatorCA error = %v, want the decide error", err)
+		}
+		if states := caStates(t, st); len(states) != 1 || states["a1"] != store.OperatorCAActive {
+			t.Fatalf("states after a refused CRL = %v", states)
+		}
+	})
+
+	t.Run("SetOperatorCACRLSourceChangesATrustedCA", func(t *testing.T) {
+		st := newStore(t)
+		mustAddCA(t, st, "a1", store.OperatorCAActive)
+		mustAddCA(t, st, "x1", store.OperatorCARetired)
+		before := trustVersion(t, st)
+
+		crl := &store.OperatorCRL{IssuerSHA256: "a1", DER: []byte("crl-a1"), ThisUpdate: at, NextUpdate: at.Add(time.Hour), FetchedAt: at, Source: store.CRLSourceURL}
+		if err := st.SetOperatorCACRLSource(ctx, "a1", store.CRLSourceURL, "http://pki.example.org/a1.crl", []string{}, crl, acceptAll); err != nil {
+			t.Fatalf("SetOperatorCACRLSource: %v", err)
+		}
+		got := caRow(t, st, "a1")
+		if got.CRLSource != store.CRLSourceURL || got.CRLURL != "http://pki.example.org/a1.crl" || len(got.Acknowledgements) != 0 {
+			t.Fatalf("row after the change = %+v", got)
+		}
+		crls, _ := st.OperatorCRLs(ctx)
+		if len(crls) != 1 || string(crls[0].DER) != "crl-a1" {
+			t.Fatalf("OperatorCRLs() = %+v", crls)
+		}
+		after := trustVersion(t, st)
+		if after.CAs == before.CAs || after.Epoch <= before.Epoch {
+			t.Fatalf("trust version %+v -> %+v, want both parts moved", before, after)
+		}
+
+		if err := st.SetOperatorCACRLSource(ctx, "a1", store.CRLSourceNone, "", []string{"NO_CRL"}, nil, nil); err != nil {
+			t.Fatalf("SetOperatorCACRLSource(none): %v", err)
+		}
+		if got := caRow(t, st, "a1"); got.CRLSource != store.CRLSourceNone || got.CRLURL != "" || len(got.Acknowledgements) != 1 {
+			t.Fatalf("row after switching to none = %+v", got)
+		}
+		if err := st.SetOperatorCACRLSource(ctx, "x1", store.CRLSourceNone, "", []string{"NO_CRL"}, nil, nil); !errors.Is(err, store.ErrOperatorCANotFound) {
+			t.Fatalf("SetOperatorCACRLSource(retired) error = %v, want ErrOperatorCANotFound", err)
+		}
+	})
+
+	t.Run("SetOperatorCAOCSPChangesATrustedCA", func(t *testing.T) {
+		st := newStore(t)
+		mustAddCA(t, st, "a1", store.OperatorCAActive)
+		mustAddCA(t, st, "x1", store.OperatorCARetired)
+		before := trustVersion(t, st)
+		if err := st.SetOperatorCAOCSP(ctx, "a1", store.OCSPModeURL, "http://ocsp.example.org/"); err != nil {
+			t.Fatalf("SetOperatorCAOCSP: %v", err)
+		}
+		if got := caRow(t, st, "a1"); got.OCSPMode != store.OCSPModeURL || got.OCSPURL != "http://ocsp.example.org/" {
+			t.Fatalf("row = %+v", got)
+		}
+		if after := trustVersion(t, st); after.CAs == before.CAs {
+			t.Fatal("trust version unchanged after an OCSP change")
+		}
+		if err := st.SetOperatorCAOCSP(ctx, "a1", store.OCSPModeOff, ""); err != nil {
+			t.Fatalf("SetOperatorCAOCSP(off): %v", err)
+		}
+		if got := caRow(t, st, "a1"); got.OCSPMode != store.OCSPModeOff || got.OCSPURL != "" {
+			t.Fatalf("row after off = %+v", got)
+		}
+		if err := st.SetOperatorCAOCSP(ctx, "a1", store.OCSPModeURL, ""); err == nil {
+			t.Fatal("url mode with no URL was stored")
+		}
+		if err := st.SetOperatorCAOCSP(ctx, "x1", store.OCSPModeOff, ""); !errors.Is(err, store.ErrOperatorCANotFound) {
+			t.Fatalf("SetOperatorCAOCSP(retired) error = %v, want ErrOperatorCANotFound", err)
+		}
+	})
+
 	t.Run("TryAdvisoryLockIsExclusive", func(t *testing.T) {
 		st := newStore(t)
 		release, ok, err := st.TryAdvisoryLock(ctx, "fleetos.crl.test")
@@ -285,6 +441,34 @@ func mustAddCA(t *testing.T, st store.OperatorTrust, sha, state string) {
 	if err := st.AddOperatorCA(context.Background(), ca(sha, state)); err != nil {
 		t.Fatalf("AddOperatorCA(%s, %s): %v", sha, state, err)
 	}
+}
+
+func caStates(t *testing.T, st store.OperatorTrust) map[string]string {
+	t.Helper()
+	cas, err := st.OperatorCAs(context.Background())
+	if err != nil {
+		t.Fatalf("OperatorCAs: %v", err)
+	}
+	out := map[string]string{}
+	for _, c := range cas {
+		out[c.SHA256] = c.State
+	}
+	return out
+}
+
+func caRow(t *testing.T, st store.OperatorTrust, sha string) store.OperatorCA {
+	t.Helper()
+	cas, err := st.OperatorCAs(context.Background())
+	if err != nil {
+		t.Fatalf("OperatorCAs: %v", err)
+	}
+	for _, c := range cas {
+		if c.SHA256 == sha {
+			return c
+		}
+	}
+	t.Fatalf("no operator CA %s", sha)
+	return store.OperatorCA{}
 }
 
 func trustVersion(t *testing.T, st store.OperatorTrust) store.TrustVersion {

@@ -357,3 +357,119 @@ func bumpEpoch(ctx context.Context, tx pgx.Tx) error {
 	}
 	return nil
 }
+
+// RotateOperatorCA makes ca the active operator CA, moves the current
+// active row to retiring, stores crl, and moves the trust version and the
+// revocation epoch, in one transaction. The trusted rows are locked first,
+// so two rotations can't both pass the retiring check.
+func (s *Store) RotateOperatorCA(ctx context.Context, ca store.OperatorCA, crl *store.OperatorCRL, decide store.DecideCRL) error {
+	mode := ca.OCSPMode
+	if mode == "" {
+		mode = store.OCSPModeAIA
+	}
+	registered := ca.RegisteredAt
+	if registered.IsZero() {
+		registered = time.Now().UTC()
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("postgres: begin operator CA rotation: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	rows, err := tx.Query(ctx, `SELECT sha256, state FROM operator_cas WHERE state IN ('active', 'retiring') FOR UPDATE`)
+	if err != nil {
+		return fmt.Errorf("postgres: lock the trusted operator CAs: %w", err)
+	}
+	type trusted struct{ sha, state string }
+	current, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (trusted, error) {
+		var t trusted
+		err := row.Scan(&t.sha, &t.state)
+		return t, err
+	})
+	if err != nil {
+		return fmt.Errorf("postgres: read the trusted operator CAs: %w", err)
+	}
+	for _, t := range current {
+		if t.sha == ca.SHA256 {
+			return store.ErrOperatorCATrusted
+		}
+		if t.state == store.OperatorCARetiring {
+			return store.ErrRotationInProgress
+		}
+	}
+
+	if _, err := tx.Exec(ctx, `UPDATE operator_cas SET state = 'retiring', updated_at = clock_timestamp() WHERE state = 'active'`); err != nil {
+		return fmt.Errorf("postgres: move the active operator CA to retiring: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO operator_cas
+		(cert_der, sha256, state, crl_source, crl_url, ocsp_mode, ocsp_url, acknowledgements, warnings, registered_at, registered_by)
+		VALUES ($1, $2, 'active', $3, $4, $5, nullif($6, ''), $7, $8, $9, $10)
+		ON CONFLICT (sha256) DO UPDATE SET cert_der = excluded.cert_der, state = 'active',
+		  crl_source = excluded.crl_source, crl_url = excluded.crl_url, ocsp_mode = excluded.ocsp_mode, ocsp_url = excluded.ocsp_url,
+		  acknowledgements = excluded.acknowledgements, warnings = excluded.warnings, registered_at = excluded.registered_at,
+		  registered_by = excluded.registered_by, retired_at = NULL, retired_reason = '', updated_at = clock_timestamp()`,
+		ca.CertDER, ca.SHA256, ca.CRLSource, ca.CRLURL, mode, ca.OCSPURL,
+		nonNil(ca.Acknowledgements), nonNil(ca.Warnings), registered, ca.RegisteredBy); err != nil {
+		return fmt.Errorf("postgres: store operator CA %s: %w", ca.SHA256, err)
+	}
+	if crl != nil {
+		if _, err := putCRLTx(ctx, tx, *crl, decide); err != nil {
+			return err
+		}
+	}
+	if err := bumpEpoch(ctx, tx); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("postgres: commit operator CA rotation: %w", err)
+	}
+	return nil
+}
+
+// SetOperatorCACRLSource changes a trusted row's CRL source and stores its
+// new CRL, moving the trust version and the revocation epoch, in one
+// transaction.
+func (s *Store) SetOperatorCACRLSource(ctx context.Context, sha256, source, url string, acks []string, crl *store.OperatorCRL, decide store.DecideCRL) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("postgres: begin CRL source change: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	tag, err := tx.Exec(ctx, `UPDATE operator_cas SET crl_source = $2, crl_url = $3, acknowledgements = $4, updated_at = clock_timestamp()
+		WHERE sha256 = $1 AND state IN ('active', 'retiring')`, sha256, source, url, nonNil(acks))
+	if err != nil {
+		return fmt.Errorf("postgres: set the CRL source of operator CA %s: %w", sha256, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return store.ErrOperatorCANotFound
+	}
+	if crl != nil {
+		if _, err := putCRLTx(ctx, tx, *crl, decide); err != nil {
+			return err
+		}
+	}
+	if err := bumpEpoch(ctx, tx); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("postgres: commit CRL source change: %w", err)
+	}
+	return nil
+}
+
+// SetOperatorCAOCSP changes a trusted row's OCSP mode and URL. The table
+// refuses url mode with no URL.
+func (s *Store) SetOperatorCAOCSP(ctx context.Context, sha256, mode, url string) error {
+	tag, err := s.pool.Exec(ctx, `UPDATE operator_cas SET ocsp_mode = $2, ocsp_url = nullif($3, ''), updated_at = clock_timestamp()
+		WHERE sha256 = $1 AND state IN ('active', 'retiring')`, sha256, mode, url)
+	if err != nil {
+		return fmt.Errorf("postgres: set the OCSP mode of operator CA %s: %w", sha256, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return store.ErrOperatorCANotFound
+	}
+	return nil
+}

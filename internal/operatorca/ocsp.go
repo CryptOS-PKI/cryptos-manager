@@ -132,6 +132,9 @@ func (s OCSPStatus) String() string {
 type OCSPResult struct {
 	Status                 OCSPStatus
 	ThisUpdate, NextUpdate time.Time
+	// Signer is the certificate that signed the response: the anchor, or a
+	// delegated responder certificate it issued.
+	Signer *x509.Certificate
 }
 
 func ocspInvalid(format string, args ...any) error {
@@ -275,7 +278,7 @@ func (q *ocspQuery) validate(der []byte, now time.Time, isRevoked func(serial st
 	if !single.NextUpdate.IsZero() && !now.Before(single.NextUpdate) {
 		return OCSPResult{}, ocspInvalid("stale: nextUpdate %s has passed", single.NextUpdate.UTC().Format(time.RFC3339))
 	}
-	res := OCSPResult{ThisUpdate: single.ThisUpdate, NextUpdate: single.NextUpdate}
+	res := OCSPResult{ThisUpdate: single.ThisUpdate, NextUpdate: single.NextUpdate, Signer: signer}
 	switch resp.Status {
 	case ocsp.Good:
 		res.Status = OCSPGood

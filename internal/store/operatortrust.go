@@ -67,6 +67,14 @@ var ErrDatabaseRequired = errors.New("store: this needs the Postgres store")
 // fingerprint.
 var ErrOperatorCANotFound = errors.New("store: operator CA not found")
 
+// ErrRotationInProgress is returned by RotateOperatorCA while an operator
+// CA is retiring: at most one can be retiring at a time.
+var ErrRotationInProgress = errors.New("store: an operator CA is already retiring")
+
+// ErrOperatorCATrusted is returned by RotateOperatorCA for an operator CA
+// that is already active or retiring.
+var ErrOperatorCATrusted = errors.New("store: the operator CA is already trusted")
+
 // OperatorCA is one registered operator CA: the certificate of an external CA
 // that signs operator credentials. The manager never holds its key. SHA256
 // is the lowercase hex SHA-256 of CertDER. A zero time means unset.
@@ -142,6 +150,25 @@ type OperatorTrust interface {
 	// SetOperatorCAState moves the row with the given fingerprint to state,
 	// recording reason and at when it is retired.
 	SetOperatorCAState(ctx context.Context, sha256, state, reason string, at time.Time) error
+
+	// RotateOperatorCA makes ca the active operator CA after first run, in
+	// one step: the current active row becomes retiring, ca is stored as
+	// active (a retired row with the same fingerprint is brought back),
+	// crl, when set, is stored if decide accepts it, and the trust version
+	// and revocation epoch move. It returns ErrRotationInProgress while a row
+	// is retiring and ErrOperatorCATrusted when ca is already active or
+	// retiring; on any error nothing is written.
+	RotateOperatorCA(ctx context.Context, ca OperatorCA, crl *OperatorCRL, decide DecideCRL) error
+	// SetOperatorCACRLSource changes the CRL source, URL and
+	// acknowledgements of the active or retiring row with the fingerprint,
+	// stores crl when set if decide accepts it, and moves the trust version
+	// and revocation epoch, in one step. It returns ErrOperatorCANotFound
+	// when no active or retiring row has the fingerprint.
+	SetOperatorCACRLSource(ctx context.Context, sha256, source, url string, acks []string, crl *OperatorCRL, decide DecideCRL) error
+	// SetOperatorCAOCSP changes the OCSP mode and URL of the active or
+	// retiring row with the fingerprint and moves the trust version. It
+	// returns ErrOperatorCANotFound when no such row exists.
+	SetOperatorCAOCSP(ctx context.Context, sha256, mode, url string) error
 
 	// OperatorCRLs returns the stored CRL and last attempt of every operator
 	// CA that has either.

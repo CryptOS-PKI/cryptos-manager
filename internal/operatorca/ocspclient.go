@@ -28,6 +28,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	fleetv1 "github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1"
@@ -93,6 +94,9 @@ type OCSPClient struct {
 	bg    func(func())
 	cache *lru[ocspKey, *ocspEntry]
 	group singleflight.Group
+
+	errMu   sync.Mutex
+	lastErr map[string]string
 }
 
 // NewOCSPFetcher is a Fetcher with the OCSP limits: the CRL fetch limits
@@ -104,7 +108,7 @@ func NewOCSPFetcher() *Fetcher {
 // NewOCSPClient builds an OCSPClient.
 func NewOCSPClient(o OCSPOptions) *OCSPClient {
 	c := &OCSPClient{fetch: o.Fetch, now: o.Now, logf: o.Logf, audit: o.Audit, bg: o.Background,
-		cache: newLRU[ocspKey, *ocspEntry](ocspCacheSize)}
+		cache: newLRU[ocspKey, *ocspEntry](ocspCacheSize), lastErr: map[string]string{}}
 	if c.fetch == nil {
 		c.fetch = NewOCSPFetcher()
 	}
@@ -157,6 +161,7 @@ func (c *OCSPClient) cached(anchor string, serial *big.Int) (ocspEntry, bool) {
 // OCSP settings change.
 func (c *OCSPClient) ClearAnchor(anchorSHA256 string) {
 	c.cache.remove(func(k ocspKey) bool { return k.anchor == anchorSHA256 })
+	c.noteResult(anchorSHA256, "", nil)
 }
 
 // Check returns the status of serial under a from the cache, or from one
@@ -201,6 +206,7 @@ func (c *OCSPClient) refresh(key ocspKey, a Anchor, serial *big.Int, responderUR
 
 func (c *OCSPClient) fill(key ocspKey, a Anchor, serial *big.Int, responderURL string, isRevoked func(string) bool, old *ocspEntry) *ocspEntry {
 	res, err := c.lookup(context.Background(), a.Cert, serial, responderURL, isRevoked)
+	c.noteResult(a.SHA256, responderURL, err)
 	now := c.now()
 	if err != nil {
 		c.logf("operatorca: OCSP check of serial %s under operator CA %s at %s failed (%s): %v",
@@ -246,9 +252,16 @@ func (c *OCSPClient) fill(key ocspKey, a Anchor, serial *big.Int, responderURL s
 // asks about a random serial and needs a validly signed response, whatever
 // the status. A failure is 1605 OCSP_UNREACHABLE or OCSP_INVALID.
 func (c *OCSPClient) Probe(ctx context.Context, anchor *x509.Certificate, responderURL string) error {
+	_, err := c.ProbeResult(ctx, anchor, responderURL)
+	return err
+}
+
+// ProbeResult is Probe returning the validated answer, including the
+// certificate that signed it.
+func (c *OCSPClient) ProbeResult(ctx context.Context, anchor *x509.Certificate, responderURL string) (OCSPResult, error) {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
-		return fmt.Errorf("operatorca: OCSP probe serial: %w", err)
+		return OCSPResult{}, fmt.Errorf("operatorca: OCSP probe serial: %w", err)
 	}
 	b[0] &= 0x7f
 	b[0] |= 0x40
@@ -256,10 +269,28 @@ func (c *OCSPClient) Probe(ctx context.Context, anchor *x509.Certificate, respon
 	res, err := c.lookup(ctx, anchor, serial, responderURL, nil)
 	if err != nil {
 		c.logf("operatorca: OCSP probe of %s for operator CA %s failed (%s): %v", redact(responderURL), anchor.Subject.CommonName, ocspClass(err), err)
-		return err
+		return OCSPResult{}, err
 	}
-	c.logf("operatorca: OCSP probe of %s for operator CA %s answered %s", redact(responderURL), anchor.Subject.CommonName, res.Status)
-	return nil
+	c.logf("operatorca: OCSP probe of %s for operator CA %s answered %s, signed by %s", redact(responderURL), anchor.Subject.CommonName, res.Status, res.Signer.Subject)
+	return res, nil
+}
+
+// LastError is this replica's last OCSP failure for a certificate under the
+// operator CA, empty when the responder last answered or nothing failed.
+func (c *OCSPClient) LastError(anchorSHA256 string) string {
+	c.errMu.Lock()
+	defer c.errMu.Unlock()
+	return c.lastErr[anchorSHA256]
+}
+
+func (c *OCSPClient) noteResult(anchorSHA256, responderURL string, err error) {
+	c.errMu.Lock()
+	defer c.errMu.Unlock()
+	if err == nil {
+		delete(c.lastErr, anchorSHA256)
+		return
+	}
+	c.lastErr[anchorSHA256] = fmt.Sprintf("%s from %s at %s", ocspClass(err), redact(responderURL), c.now().UTC().Format(time.RFC3339))
 }
 
 func ocspClass(err error) string {

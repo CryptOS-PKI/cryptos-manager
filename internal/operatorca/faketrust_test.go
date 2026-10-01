@@ -243,3 +243,15 @@ func (a *auditSink) kinds(kind string) int {
 	}
 	return n
 }
+
+func (f *fakeTrust) RotateOperatorCA(context.Context, store.OperatorCA, *store.OperatorCRL, store.DecideCRL) error {
+	return errors.New("fake: rotation isn't used by these tests")
+}
+
+func (f *fakeTrust) SetOperatorCACRLSource(context.Context, string, string, string, []string, *store.OperatorCRL, store.DecideCRL) error {
+	return errors.New("fake: CRL source changes aren't used by these tests")
+}
+
+func (f *fakeTrust) SetOperatorCAOCSP(context.Context, string, string, string) error {
+	return errors.New("fake: OCSP changes aren't used by these tests")
+}

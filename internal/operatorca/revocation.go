@@ -172,7 +172,8 @@ func (r *Revocations) OCSP() *OCSPClient { return r.ocsp }
 func (r *Revocations) Policy() string { return r.policy }
 
 // SetAnchors replaces the set of trusted anchors, keeping what is already
-// loaded for anchors that stay.
+// loaded for anchors that stay. An anchor whose OCSP mode or URL changed has
+// its cached OCSP answers dropped, so the old responder's answers aren't used.
 func (r *Revocations) SetAnchors(anchors []Anchor) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -181,6 +182,10 @@ func (r *Revocations) SetAnchors(anchors []Anchor) {
 		st, ok := r.anchors[a.SHA256]
 		if !ok {
 			st = &anchorState{}
+		}
+		if ok && r.ocsp != nil && (st.anchor.OCSPMode != a.OCSPMode || st.anchor.OCSPURL != a.OCSPURL) {
+			r.ocsp.ClearAnchor(a.SHA256)
+			st.ocspOutage = false
 		}
 		st.anchor = a
 		st.denied = r.denylist[a.SHA256]
