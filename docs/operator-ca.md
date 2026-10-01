@@ -8,7 +8,8 @@ certificate (the trust anchor). It never holds the CA's key and never signs an
 operator credential.
 
 This page covers where the manager gets the anchor, how it checks revocation,
-the config keys, and how to move off `operator_ca_node`.
+how admins change and rotate registered CAs, the config keys, and how to move
+off `operator_ca_node`.
 
 ## 🧭 Where the anchor comes from
 
@@ -157,6 +158,79 @@ When OCSP is configured for the bound certificate and a fresh response is
 available, it must be `good`: `revoked` or `unknown` refuse with
 [1610](error-codes.md) `REVOKED_OCSP` or `OCSP_UNKNOWN`. An OCSP failure is
 allowed, because the fresh CRL covers it.
+
+## 🔄 Changing and rotating a registered operator CA
+
+After first run, admins change registered operator CAs on the **Operator CAs**
+page, or through these FleetService RPCs. Every change is audited and takes
+effect on the replica that made it at once and on every other replica within
+one trust poll (about 5 seconds), with no restart.
+
+| RPC | Who | What it does |
+| --- | --- | --- |
+| `ListOperatorCAs` | operator | Every CA: active first, then retiring, then retired. Each row has its fingerprint, notAfter, CRL source and the CRL the manager holds (thisUpdate, nextUpdate, revoked count, last error), OCSP mode and URL, this replica's last OCSP error, and warnings. A config-file CA is listed with `managed_by_config` set. |
+| `RegisterOperatorCA` | admin | Registers the next CA with the first-run checks and the preview then `confirm_sha256` step. The new CA becomes **active** and the old active CA becomes **retiring**. Audited `operator-ca-registered`. |
+| `RetireOperatorCA` | admin | Stops trusting a retiring CA. Audited `operator-ca-retired`. |
+| `SetOperatorCACRLSource` | admin | Switches a CA to a CRL URL, an uploaded CRL, or none. Audited `operator-ca-crl-source-changed`. |
+| `UploadOperatorCRL` | admin | Stores a new CRL for a CA whose source is upload. Audited `operator-crl-uploaded`. |
+| `SetOperatorCAOCSP` | admin | Sets the OCSP mode to `off`, `aia` or `url`. Audited `operator-ca-ocsp-changed`. |
+
+> [!CAUTION]
+> While `operatorCAPath` is set, every write above is refused with
+> [1607 OPERATOR_CA_MANAGED_BY_CONFIG](error-codes.md). Change the config file
+> instead.
+
+### Rotation: register, overlap, retire
+
+1. Create the new operator CA and register it. Compare the fingerprint the
+   preview shows with the new CA certificate before you confirm:
+
+   ```sh
+   openssl x509 -in operator-ca-g2.crt -noout -fingerprint -sha256
+   ```
+
+2. **Overlap.** Both CAs are trusted and both are revocation-checked: the old
+   CA's denylist, CRL and OCSP still apply to its certificates. New credentials
+   are recorded only under the active CA (a certificate from the retiring CA
+   gives [1610 NOT_ACTIVE_ANCHOR](error-codes.md)). Issue new certificates from
+   the new CA and install them.
+3. **Retire** the old CA. Its certificates, and the MCP keys bound to them, are
+   refused from their next request, even over an open connection. Its denylist
+   entries are kept in case it is registered again.
+
+Only one CA can be retiring at a time: registering another one before the old
+CA is retired is refused with [1605 ROTATION_IN_PROGRESS](error-codes.md).
+
+> [!WARNING]
+> The active CA can't be retired ([1609 OPERATOR_CA_IN_USE](error-codes.md));
+> register its replacement first. Retiring the CA your own certificate comes
+> from is refused unless you set `i_understand_self_lockout`: sign in with a
+> certificate from the new CA first, or you are signed out on your next request.
+
+### CRL source, CRL upload and OCSP mode
+
+- **A new CRL URL or CRL must verify first.** The manager fetches the URL (or
+  takes the uploaded CRL) and verifies it against the CA, so a wrong URL is
+  refused with [1605 CRL_UNREACHABLE or CRL_INVALID](error-codes.md) instead of
+  being stored. The CA needs the `cRLSign` key usage (CRL_SIGN_MISSING).
+- **Switching to none** needs the `NO_CRL` acknowledgement
+  (NO_CRL_NOT_ACKNOWLEDGED). The last CRL the manager stored keeps applying, but
+  revocations made at the CA afterwards aren't seen, and
+  [MCP is refused](#mcp-needs-a-fresh-crl) for certificates under that CA from
+  their next call.
+- **Uploads** are refused when older than the stored CRL
+  ([1605 CRL_ROLLBACK](error-codes.md)); uploading the same CRL again changes
+  nothing. A CA with a URL source takes no uploads: switch it to upload first.
+- **OCSP mode `url`** sends the responder a probe for a random serial first and
+  needs a validly signed answer, whatever its status
+  ([1605 OCSP_UNREACHABLE or OCSP_INVALID](error-codes.md)). The response says
+  who signed it: the CA, or a delegated responder certificate. Changing the
+  mode drops the answers each replica cached for that CA.
+
+> [!WARNING]
+> With `operatorRevocationPolicy: hard`, an upload CRL source is refused, both
+> when registering and when changing the source: an expired CRL would lock out
+> the admins who upload the next one. Use a CRL URL.
 
 ## ⚙️ Config keys
 

@@ -117,3 +117,18 @@ func (s *Store) OperatorTrustVersion(context.Context) (store.TrustVersion, error
 func (s *Store) TryAdvisoryLock(context.Context, string) (func(), bool, error) {
 	return func() {}, true, nil
 }
+
+// RotateOperatorCA refuses: registered operator CAs need Postgres.
+func (s *Store) RotateOperatorCA(context.Context, store.OperatorCA, *store.OperatorCRL, store.DecideCRL) error {
+	return store.ErrDatabaseRequired
+}
+
+// SetOperatorCACRLSource refuses: registered operator CAs need Postgres.
+func (s *Store) SetOperatorCACRLSource(context.Context, string, string, string, []string, *store.OperatorCRL, store.DecideCRL) error {
+	return store.ErrDatabaseRequired
+}
+
+// SetOperatorCAOCSP refuses: registered operator CAs need Postgres.
+func (s *Store) SetOperatorCAOCSP(context.Context, string, string, string) error {
+	return store.ErrDatabaseRequired
+}

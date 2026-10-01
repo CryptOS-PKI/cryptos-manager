@@ -37,6 +37,15 @@ func TestOperatorTrust_MemoryNeedsPostgresForRowsAndDenylist(t *testing.T) {
 	if cas, err := st.OperatorCAs(ctx); err != nil || len(cas) != 0 {
 		t.Fatalf("OperatorCAs() = %+v, %v; want none", cas, err)
 	}
+	if err := st.RotateOperatorCA(ctx, store.OperatorCA{SHA256: "aa", State: store.OperatorCAActive}, nil, nil); !errors.Is(err, store.ErrDatabaseRequired) {
+		t.Fatalf("RotateOperatorCA error = %v, want ErrDatabaseRequired", err)
+	}
+	if err := st.SetOperatorCACRLSource(ctx, "aa", store.CRLSourceNone, "", nil, nil, nil); !errors.Is(err, store.ErrDatabaseRequired) {
+		t.Fatalf("SetOperatorCACRLSource error = %v, want ErrDatabaseRequired", err)
+	}
+	if err := st.SetOperatorCAOCSP(ctx, "aa", store.OCSPModeOff, ""); !errors.Is(err, store.ErrDatabaseRequired) {
+		t.Fatalf("SetOperatorCAOCSP error = %v, want ErrDatabaseRequired", err)
+	}
 	if _, err := st.AddOperatorDenylistEntry(ctx, store.DenylistEntry{IssuerSHA256: "aa", SerialHex: "1"}); !errors.Is(err, store.ErrDatabaseRequired) {
 		t.Fatalf("AddOperatorDenylistEntry error = %v, want ErrDatabaseRequired", err)
 	}

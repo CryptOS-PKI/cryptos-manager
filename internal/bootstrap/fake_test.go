@@ -18,6 +18,7 @@ limitations under the License.
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -469,4 +470,20 @@ func (l *logSink) count(sub string) int {
 		}
 	}
 	return n
+}
+
+// The operator CA admin writes are not reached by first run; the fake refuses
+// them so a test that strays onto one fails loudly.
+var errNotFirstRun = errors.New("fakeStore: not used by first run")
+
+func (f *fakeStore) RotateOperatorCA(context.Context, store.OperatorCA, *store.OperatorCRL, store.DecideCRL) error {
+	return errNotFirstRun
+}
+
+func (f *fakeStore) SetOperatorCACRLSource(context.Context, string, string, string, []string, *store.OperatorCRL, store.DecideCRL) error {
+	return errNotFirstRun
+}
+
+func (f *fakeStore) SetOperatorCAOCSP(context.Context, string, string, string) error {
+	return errNotFirstRun
 }

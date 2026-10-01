@@ -263,7 +263,8 @@ func main() {
 		trust.refreshCRLs(ctx, log.Printf)
 		trust.run(ctx, log.Printf)
 		svc = svc.WithOperatorTrust(trust.trust, trust.rev).
-			WithNodeCAWatch(operatorca.NewNodeCAWatch(trust.trust, log.Printf))
+			WithNodeCAWatch(operatorca.NewNodeCAWatch(trust.trust, log.Printf)).
+			WithOperatorCAAdmin(fleet.OperatorCAAdmin{FetchCRL: trust.refresher.Fetch.Fetch})
 		tlsCfg = serverTLSConfig(base, trust.trust)
 		boot, mount, err := setupBootstrap(ctx, cfg, st, bootStore, trust, base, log.Printf)
 		if err != nil {
