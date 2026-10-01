@@ -291,7 +291,7 @@ Not registered as tools at all:
   `ConfirmAdoptionFingerprint` (a person confirms a new node's identity from its console);
   `ApplyNodeConfig` and `SetNodeProtocol` (a node's configuration and its enrolment
   endpoints); `RekeyNode`; `CreateEnrollment` and `ApproveEnrollment` (node admin
-  credentials, subordinate signing); `RenameNode`; `RevokeOperatorCredential`, the
+  credentials, subordinate signing); `RenameNode` and `RemoveNode`; `RevokeOperatorCredential`, the
   operator credential request RPCs and the operator CA RPCs (operator certificates and
   the CAs that sign them are managed by people); MCP key management itself; and `ListApprovals` and `DecideApproval` (an agent never sees or
   decides approvals). Node-only operations stay in `cryptosctl`.

@@ -307,6 +307,11 @@ type Store interface {
 	// and records nothing. It returns ErrNodeNotFound when no node has the
 	// ID and ErrNodeNameTaken when another node already has newName.
 	RenameNode(id, newName string, at time.Time) (Node, error)
+	// RemoveNode drops the node with the given ID from the inventory and
+	// returns it as it was. Its name history is kept, with the current span
+	// closed at at, so audit entries recorded against the node still read.
+	// It returns ErrNodeNotFound when no node has the ID.
+	RemoveNode(id string, at time.Time) (Node, error)
 	// Profiles returns every certificate issuance profile.
 	Profiles() []Profile
 	// Profile returns the profile with the given name, and whether it was

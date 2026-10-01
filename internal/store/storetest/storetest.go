@@ -175,6 +175,53 @@ func NodeIDs(t *testing.T, newStore func(t *testing.T) store.Store) {
 		}
 	})
 
+	t.Run("RemoveDropsTheNodeAndKeepsItsHistory", func(t *testing.T) {
+		st := newStore(t)
+		st.AddNode(store.Node{Name: "a", Endpoint: "a:443", Role: "root"})
+		st.AddNode(store.Node{Name: "x", Endpoint: "x:443", Role: "issuing"})
+		n, _ := st.Node("a")
+		at := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+
+		got, err := st.RemoveNode(n.ID, at)
+		if err != nil {
+			t.Fatalf("RemoveNode: %v", err)
+		}
+		if got.ID != n.ID || got.Name != "a" || got.Endpoint != "a:443" {
+			t.Fatalf("RemoveNode returned %+v, want node %s as it was", got, n.ID)
+		}
+		if _, ok := st.NodeByID(n.ID); ok {
+			t.Error("the removed node is still found by ID")
+		}
+		if _, ok := st.Node("a"); ok {
+			t.Error("the removed node is still found by name")
+		}
+		if nodes := st.Nodes(); len(nodes) != 1 || nodes[0].Name != "x" {
+			t.Errorf("Nodes() = %+v, want only x", nodes)
+		}
+		var spans []store.NodeName
+		for _, h := range st.NodeNames() {
+			if h.NodeID == n.ID {
+				spans = append(spans, h)
+			}
+		}
+		if len(spans) != 1 || spans[0].Name != "a" || !spans[0].Until.Equal(at) {
+			t.Errorf("name history = %+v, want the span for a kept and closed at %v", spans, at)
+		}
+
+		st.AddNode(store.Node{Name: "a", Endpoint: "new:443", Role: "root"})
+		again, _ := st.Node("a")
+		if again.ID == n.ID {
+			t.Error("a new node taking a removed node's name got the old ID")
+		}
+	})
+
+	t.Run("RemoveUnknownID", func(t *testing.T) {
+		st := newStore(t)
+		if _, err := st.RemoveNode(store.NewNodeID(), time.Now()); !errors.Is(err, store.ErrNodeNotFound) {
+			t.Fatalf("RemoveNode(unknown) error = %v, want ErrNodeNotFound", err)
+		}
+	})
+
 	t.Run("AFormerNameCanBeReused", func(t *testing.T) {
 		st := newStore(t)
 		st.AddNode(store.Node{Name: "a", Endpoint: "a:443", Role: "root"})

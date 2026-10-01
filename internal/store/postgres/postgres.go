@@ -228,6 +228,40 @@ func insertNodeName(ctx context.Context, tx pgx.Tx, id, name string, from *time.
 	return err
 }
 
+// RemoveNode deletes the node with the given ID and closes its current name
+// span at at, in one transaction; the name history is kept.
+func (s *Store) RemoveNode(id string, at time.Time) (store.Node, error) {
+	if !store.IsNodeID(id) {
+		return store.Node{}, fmt.Errorf("postgres: remove %q: %w", id, store.ErrNodeNotFound)
+	}
+	ctx := bg()
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return store.Node{}, fmt.Errorf("postgres: begin remove: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	n, err := scanNode(tx.QueryRow(ctx, selectNode+` WHERE id = $1::uuid FOR UPDATE`, id))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return store.Node{}, fmt.Errorf("postgres: remove %s: %w", id, store.ErrNodeNotFound)
+	}
+	if err != nil {
+		return store.Node{}, fmt.Errorf("postgres: load node %s for removal: %w", id, err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM nodes WHERE id = $1::uuid`, id); err != nil {
+		return store.Node{}, fmt.Errorf("postgres: remove %s: %w", id, err)
+	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE node_names SET valid_until = $2 WHERE node_id = $1::uuid AND valid_until IS NULL`, id, at); err != nil {
+		return store.Node{}, fmt.Errorf("postgres: close name span for %s: %w", id, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return store.Node{}, fmt.Errorf("postgres: commit remove: %w", err)
+	}
+	log.Printf("postgres: node %s (%s) removed from the inventory", n.Name, id)
+	return n, nil
+}
+
 // RenameNode changes the name of the node with the given ID and records the
 // change in the name history, in one transaction.
 func (s *Store) RenameNode(id, newName string, at time.Time) (store.Node, error) {
