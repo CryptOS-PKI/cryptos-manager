@@ -82,6 +82,7 @@ func (s *Service) GetNode(ctx context.Context, req *connect.Request[fleetv1.GetN
 
 	status := statusResp.GetStatus()
 	cn, issuer := leafCNs(identityResp.GetIdentity())
+	s.nodeCAWatch.Observe(n.Name, identityResp.GetIdentity().GetChainDer())
 
 	return connect.NewResponse(&fleetv1.GetNodeResponse{
 		Node: &fleetv1.NodeDetail{
@@ -112,6 +113,7 @@ func (s *Service) summarize(ctx context.Context, n store.Node) *fleetv1.NodeSumm
 	cn, issuer := "", ""
 	if identityResp, ierr := conn.GetIdentity(ctx); ierr == nil {
 		cn, issuer = leafCNs(identityResp.GetIdentity())
+		s.nodeCAWatch.Observe(n.Name, identityResp.GetIdentity().GetChainDer())
 	}
 
 	return s.withProtocolState(ctx, s.withTrustState(n, upSummary(n, statusResp.GetStatus(), cn, issuer)), statusResp.GetStatus())

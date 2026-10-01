@@ -143,6 +143,19 @@ func (s *Store) PutOperatorCRL(ctx context.Context, c store.OperatorCRL, decide 
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	ok, err := putCRLTx(ctx, tx, c, decide)
+	if err != nil || !ok {
+		return false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("postgres: commit CRL for %s: %w", c.IssuerSHA256, err)
+	}
+	return true, nil
+}
+
+// putCRLTx is PutOperatorCRL inside tx: it locks the stored row, asks
+// decide, and on acceptance writes c and bumps the revocation epoch.
+func putCRLTx(ctx context.Context, tx pgx.Tx, c store.OperatorCRL, decide store.DecideCRL) (bool, error) {
 	rows, err := tx.Query(ctx, `SELECT issuer_sha256, crl_der, crl_number::text, this_update, next_update,
 		fetched_at, source, last_error, last_attempt_at FROM operator_crls WHERE issuer_sha256 = $1 FOR UPDATE`, c.IssuerSHA256)
 	if err != nil {
@@ -177,9 +190,6 @@ func (s *Store) PutOperatorCRL(ctx context.Context, c store.OperatorCRL, decide 
 	}
 	if err := bumpEpoch(ctx, tx); err != nil {
 		return false, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return false, fmt.Errorf("postgres: commit CRL for %s: %w", c.IssuerSHA256, err)
 	}
 	return true, nil
 }

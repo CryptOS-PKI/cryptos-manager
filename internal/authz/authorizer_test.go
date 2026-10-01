@@ -17,6 +17,7 @@ limitations under the License.
 */
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
@@ -87,5 +88,36 @@ func TestClientCertMiddlewareWith_RefusalCarriesTheCode(t *testing.T) {
 	}
 	if rec.Header().Get(apperr.MetadataKey) != "1610" || rec.Header().Get(apperr.ReasonKey) != "REVOKED" {
 		t.Fatalf("headers = %v, want 1610/REVOKED", rec.Header())
+	}
+}
+
+// Hooks see only requests that passed: the identity (with its operator CA)
+// and the certificate, on a context that carries the identity. A refused
+// request never reaches them.
+func TestClientCertMiddlewareWith_HooksRunOnlyAfterAPass(t *testing.T) {
+	leaf := leafCert(t, LevelAdmin)
+	var calls []Identity
+	hook := func(ctx context.Context, id Identity, cert *x509.Certificate) {
+		if ctxID, ok := FromContext(ctx); !ok || ctxID.Serial != id.Serial {
+			t.Error("the hook's context doesn't carry the identity")
+		}
+		if cert != leaf {
+			t.Error("the hook didn't get the peer certificate")
+		}
+		calls = append(calls, id)
+	}
+	serve := func(auth PeerAuthorizer) {
+		req := httptest.NewRequest(http.MethodPost, "/rpc", nil)
+		req.TLS = &tls.ConnectionState{PeerCertificates: []*x509.Certificate{leaf}}
+		ClientCertMiddlewareWith(auth, hook)(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})).ServeHTTP(httptest.NewRecorder(), req)
+	}
+
+	serve(&fakeAuthorizer{err: apperr.Reasoned(apperr.CodeCertRejected, fleetv1.ErrorReason_ERROR_REASON_REVOKED, errors.New("denylisted"))})
+	if len(calls) != 0 {
+		t.Fatal("a hook ran for a refused certificate")
+	}
+	serve(&fakeAuthorizer{anchor: "ab12"})
+	if len(calls) != 1 || calls[0].IssuerSHA256 != "ab12" || calls[0].Level != LevelAdmin {
+		t.Fatalf("hook calls = %+v, want one admin call under ab12", calls)
 	}
 }

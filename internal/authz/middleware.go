@@ -47,14 +47,19 @@ type PeerAuthorizer interface {
 	AuthorizePeer(leaf *x509.Certificate, intermediates []*x509.Certificate) (issuerSHA256 string, err error)
 }
 
+// AuthHook is told about every request that passed ClientCertMiddlewareWith:
+// the certificate chained to a trusted operator CA and isn't revoked. ctx
+// carries the identity. The first-run latch is one.
+type AuthHook func(ctx context.Context, id Identity, cert *x509.Certificate)
+
 // ClientCertMiddlewareWith is ClientCertMiddleware plus a per-request
 // PeerAuthorizer check. A refused certificate gets 403 with the refusal's
-// code and reason headers.
-func ClientCertMiddlewareWith(auth PeerAuthorizer) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler { return clientCert(auth, next) }
+// code and reason headers. Each hook runs, in order, after a request passes.
+func ClientCertMiddlewareWith(auth PeerAuthorizer, hooks ...AuthHook) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler { return clientCert(auth, next, hooks...) }
 }
 
-func clientCert(auth PeerAuthorizer, next http.Handler) http.Handler {
+func clientCert(auth PeerAuthorizer, next http.Handler, hooks ...AuthHook) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.TLS == nil || len(r.TLS.PeerCertificates) == 0 {
 			// A connection whose handshake carried no certificate can never
@@ -86,6 +91,11 @@ func clientCert(auth PeerAuthorizer, next http.Handler) http.Handler {
 		}
 		id.Via = ViaWeb
 		ctx := context.WithValue(NewContext(r.Context(), id), peerCertCtxKey{}, cert)
+		if auth != nil {
+			for _, hook := range hooks {
+				hook(ctx, id, cert)
+			}
+		}
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
