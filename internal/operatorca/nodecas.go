@@ -20,7 +20,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 
-	"github.com/CryptOS-PKI/manager/internal/store"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
 )
 
 // NodeCAs collects the CryptOS node CA certificates the inventory knows, from

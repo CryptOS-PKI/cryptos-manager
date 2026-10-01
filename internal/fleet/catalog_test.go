@@ -24,11 +24,11 @@ import (
 	"testing"
 
 	connect "connectrpc.com/connect"
-	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
-	cryptosv1 "github.com/CryptOS-PKI/api/go/cryptos/v1"
-	"github.com/CryptOS-PKI/manager/internal/store"
-	"github.com/CryptOS-PKI/manager/internal/store/memory"
-	"github.com/CryptOS-PKI/manager/internal/store/seed"
+	fleetv1 "github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store/memory"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store/seed"
+	nodev1 "github.com/CryptOS-PKI/cryptos-node/gen/go/cryptos/node/v1"
 )
 
 func catalogTestStore() store.Store {
@@ -153,18 +153,18 @@ func TestListEnrollments_ReturnsAtLeastOnePending(t *testing.T) {
 
 // nodeConfigWith returns a GetConfigResponse carrying the named profiles, as a
 // node reports its own pki.profiles.
-func nodeConfigWith(names ...string) *cryptosv1.GetConfigResponse {
-	profiles := make([]*cryptosv1.CertificateProfile, 0, len(names))
+func nodeConfigWith(names ...string) *nodev1.GetConfigResponse {
+	profiles := make([]*nodev1.CertificateProfile, 0, len(names))
 	for _, n := range names {
-		profiles = append(profiles, &cryptosv1.CertificateProfile{
+		profiles = append(profiles, &nodev1.CertificateProfile{
 			KeyAlg:       "ECDSA-P384",
 			Name:         n,
 			ValidityDays: 90,
 		})
 	}
 
-	return &cryptosv1.GetConfigResponse{
-		Config: &cryptosv1.MachineConfig{Pki: &cryptosv1.Pki{Profiles: profiles}},
+	return &nodev1.GetConfigResponse{
+		Config: &nodev1.MachineConfig{Pki: &nodev1.Pki{Profiles: profiles}},
 	}
 }
 
@@ -177,7 +177,7 @@ func nodeStore(names ...string) store.Store {
 	return memory.NewWithCatalog(nodes, nil, nil, nil, nil)
 }
 
-func profileNames(items []*cryptosv1.CertificateProfile) []string {
+func profileNames(items []*nodev1.CertificateProfile) []string {
 	out := make([]string, 0, len(items))
 	for _, p := range items {
 		out = append(out, p.GetName())

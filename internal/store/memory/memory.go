@@ -25,7 +25,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/CryptOS-PKI/manager/internal/store"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
 )
 
 // Store is an in-memory, concurrency-safe store.Store backed by a fixed

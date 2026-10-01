@@ -26,7 +26,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/CryptOS-PKI/manager/internal/config"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/config"
 )
 
 // healthPath is served by the manager itself, anonymously. The web handler

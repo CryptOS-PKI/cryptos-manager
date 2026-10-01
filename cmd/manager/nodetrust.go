@@ -20,9 +20,9 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/CryptOS-PKI/manager/internal/config"
-	"github.com/CryptOS-PKI/manager/internal/nodeclient"
-	"github.com/CryptOS-PKI/manager/internal/store"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/config"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/nodeclient"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
 )
 
 // insecureNodeSet names the nodes whose config sets insecureSkipNodeVerify.

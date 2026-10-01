@@ -20,10 +20,10 @@ import (
 	"testing"
 
 	connect "connectrpc.com/connect"
-	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
-	"github.com/CryptOS-PKI/manager/internal/authz"
-	"github.com/CryptOS-PKI/manager/internal/store"
-	"github.com/CryptOS-PKI/manager/internal/store/memory"
+	fleetv1 "github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/authz"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store/memory"
 )
 
 // adapterFixture is a seeded enrollment adapter used by the toggle tests.

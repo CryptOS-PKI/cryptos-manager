@@ -23,7 +23,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"github.com/CryptOS-PKI/manager/internal/store/postgres"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store/postgres"
 )
 
 // dbConnectWindow is how long startup waits for Postgres to start accepting

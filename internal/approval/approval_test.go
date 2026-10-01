@@ -22,9 +22,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/CryptOS-PKI/manager/internal/authz"
-	"github.com/CryptOS-PKI/manager/internal/store"
-	"github.com/CryptOS-PKI/manager/internal/store/memory"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/authz"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store/memory"
 )
 
 var (

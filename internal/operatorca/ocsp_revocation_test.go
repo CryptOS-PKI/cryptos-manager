@@ -23,9 +23,9 @@ import (
 	"testing"
 	"time"
 
-	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
-	"github.com/CryptOS-PKI/manager/internal/apperr"
-	"github.com/CryptOS-PKI/manager/internal/store"
+	fleetv1 "github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/apperr"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
 	"golang.org/x/crypto/ocsp"
 )
 

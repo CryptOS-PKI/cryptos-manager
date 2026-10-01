@@ -29,9 +29,9 @@ import (
 	"strings"
 
 	connect "connectrpc.com/connect"
-	"github.com/CryptOS-PKI/manager/internal/apperr"
-	"github.com/CryptOS-PKI/manager/internal/nodeclient"
-	"github.com/CryptOS-PKI/manager/internal/store"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/apperr"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/nodeclient"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
 )
 
 // linkCARequired refuses a LINK request that names nothing to verify the

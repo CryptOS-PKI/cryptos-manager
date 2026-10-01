@@ -29,7 +29,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/CryptOS-PKI/manager/internal/authz"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/authz"
 )
 
 // testCA is a throwaway operator CA that signs operator certificates for the

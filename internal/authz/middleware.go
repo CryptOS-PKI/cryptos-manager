@@ -24,7 +24,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/CryptOS-PKI/manager/internal/apperr"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/apperr"
 )
 
 // ClientCertMiddleware extracts the operator identity from the verified TLS

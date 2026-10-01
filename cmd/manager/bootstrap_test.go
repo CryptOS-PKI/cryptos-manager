@@ -24,14 +24,14 @@ import (
 	"strings"
 	"testing"
 
-	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
-	"github.com/CryptOS-PKI/api/go/cryptos/fleet/v1/fleetv1connect"
-	"github.com/CryptOS-PKI/manager/internal/apperr"
-	"github.com/CryptOS-PKI/manager/internal/authz"
-	"github.com/CryptOS-PKI/manager/internal/bootstrap"
-	"github.com/CryptOS-PKI/manager/internal/config"
-	"github.com/CryptOS-PKI/manager/internal/operatorca"
-	"github.com/CryptOS-PKI/manager/internal/store/memory"
+	fleetv1 "github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1"
+	"github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1/fleetv1connect"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/apperr"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/authz"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/bootstrap"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/config"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/operatorca"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store/memory"
 )
 
 func TestWithCORS_AllowsTheBootstrapSessionHeader(t *testing.T) {

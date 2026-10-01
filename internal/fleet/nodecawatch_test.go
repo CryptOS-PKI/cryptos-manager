@@ -22,11 +22,11 @@ import (
 	"testing"
 
 	connect "connectrpc.com/connect"
-	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
-	cryptosv1 "github.com/CryptOS-PKI/api/go/cryptos/v1"
-	"github.com/CryptOS-PKI/manager/internal/operatorca"
-	"github.com/CryptOS-PKI/manager/internal/store"
-	"github.com/CryptOS-PKI/manager/internal/store/memory"
+	fleetv1 "github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/operatorca"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store/memory"
+	nodev1 "github.com/CryptOS-PKI/cryptos-node/gen/go/cryptos/node/v1"
 )
 
 // A node whose reported CA chain holds a trusted operator CA raises the
@@ -54,8 +54,8 @@ func TestNodeCAWatch_SeesTheChainsNodesReport(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			conn := &fakeConn{
-				status:   &cryptosv1.GetStatusResponse{Status: &cryptosv1.NodeStatus{}},
-				identity: &cryptosv1.GetIdentityResponse{Identity: &cryptosv1.Identity{ChainDer: [][]byte{caDER}}},
+				status:   &nodev1.GetStatusResponse{Status: &nodev1.NodeStatus{}},
+				identity: &nodev1.GetIdentityResponse{Identity: &nodev1.Identity{ChainDer: [][]byte{caDER}}},
 			}
 			watch := operatorca.NewNodeCAWatch(trust, nil)
 			svc := New(testStore(), dialFor(map[string]*fakeConn{"A": conn})).WithNodeCAWatch(watch)

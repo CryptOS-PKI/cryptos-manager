@@ -25,40 +25,40 @@ import (
 	"crypto/x509"
 
 	log "github.com/Bugs5382/go-log"
-	fleetv1connect "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1/fleetv1connect"
-	cryptosv1 "github.com/CryptOS-PKI/api/go/cryptos/v1"
-	"github.com/CryptOS-PKI/manager/internal/approval"
-	"github.com/CryptOS-PKI/manager/internal/mcpauth"
-	"github.com/CryptOS-PKI/manager/internal/nodeclient"
-	"github.com/CryptOS-PKI/manager/internal/operatorca"
-	"github.com/CryptOS-PKI/manager/internal/store"
+	fleetv1connect "github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1/fleetv1connect"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/approval"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/mcpauth"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/nodeclient"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/operatorca"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
+	nodev1 "github.com/CryptOS-PKI/cryptos-node/gen/go/cryptos/node/v1"
 )
 
 // NodeConn is the manager's-eye view of a per-node connection: just enough
 // to serve FleetService. nodeclient.Client satisfies it; tests inject a
 // fake instead of dialing a real node.
 type NodeConn interface {
-	GetStatus(ctx context.Context) (*cryptosv1.GetStatusResponse, error)
-	ListInstallDisks(ctx context.Context) (*cryptosv1.ListInstallDisksResponse, error)
-	GetIdentity(ctx context.Context) (*cryptosv1.GetIdentityResponse, error)
-	ListIssued(ctx context.Context) (*cryptosv1.ListIssuedResponse, error)
-	GetIssuedCertificate(ctx context.Context, serialHex string) (*cryptosv1.GetIssuedCertificateResponse, error)
-	ListRevocations(ctx context.Context) (*cryptosv1.ListRevocationsResponse, error)
-	Attest(ctx context.Context, nonce []byte) (*cryptosv1.AttestResponse, error)
-	GetSubordinateCSR(ctx context.Context) (*cryptosv1.GetSubordinateCSRResponse, error)
-	SignSubordinateCSR(ctx context.Context, csrDER []byte, profile string) (*cryptosv1.SignSubordinateCSRResponse, error)
-	SubmitSubordinateCertificate(ctx context.Context, chainDER [][]byte, chainPEM string) (*cryptosv1.SubmitSubordinateCertificateResponse, error)
-	ApplyConfig(ctx context.Context, cfg *cryptosv1.MachineConfig) (*cryptosv1.ApplyConfigResponse, error)
-	GetConfig(ctx context.Context) (*cryptosv1.GetConfigResponse, error)
-	SetManagement(ctx context.Context, m *cryptosv1.Management) (*cryptosv1.SetManagementResponse, error)
-	RevokeCertificate(ctx context.Context, serialHex string, reasonCode int32) (*cryptosv1.RevokeCertificateResponse, error)
-	IssueLeaf(ctx context.Context, csrDER []byte, profileName string) (*cryptosv1.IssueLeafResponse, error)
-	BeginKeyRotation(ctx context.Context) (*cryptosv1.BeginKeyRotationResponse, error)
-	CompleteKeyRotation(ctx context.Context, chainDER [][]byte, chainPEM string) (*cryptosv1.CompleteKeyRotationResponse, error)
-	ExportCAKey(ctx context.Context, passphrase []byte) (*cryptosv1.ExportCAKeyResponse, error)
-	ImportCAKey(ctx context.Context, envelope, passphrase []byte) (*cryptosv1.ImportCAKeyResponse, error)
-	RemoteReset(ctx context.Context, confirmCN string) (*cryptosv1.RemoteResetResponse, error)
-	StartCeremony(ctx context.Context, kind cryptosv1.CeremonyKind, machineConfigYAML []byte) (nodeclient.CeremonyStream, error)
+	GetStatus(ctx context.Context) (*nodev1.GetStatusResponse, error)
+	ListInstallDisks(ctx context.Context) (*nodev1.ListInstallDisksResponse, error)
+	GetIdentity(ctx context.Context) (*nodev1.GetIdentityResponse, error)
+	ListIssued(ctx context.Context) (*nodev1.ListIssuedResponse, error)
+	GetIssuedCertificate(ctx context.Context, serialHex string) (*nodev1.GetIssuedCertificateResponse, error)
+	ListRevocations(ctx context.Context) (*nodev1.ListRevocationsResponse, error)
+	Attest(ctx context.Context, nonce []byte) (*nodev1.AttestResponse, error)
+	GetSubordinateCSR(ctx context.Context) (*nodev1.GetSubordinateCSRResponse, error)
+	SignSubordinateCSR(ctx context.Context, csrDER []byte, profile string) (*nodev1.SignSubordinateCSRResponse, error)
+	SubmitSubordinateCertificate(ctx context.Context, chainDER [][]byte, chainPEM string) (*nodev1.SubmitSubordinateCertificateResponse, error)
+	ApplyConfig(ctx context.Context, cfg *nodev1.MachineConfig) (*nodev1.ApplyConfigResponse, error)
+	GetConfig(ctx context.Context) (*nodev1.GetConfigResponse, error)
+	SetManagement(ctx context.Context, m *nodev1.Management) (*nodev1.SetManagementResponse, error)
+	RevokeCertificate(ctx context.Context, serialHex string, reasonCode int32) (*nodev1.RevokeCertificateResponse, error)
+	IssueLeaf(ctx context.Context, csrDER []byte, profileName string) (*nodev1.IssueLeafResponse, error)
+	BeginKeyRotation(ctx context.Context) (*nodev1.BeginKeyRotationResponse, error)
+	CompleteKeyRotation(ctx context.Context, chainDER [][]byte, chainPEM string) (*nodev1.CompleteKeyRotationResponse, error)
+	ExportCAKey(ctx context.Context, passphrase []byte) (*nodev1.ExportCAKeyResponse, error)
+	ImportCAKey(ctx context.Context, envelope, passphrase []byte) (*nodev1.ImportCAKeyResponse, error)
+	RemoteReset(ctx context.Context, confirmCN string) (*nodev1.RemoteResetResponse, error)
+	StartCeremony(ctx context.Context, kind nodev1.CeremonyKind, machineConfigYAML []byte) (nodeclient.CeremonyStream, error)
 	Close() error
 }
 

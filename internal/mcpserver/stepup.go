@@ -21,9 +21,9 @@ import (
 	"encoding/json"
 	"fmt"
 
-	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
-	cryptosv1 "github.com/CryptOS-PKI/api/go/cryptos/v1"
-	"github.com/CryptOS-PKI/manager/internal/apperr"
+	fleetv1 "github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/apperr"
+	nodev1 "github.com/CryptOS-PKI/cryptos-node/gen/go/cryptos/node/v1"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
@@ -213,7 +213,7 @@ func (t *tools) catalogProfile(name string) (string, error) {
 	if !ok {
 		return "", refuse(apperr.CodeProfileNotFound, "no catalog profile named %q", name)
 	}
-	var p cryptosv1.CertificateProfile
+	var p nodev1.CertificateProfile
 	if err := proto.Unmarshal(stored.Spec, &p); err != nil {
 		return "", err
 	}
@@ -222,12 +222,12 @@ func (t *tools) catalogProfile(name string) (string, error) {
 
 // profileFromArgs decodes a profile given as JSON. Unknown fields are
 // refused, so a typo cannot silently drop a constraint.
-func profileFromArgs(m map[string]any) (*cryptosv1.CertificateProfile, error) {
+func profileFromArgs(m map[string]any) (*nodev1.CertificateProfile, error) {
 	b, err := json.Marshal(m)
 	if err != nil {
 		return nil, invalid("profile is not JSON: %v", err)
 	}
-	var p cryptosv1.CertificateProfile
+	var p nodev1.CertificateProfile
 	if err := protojson.Unmarshal(b, &p); err != nil {
 		return nil, invalid("profile does not parse: %v", err)
 	}

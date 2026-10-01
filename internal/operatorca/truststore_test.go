@@ -34,9 +34,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/CryptOS-PKI/manager/internal/authz"
-	"github.com/CryptOS-PKI/manager/internal/config"
-	"github.com/CryptOS-PKI/manager/internal/store"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/authz"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/config"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
 )
 
 // serverTLS is a base TLS config with a server certificate for 127.0.0.1,

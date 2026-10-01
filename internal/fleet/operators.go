@@ -25,12 +25,12 @@ import (
 	"time"
 
 	connect "connectrpc.com/connect"
-	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
-	"github.com/CryptOS-PKI/manager/internal/apperr"
-	"github.com/CryptOS-PKI/manager/internal/auditlog"
-	"github.com/CryptOS-PKI/manager/internal/authz"
-	"github.com/CryptOS-PKI/manager/internal/operatorca"
-	"github.com/CryptOS-PKI/manager/internal/store"
+	fleetv1 "github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/apperr"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/auditlog"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/authz"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/operatorca"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
 )
 
 // denylistWarning is the reminder every revoke carries: the manager's

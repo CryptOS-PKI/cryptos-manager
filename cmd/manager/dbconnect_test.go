@@ -22,7 +22,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/CryptOS-PKI/manager/internal/store/postgres"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store/postgres"
 )
 
 // refusedError returns the real error from trying to open a store against a

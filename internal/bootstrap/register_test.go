@@ -26,11 +26,11 @@ import (
 	"testing"
 
 	connect "connectrpc.com/connect"
-	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
-	"github.com/CryptOS-PKI/manager/internal/apperr"
-	"github.com/CryptOS-PKI/manager/internal/authz"
-	"github.com/CryptOS-PKI/manager/internal/operatorca"
-	"github.com/CryptOS-PKI/manager/internal/store"
+	fleetv1 "github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/apperr"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/authz"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/operatorca"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
 )
 
 func noCRL(ca testCA) *fleetv1.BootstrapServiceRegisterOperatorCARequest {

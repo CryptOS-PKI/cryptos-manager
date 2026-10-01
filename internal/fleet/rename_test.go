@@ -23,11 +23,11 @@ import (
 	"time"
 
 	connect "connectrpc.com/connect"
-	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
-	cryptosv1 "github.com/CryptOS-PKI/api/go/cryptos/v1"
-	"github.com/CryptOS-PKI/manager/internal/authz"
-	"github.com/CryptOS-PKI/manager/internal/store"
-	"github.com/CryptOS-PKI/manager/internal/store/memory"
+	fleetv1 "github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/authz"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store/memory"
+	nodev1 "github.com/CryptOS-PKI/cryptos-node/gen/go/cryptos/node/v1"
 	"github.com/google/uuid"
 )
 
@@ -213,7 +213,7 @@ func TestRenameNode_SameName_NoOpNoAudit(t *testing.T) {
 
 func TestListNodes_CarriesNodeIDs(t *testing.T) {
 	st := certsTestStore()
-	up := &fakeConn{status: &cryptosv1.GetStatusResponse{Status: &cryptosv1.NodeStatus{}}}
+	up := &fakeConn{status: &nodev1.GetStatusResponse{Status: &nodev1.NodeStatus{}}}
 	svc := New(st, dialFor(map[string]*fakeConn{"A": up}))
 
 	resp, err := svc.ListNodes(context.Background(), connect.NewRequest(&fleetv1.ListNodesRequest{}))
@@ -341,7 +341,7 @@ func TestNodeRequests_IDAndNameDisagree_InvalidArgument(t *testing.T) {
 			return err
 		},
 		"ApplyNodeConfig": func() error {
-			_, err := svc.ApplyNodeConfig(ctx, connect.NewRequest(&fleetv1.ApplyNodeConfigRequest{NodeId: a, NodeName: "B", Config: &cryptosv1.MachineConfig{}}))
+			_, err := svc.ApplyNodeConfig(ctx, connect.NewRequest(&fleetv1.ApplyNodeConfigRequest{NodeId: a, NodeName: "B", Config: &nodev1.MachineConfig{}}))
 			return err
 		},
 		"ExportCAKey": func() error {
@@ -398,7 +398,7 @@ func TestNodeRequests_UnknownNodeID_NotFound(t *testing.T) {
 
 func TestGetNodeConfig_ByNodeIDAfterRename(t *testing.T) {
 	st := certsTestStore()
-	connA := &fakeConn{getConfigResp: &cryptosv1.GetConfigResponse{}}
+	connA := &fakeConn{getConfigResp: &nodev1.GetConfigResponse{}}
 	svc := New(st, func(n store.Node) (NodeConn, error) {
 		if n.Name != "root-east" {
 			t.Fatalf("dialed %q, want the renamed node", n.Name)
@@ -441,8 +441,8 @@ func TestSubordinateEnrollment_ByChildNodeID(t *testing.T) {
 func TestListCertificates_CarriesIssuerNodeID(t *testing.T) {
 	st := certsTestStore()
 	conn := &fakeConn{
-		issued:      &cryptosv1.ListIssuedResponse{Issued: []*cryptosv1.IssuedCert{{SerialHex: "01"}}},
-		revocations: &cryptosv1.ListRevocationsResponse{},
+		issued:      &nodev1.ListIssuedResponse{Issued: []*nodev1.IssuedCert{{SerialHex: "01"}}},
+		revocations: &nodev1.ListRevocationsResponse{},
 	}
 	svc := New(st, dialFor(map[string]*fakeConn{"A": conn}))
 	id := nodeID(t, st, "A")
@@ -512,7 +512,7 @@ func TestListAudit_FillsNodeIDsWithoutRewritingEntries(t *testing.T) {
 
 func TestNodeAudit_TargetsTheNodeID(t *testing.T) {
 	st := certsTestStore()
-	conn := &fakeConn{remoteResetResp: &cryptosv1.RemoteResetResponse{Rebooting: true}}
+	conn := &fakeConn{remoteResetResp: &nodev1.RemoteResetResponse{Rebooting: true}}
 	svc := New(st, dialFor(map[string]*fakeConn{"A": conn}))
 	id := nodeID(t, st, "A")
 
@@ -563,14 +563,14 @@ func TestApproveEnrollment_Subordinate_ChildRenamedAfterRequest(t *testing.T) {
 
 func subordinateApprovalFixture(t *testing.T) (store.Store, *Service) {
 	t.Helper()
-	parentConn := &fakeConn{signSubordinateResp: &cryptosv1.SignSubordinateCSRResponse{ChainDer: [][]byte{[]byte("c")}, ChainPem: "pem"}}
+	parentConn := &fakeConn{signSubordinateResp: &nodev1.SignSubordinateCSRResponse{ChainDer: [][]byte{[]byte("c")}, ChainPem: "pem"}}
 	st := memory.NewWithCatalog(
 		[]store.Node{{Name: "child-1", Endpoint: "child:4443"}, {Name: "parent-1", Endpoint: "parent:4443"}},
 		nil, nil, nil,
 		[]store.Enrollment{{ID: "enr-1", Kind: "SUBORDINATE", Status: "PENDING", ProposedName: "child-1", ParentCN: "ACME Intermediate CA", Profile: "sub-ca"}},
 	)
-	parentID := &fakeConn{identity: &cryptosv1.GetIdentityResponse{Identity: &cryptosv1.Identity{ChainDer: [][]byte{issuedLeafDER(t, "ACME Intermediate CA", "ACME Root CA")}}}}
-	childID := &fakeConn{identity: &cryptosv1.GetIdentityResponse{Identity: &cryptosv1.Identity{ChainDer: [][]byte{issuedLeafDER(t, "child-1", "ACME Intermediate CA")}}}}
+	parentID := &fakeConn{identity: &nodev1.GetIdentityResponse{Identity: &nodev1.Identity{ChainDer: [][]byte{issuedLeafDER(t, "ACME Intermediate CA", "ACME Root CA")}}}}
+	childID := &fakeConn{identity: &nodev1.GetIdentityResponse{Identity: &nodev1.Identity{ChainDer: [][]byte{issuedLeafDER(t, "child-1", "ACME Intermediate CA")}}}}
 	svc := New(st, func(n store.Node) (NodeConn, error) {
 		if n.Name == "parent-1" {
 			return &routingConn{identity: parentID, ferry: parentConn}, nil
@@ -587,7 +587,7 @@ func TestApproveEnrollment_Link_RecordsAdmittedNodeID(t *testing.T) {
 			caPEM := linkCAPEM(t)
 			key := mustKey(t)
 			st := memory.New(nil)
-			nodeIdentity := &cryptosv1.GetIdentityResponse{Identity: &cryptosv1.Identity{ChainDer: [][]byte{issuedLeafDER(t, "node-1", "ACME Root CA")}}}
+			nodeIdentity := &nodev1.GetIdentityResponse{Identity: &nodev1.Identity{ChainDer: [][]byte{issuedLeafDER(t, "node-1", "ACME Root CA")}}}
 			svc := New(st, dialFor(nil)).WithEnrollment(dialPEMFakeFor(&fakeConn{attestKey: key, identity: nodeIdentity}))
 			create, err := svc.CreateEnrollment(operatorCtx("op@acme.example", authz.LevelOperator), connect.NewRequest(&fleetv1.CreateEnrollmentRequest{
 				Kind: "LINK", NodeEndpoint: "node:4443", AdminCertPem: "cert", AdminKeyPem: "key", CaPem: caPEM,
@@ -623,12 +623,12 @@ func TestApproveEnrollment_Link_RecordsAdmittedNodeID(t *testing.T) {
 func TestRunAdoption_RegistersANodeIDAndReturnsIt(t *testing.T) {
 	adoptCredsBaseDir = t.TempDir()
 	st := memory.New(nil)
-	mconn := &fakeConn{applyConfigResp: &cryptosv1.ApplyConfigResponse{RequiresReboot: true, Generation: 1}}
+	mconn := &fakeConn{applyConfigResp: &nodev1.ApplyConfigResponse{RequiresReboot: true, Generation: 1}}
 	running := &fakeConn{
 		identity: rootIdentity(t),
-		status:   &cryptosv1.GetStatusResponse{},
-		ceremonyStream: &scriptedCeremony{kinds: []cryptosv1.CeremonyEventKind{
-			cryptosv1.CeremonyEventKind_CEREMONY_EVENT_KIND_COMPLETE,
+		status:   &nodev1.GetStatusResponse{},
+		ceremonyStream: &scriptedCeremony{kinds: []nodev1.CeremonyEventKind{
+			nodev1.CeremonyEventKind_CEREMONY_EVENT_KIND_COMPLETE,
 		}},
 	}
 	svc := New(st, dialFor(map[string]*fakeConn{"new-node": running})).WithAdoption(nil,

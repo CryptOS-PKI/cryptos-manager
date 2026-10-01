@@ -21,40 +21,40 @@ import (
 	"testing"
 
 	connect "connectrpc.com/connect"
-	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
-	cryptosv1 "github.com/CryptOS-PKI/api/go/cryptos/v1"
-	"github.com/CryptOS-PKI/manager/internal/authz"
-	"github.com/CryptOS-PKI/manager/internal/store"
-	"github.com/CryptOS-PKI/manager/internal/store/memory"
+	fleetv1 "github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/authz"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store/memory"
+	nodev1 "github.com/CryptOS-PKI/cryptos-node/gen/go/cryptos/node/v1"
 	"google.golang.org/protobuf/proto"
 )
 
 // profileFixture is a full CertificateProfile carrying a subject, typed SANs,
 // and an extra extension, so tests prove the whole shape round-trips.
-func profileFixture(name string) *cryptosv1.CertificateProfile {
+func profileFixture(name string) *nodev1.CertificateProfile {
 	pathLen := uint32(0)
-	return &cryptosv1.CertificateProfile{
+	return &nodev1.CertificateProfile{
 		Name:             name,
 		KeyAlg:           "ECDSA-P384",
-		Subject:          &cryptosv1.Subject{CommonName: "svc.acme.example", Organization: "ACME", Country: "US"},
+		Subject:          &nodev1.Subject{CommonName: "svc.acme.example", Organization: "ACME", Country: "US"},
 		ValidityDays:     365,
-		BasicConstraints: &cryptosv1.BasicConstraints{IsCa: false, PathLen: &pathLen},
+		BasicConstraints: &nodev1.BasicConstraints{IsCa: false, PathLen: &pathLen},
 		KeyUsage:         []string{"digital_signature", "key_encipherment"},
 		ExtKeyUsage:      []string{"server_auth"},
-		Sans: &cryptosv1.SubjectAltNames{
+		Sans: &nodev1.SubjectAltNames{
 			Dns:   []string{"svc.acme.example"},
 			Ip:    []string{"10.0.0.1"},
 			Email: []string{"ops@acme.example"},
 			Uri:   []string{"spiffe://acme/svc"},
 		},
-		ExtraExtensions: []*cryptosv1.X509Extension{
+		ExtraExtensions: []*nodev1.X509Extension{
 			{Oid: "1.2.3.4", Critical: true, Value: []byte{0x01, 0x02}},
 		},
 	}
 }
 
 // storeProfile marshals a fixture into a store.Profile.
-func storeProfile(t *testing.T, cp *cryptosv1.CertificateProfile) store.Profile {
+func storeProfile(t *testing.T, cp *nodev1.CertificateProfile) store.Profile {
 	t.Helper()
 	raw, err := proto.Marshal(cp)
 	if err != nil {
@@ -124,7 +124,7 @@ func TestCreateProfile_AdminHappyPath_MutatesAndAuditsOnce(t *testing.T) {
 	if !ok {
 		t.Fatal("profile not stored after CreateProfile")
 	}
-	roundTrip := &cryptosv1.CertificateProfile{}
+	roundTrip := &nodev1.CertificateProfile{}
 	if err := proto.Unmarshal(stored.Spec, roundTrip); err != nil {
 		t.Fatalf("stored spec did not unmarshal: %v", err)
 	}
@@ -167,7 +167,7 @@ func TestCreateProfile_NilAndEmptyName_InvalidArgument(t *testing.T) {
 	requireConnectCode(t, err, connect.CodeInvalidArgument)
 
 	_, err = svc.CreateProfile(ctx, connect.NewRequest(&fleetv1.CreateProfileRequest{
-		Profile: &cryptosv1.CertificateProfile{Name: ""},
+		Profile: &nodev1.CertificateProfile{Name: ""},
 	}))
 	requireConnectCode(t, err, connect.CodeInvalidArgument)
 
@@ -193,7 +193,7 @@ func TestUpdateProfile_AdminReplaces_AuditsOnce(t *testing.T) {
 	}
 
 	stored, _ := st.Profile("web")
-	roundTrip := &cryptosv1.CertificateProfile{}
+	roundTrip := &nodev1.CertificateProfile{}
 	_ = proto.Unmarshal(stored.Spec, roundTrip)
 	if roundTrip.GetValidityDays() != 730 {
 		t.Errorf("stored validity = %d, want 730", roundTrip.GetValidityDays())
@@ -274,7 +274,7 @@ func TestDeleteProfile_NonAdminDenied(t *testing.T) {
 }
 
 // applyTestStore seeds one node "A" and the given catalog profiles.
-func applyTestStore(t *testing.T, profiles ...*cryptosv1.CertificateProfile) *memory.Store {
+func applyTestStore(t *testing.T, profiles ...*nodev1.CertificateProfile) *memory.Store {
 	t.Helper()
 	st := memory.New([]store.Node{{Name: "A", Endpoint: "a.acme.com:4443", Role: "issuing"}})
 	for _, p := range profiles {
@@ -336,21 +336,21 @@ func TestApplyProfileToNode_Admin_PreservesWholeConfig(t *testing.T) {
 
 	// The node's current config carries management, role, and an existing
 	// profile that must survive the apply.
-	current := &cryptosv1.MachineConfig{
+	current := &nodev1.MachineConfig{
 		ApiVersion: "cryptos.dev/v1alpha1",
 		Kind:       "MachineConfig",
-		Metadata:   &cryptosv1.Metadata{Name: "A"},
-		Role:       &cryptosv1.Role{Kind: "issuing"},
-		Management: &cryptosv1.Management{ManagerCn: "fm-op", TrustPem: "trust-pem", OperatorSurfaceReadonly: true},
-		Pki: &cryptosv1.Pki{
+		Metadata:   &nodev1.Metadata{Name: "A"},
+		Role:       &nodev1.Role{Kind: "issuing"},
+		Management: &nodev1.Management{ManagerCn: "fm-op", TrustPem: "trust-pem", OperatorSurfaceReadonly: true},
+		Pki: &nodev1.Pki{
 			RootKeyAlg:        "ECDSA-P384",
 			RevocationBaseUrl: "http://ca.acme/crl",
-			Profiles:          []*cryptosv1.CertificateProfile{{Name: "existing", KeyAlg: "RSA-3072"}},
+			Profiles:          []*nodev1.CertificateProfile{{Name: "existing", KeyAlg: "RSA-3072"}},
 		},
 	}
 	connA := &fakeConn{
-		getConfigResp:   &cryptosv1.GetConfigResponse{Config: current},
-		applyConfigResp: &cryptosv1.ApplyConfigResponse{Generation: 9, RequiresReboot: true},
+		getConfigResp:   &nodev1.GetConfigResponse{Config: current},
+		applyConfigResp: &nodev1.ApplyConfigResponse{Generation: 9, RequiresReboot: true},
 	}
 	svc := New(st, dialFor(map[string]*fakeConn{"A": connA}))
 	before := len(st.Audit())
@@ -380,7 +380,7 @@ func TestApplyProfileToNode_Admin_PreservesWholeConfig(t *testing.T) {
 
 	// The applied profile is present and the pre-existing profile is retained.
 	names := map[string]bool{}
-	var appliedWeb *cryptosv1.CertificateProfile
+	var appliedWeb *nodev1.CertificateProfile
 	for _, p := range sent.GetPki().GetProfiles() {
 		names[p.GetName()] = true
 		if p.GetName() == "web" {
@@ -410,12 +410,12 @@ func TestApplyProfileToNode_Admin_PreservesWholeConfig(t *testing.T) {
 // duplicate.
 func TestApplyProfileToNode_ReplacesSameName(t *testing.T) {
 	st := applyTestStore(t, profileFixture("web"))
-	current := &cryptosv1.MachineConfig{
-		Pki: &cryptosv1.Pki{
-			Profiles: []*cryptosv1.CertificateProfile{{Name: "web", KeyAlg: "RSA-3072"}},
+	current := &nodev1.MachineConfig{
+		Pki: &nodev1.Pki{
+			Profiles: []*nodev1.CertificateProfile{{Name: "web", KeyAlg: "RSA-3072"}},
 		},
 	}
-	connA := &fakeConn{getConfigResp: &cryptosv1.GetConfigResponse{Config: current}}
+	connA := &fakeConn{getConfigResp: &nodev1.GetConfigResponse{Config: current}}
 	svc := New(st, dialFor(map[string]*fakeConn{"A": connA}))
 
 	ctx := operatorCtx("admin@acme.example", authz.LevelAdmin)

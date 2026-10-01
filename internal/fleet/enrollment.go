@@ -26,11 +26,11 @@ import (
 	"time"
 
 	connect "connectrpc.com/connect"
-	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
-	cryptosv1 "github.com/CryptOS-PKI/api/go/cryptos/v1"
-	"github.com/CryptOS-PKI/manager/internal/auditlog"
-	"github.com/CryptOS-PKI/manager/internal/authz"
-	"github.com/CryptOS-PKI/manager/internal/store"
+	fleetv1 "github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/auditlog"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/authz"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
+	nodev1 "github.com/CryptOS-PKI/cryptos-node/gen/go/cryptos/node/v1"
 )
 
 // operatorLevel returns the authenticated operator identity carried by ctx.
@@ -239,7 +239,7 @@ func (s *Service) approveLinkEnrollment(ctx context.Context, id authz.Identity, 
 	// trust_pem stays empty: the operator CA is never pushed to a node, so
 	// an operator certificate can't authenticate at a node directly, and
 	// nothing goes stale when the operator CA rotates.
-	if _, err := conn.SetManagement(ctx, &cryptosv1.Management{
+	if _, err := conn.SetManagement(ctx, &nodev1.Management{
 		ManagerCn:               id.CN,
 		OperatorSurfaceReadonly: true,
 	}); err != nil {

@@ -20,7 +20,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/CryptOS-PKI/manager/internal/authz"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/authz"
 )
 
 // opCommonLines are the profile lines every op_<level> section carries: the

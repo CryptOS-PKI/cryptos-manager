@@ -29,10 +29,10 @@ import (
 	"time"
 
 	connect "connectrpc.com/connect"
-	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
-	cryptosv1 "github.com/CryptOS-PKI/api/go/cryptos/v1"
-	"github.com/CryptOS-PKI/manager/internal/apperr"
-	"github.com/CryptOS-PKI/manager/internal/authz"
+	fleetv1 "github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/apperr"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/authz"
+	nodev1 "github.com/CryptOS-PKI/cryptos-node/gen/go/cryptos/node/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -68,7 +68,7 @@ func pemBlocks(t *testing.T, s string) [][]byte {
 
 func TestGetCertificate_ReturnsPEMAndChainToAViewer(t *testing.T) {
 	leaf, issuer, root := testCertDER(t, "svc.example.org"), testCertDER(t, "Example Issuing CA"), testCertDER(t, "Example Root CA G1")
-	connB := &fakeConn{getIssued: &cryptosv1.GetIssuedCertificateResponse{CertificateDer: leaf, ChainDer: [][]byte{issuer, root}, Status: "valid"}}
+	connB := &fakeConn{getIssued: &nodev1.GetIssuedCertificateResponse{CertificateDer: leaf, ChainDer: [][]byte{issuer, root}, Status: "valid"}}
 	st := certsTestStore()
 	svc := New(st, dialFor(map[string]*fakeConn{"B": connB}))
 	before := len(st.Audit())
@@ -95,7 +95,7 @@ func TestGetCertificate_ReturnsPEMAndChainToAViewer(t *testing.T) {
 }
 
 func TestGetCertificate_RevokedIsReturnedWithItsStatus(t *testing.T) {
-	connB := &fakeConn{getIssued: &cryptosv1.GetIssuedCertificateResponse{
+	connB := &fakeConn{getIssued: &nodev1.GetIssuedCertificateResponse{
 		CertificateDer: testCertDER(t, "svc.example.org"), Status: "revoked", RevokedAt: "2026-09-01T00:00:00Z",
 	}}
 	svc := New(certsTestStore(), dialFor(map[string]*fakeConn{"B": connB}))

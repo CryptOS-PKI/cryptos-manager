@@ -22,8 +22,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/CryptOS-PKI/manager/internal/authz"
-	"github.com/CryptOS-PKI/manager/internal/store/memory"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/authz"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store/memory"
 )
 
 func owner(serial string, level authz.Level) authz.Identity {

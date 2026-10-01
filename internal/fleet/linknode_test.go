@@ -32,13 +32,13 @@ import (
 	"time"
 
 	connect "connectrpc.com/connect"
-	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
-	cryptosv1 "github.com/CryptOS-PKI/api/go/cryptos/v1"
-	"github.com/CryptOS-PKI/manager/internal/apperr"
-	"github.com/CryptOS-PKI/manager/internal/authz"
-	"github.com/CryptOS-PKI/manager/internal/nodeclient"
-	"github.com/CryptOS-PKI/manager/internal/store"
-	"github.com/CryptOS-PKI/manager/internal/store/memory"
+	fleetv1 "github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/apperr"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/authz"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/nodeclient"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store/memory"
+	nodev1 "github.com/CryptOS-PKI/cryptos-node/gen/go/cryptos/node/v1"
 )
 
 // linkCAPEM is the CA certificate a LINK request names as ca_pem.
@@ -76,7 +76,7 @@ func linkFixture(t *testing.T, cn, endpoint, caPEM string) (*Service, store.Stor
 	t.Helper()
 	adoptCredsBaseDir = t.TempDir()
 	key := mustKey(t)
-	identity := &cryptosv1.GetIdentityResponse{Identity: &cryptosv1.Identity{ChainDer: [][]byte{issuedLeafDER(t, cn, cn)}}}
+	identity := &nodev1.GetIdentityResponse{Identity: &nodev1.Identity{ChainDer: [][]byte{issuedLeafDER(t, cn, cn)}}}
 	st := memory.New(nil)
 	svc := New(st, dialFor(nil)).WithEnrollment(dialPEMFakeFor(&fakeConn{attestKey: key, identity: identity}))
 	resp, err := svc.CreateEnrollment(operatorCtx("op@example.org", authz.LevelOperator), connect.NewRequest(&fleetv1.CreateEnrollmentRequest{
@@ -173,7 +173,7 @@ func TestApproveEnrollment_Link_RequiresCAPEM(t *testing.T) {
 func TestApproveEnrollment_Link_RegistersTheNode(t *testing.T) {
 	caPEM := linkCAPEM(t)
 	svc, st, id, key := linkFixture(t, "Example Root CA G1", "192.0.2.10:443", caPEM)
-	approveConn := &fakeConn{attestKey: key, getConfigResp: &cryptosv1.GetConfigResponse{Config: &cryptosv1.MachineConfig{Role: &cryptosv1.Role{Kind: "root"}}}}
+	approveConn := &fakeConn{attestKey: key, getConfigResp: &nodev1.GetConfigResponse{Config: &nodev1.MachineConfig{Role: &nodev1.Role{Kind: "root"}}}}
 	svc.dialPEM = dialPEMFakeFor(approveConn)
 
 	resp, err := approveLink(svc, id, "192.0.2.10:443", caPEM)

@@ -28,9 +28,9 @@ import (
 	"unicode"
 
 	connect "connectrpc.com/connect"
-	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
-	"github.com/CryptOS-PKI/manager/internal/auditlog"
-	"github.com/CryptOS-PKI/manager/internal/store"
+	fleetv1 "github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/auditlog"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
 )
 
 // phaseAwaitingFingerprint is streamed, with the presented SHA-256, while an

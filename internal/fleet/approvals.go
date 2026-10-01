@@ -21,10 +21,10 @@ import (
 	"errors"
 
 	connect "connectrpc.com/connect"
-	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
-	"github.com/CryptOS-PKI/manager/internal/apperr"
-	"github.com/CryptOS-PKI/manager/internal/approval"
-	"github.com/CryptOS-PKI/manager/internal/authz"
+	fleetv1 "github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/apperr"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/approval"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/authz"
 )
 
 // ListApprovals returns the step-up approvals, newest first, optionally

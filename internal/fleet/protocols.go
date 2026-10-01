@@ -29,12 +29,12 @@ import (
 
 	connect "connectrpc.com/connect"
 	log "github.com/Bugs5382/go-log"
-	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
-	cryptosv1 "github.com/CryptOS-PKI/api/go/cryptos/v1"
-	"github.com/CryptOS-PKI/manager/internal/apperr"
-	"github.com/CryptOS-PKI/manager/internal/auditlog"
-	"github.com/CryptOS-PKI/manager/internal/nodeclient"
-	"github.com/CryptOS-PKI/manager/internal/store"
+	fleetv1 "github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/apperr"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/auditlog"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/nodeclient"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
+	nodev1 "github.com/CryptOS-PKI/cryptos-node/gen/go/cryptos/node/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -42,32 +42,32 @@ import (
 )
 
 // protocolBlocks maps each enrolment protocol the manager can switch to its
-// block on cryptos.v1.Pki. Every block has `enabled` as its first field, so a
+// block on cryptos.node.v1.Pki. Every block has `enabled` as its first field, so a
 // new protocol (SCEP, then WSTEP and RFC 3161) is one entry here.
-var protocolBlocks = map[cryptosv1.ServiceProtocol]protoreflect.Name{
-	cryptosv1.ServiceProtocol_SERVICE_PROTOCOL_ACME: "acme",
-	cryptosv1.ServiceProtocol_SERVICE_PROTOCOL_EST:  "est",
+var protocolBlocks = map[nodev1.ServiceProtocol]protoreflect.Name{
+	nodev1.ServiceProtocol_SERVICE_PROTOCOL_ACME: "acme",
+	nodev1.ServiceProtocol_SERVICE_PROTOCOL_EST:  "est",
 }
 
 // protocolLabel is the protocol's display name for audit summaries and logs:
 // "ACME" for SERVICE_PROTOCOL_ACME.
-func protocolLabel(p cryptosv1.ServiceProtocol) string {
+func protocolLabel(p nodev1.ServiceProtocol) string {
 	return strings.TrimPrefix(p.String(), "SERVICE_PROTOCOL_")
 }
 
 // blockField returns the Pki field descriptor for p's block.
-func blockField(p cryptosv1.ServiceProtocol) (protoreflect.FieldDescriptor, bool) {
+func blockField(p nodev1.ServiceProtocol) (protoreflect.FieldDescriptor, bool) {
 	name, ok := protocolBlocks[p]
 	if !ok {
 		return nil, false
 	}
-	fd := (&cryptosv1.Pki{}).ProtoReflect().Descriptor().Fields().ByName(name)
+	fd := (&nodev1.Pki{}).ProtoReflect().Descriptor().Fields().ByName(name)
 	return fd, fd != nil
 }
 
 // blockState reports whether pki carries p's block and whether that block is
 // enabled. A nil pki has no blocks.
-func blockState(pki *cryptosv1.Pki, fd protoreflect.FieldDescriptor) (present, enabled bool) {
+func blockState(pki *nodev1.Pki, fd protoreflect.FieldDescriptor) (present, enabled bool) {
 	if pki == nil || !pki.ProtoReflect().Has(fd) {
 		return false, false
 	}
@@ -77,7 +77,7 @@ func blockState(pki *cryptosv1.Pki, fd protoreflect.FieldDescriptor) (present, e
 
 // setBlockEnabled sets the enabled flag on pki's block for fd, creating an
 // empty block when the node has none, and leaves every other field as it was.
-func setBlockEnabled(pki *cryptosv1.Pki, fd protoreflect.FieldDescriptor, enabled bool) {
+func setBlockEnabled(pki *nodev1.Pki, fd protoreflect.FieldDescriptor, enabled bool) {
 	block := pki.ProtoReflect().Mutable(fd).Message()
 	block.Set(block.Descriptor().Fields().ByName("enabled"), protoreflect.ValueOfBool(enabled))
 }
@@ -130,12 +130,12 @@ func (s *Service) SetNodeProtocol(ctx context.Context, req *connect.Request[flee
 	}
 	l.Debug("set node protocol: fetched node config", log.F("elapsed_ms", time.Since(started).Milliseconds()))
 
-	cfg := proto.Clone(current.GetConfig()).(*cryptosv1.MachineConfig)
+	cfg := proto.Clone(current.GetConfig()).(*nodev1.MachineConfig)
 	if cfg == nil {
-		cfg = &cryptosv1.MachineConfig{}
+		cfg = &nodev1.MachineConfig{}
 	}
 	if cfg.Pki == nil {
-		cfg.Pki = &cryptosv1.Pki{}
+		cfg.Pki = &nodev1.Pki{}
 	}
 
 	present, was := blockState(cfg.Pki, fd)
@@ -182,14 +182,14 @@ func (s *Service) SetNodeProtocol(ctx context.Context, req *connect.Request[flee
 
 // protocolSwitch is one protocol whose enabled flag an apply changes.
 type protocolSwitch struct {
-	protocol cryptosv1.ServiceProtocol
+	protocol nodev1.ServiceProtocol
 	enabled  bool
 }
 
 // protocolSwitches compares the protocol blocks sent in next against the
 // node's current config and returns, in protocol order, the protocols whose
 // enabled flag changes. An absent block keeps the node's, so it never counts.
-func protocolSwitches(current, next *cryptosv1.Pki) []protocolSwitch {
+func protocolSwitches(current, next *nodev1.Pki) []protocolSwitch {
 	var switches []protocolSwitch
 	for _, p := range slices.Sorted(maps.Keys(protocolBlocks)) {
 		fd, ok := blockField(p)
@@ -209,7 +209,7 @@ func protocolSwitches(current, next *cryptosv1.Pki) []protocolSwitch {
 
 // carriesProtocolBlock reports whether cfg sends any protocol block, which is
 // when an apply can switch a protocol.
-func carriesProtocolBlock(cfg *cryptosv1.MachineConfig) bool {
+func carriesProtocolBlock(cfg *nodev1.MachineConfig) bool {
 	for p := range protocolBlocks {
 		if fd, ok := blockField(p); ok {
 			if present, _ := blockState(cfg.GetPki(), fd); present {
@@ -223,7 +223,7 @@ func carriesProtocolBlock(cfg *cryptosv1.MachineConfig) bool {
 // auditProtocol appends one protocol switch event against the node's stable
 // ID, so the entry keeps pointing at the node after a rename. via names the
 // path when it is not SetNodeProtocol.
-func (s *Service) auditProtocol(ctx context.Context, node store.Node, p cryptosv1.ServiceProtocol, enabled, rebootRequired bool, via string) {
+func (s *Service) auditProtocol(ctx context.Context, node store.Node, p nodev1.ServiceProtocol, enabled, rebootRequired bool, via string) {
 	kind, verb := "protocol-disabled", "Disabled"
 	if enabled {
 		kind, verb = "protocol-enabled", "Enabled"
@@ -297,20 +297,20 @@ var refusedFingerprint = regexp.MustCompile(`\(sha256 ([0-9a-f]+)\)`)
 // node cannot report.
 type rebootTracker struct {
 	mu      sync.Mutex
-	pending map[string]map[cryptosv1.ServiceProtocol]bool
+	pending map[string]map[nodev1.ServiceProtocol]bool
 }
 
 func newRebootTracker() *rebootTracker {
-	return &rebootTracker{pending: map[string]map[cryptosv1.ServiceProtocol]bool{}}
+	return &rebootTracker{pending: map[string]map[nodev1.ServiceProtocol]bool{}}
 }
 
 // record notes that the node with ID node accepted switching p to enabled and
 // needs a reboot. Keying by ID keeps the record through a rename.
-func (r *rebootTracker) record(node string, p cryptosv1.ServiceProtocol, enabled bool) {
+func (r *rebootTracker) record(node string, p nodev1.ServiceProtocol, enabled bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.pending[node] == nil {
-		r.pending[node] = map[cryptosv1.ServiceProtocol]bool{}
+		r.pending[node] = map[nodev1.ServiceProtocol]bool{}
 	}
 	r.pending[node][p] = enabled
 }
@@ -327,14 +327,14 @@ func (r *rebootTracker) pendingFor(node string) int {
 // node reports the protocol running in the switched state with nothing
 // pending. It returns the node's protocol list with reboot_pending also set
 // for every switch still recorded, and whether the node needs a reboot at all.
-func (r *rebootTracker) reconcile(l log.Logger, node string, st *cryptosv1.NodeStatus) ([]*cryptosv1.ProtocolStatus, bool) {
+func (r *rebootTracker) reconcile(l log.Logger, node string, st *nodev1.NodeStatus) ([]*nodev1.ProtocolStatus, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	reported := map[cryptosv1.ServiceProtocol]*cryptosv1.ProtocolStatus{}
-	protocols := make([]*cryptosv1.ProtocolStatus, 0, len(st.GetProtocols()))
+	reported := map[nodev1.ServiceProtocol]*nodev1.ProtocolStatus{}
+	protocols := make([]*nodev1.ProtocolStatus, 0, len(st.GetProtocols()))
 	for _, ps := range st.GetProtocols() {
-		c := proto.Clone(ps).(*cryptosv1.ProtocolStatus)
+		c := proto.Clone(ps).(*nodev1.ProtocolStatus)
 		reported[c.GetProtocol()] = c
 		protocols = append(protocols, c)
 	}
@@ -364,7 +364,7 @@ func (r *rebootTracker) reconcile(l log.Logger, node string, st *cryptosv1.NodeS
 
 // withProtocolState fills summary's protocol state from the node's status and
 // the recorded switches.
-func (s *Service) withProtocolState(ctx context.Context, summary *fleetv1.NodeSummary, st *cryptosv1.NodeStatus) *fleetv1.NodeSummary {
+func (s *Service) withProtocolState(ctx context.Context, summary *fleetv1.NodeSummary, st *nodev1.NodeStatus) *fleetv1.NodeSummary {
 	l := s.log.Ctx(ctx).With(log.F("node", summary.GetName()), log.F("node_id", summary.GetId()))
 	summary.Protocols, summary.RebootRequired = s.reboots.reconcile(l, summary.GetId(), st)
 	l.Debug("node protocol state", log.F("protocols", len(summary.GetProtocols())), log.F("reboot_required", summary.GetRebootRequired()))

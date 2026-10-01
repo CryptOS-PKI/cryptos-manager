@@ -23,9 +23,9 @@ import (
 	"sync"
 
 	connect "connectrpc.com/connect"
-	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
-	cryptosv1 "github.com/CryptOS-PKI/api/go/cryptos/v1"
-	"github.com/CryptOS-PKI/manager/internal/store"
+	fleetv1 "github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
+	nodev1 "github.com/CryptOS-PKI/cryptos-node/gen/go/cryptos/node/v1"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -38,7 +38,7 @@ import (
 // configured (#83) -- the nodes are authoritative for what they serve, and the
 // manager is an interface onto them. Operator-readable.
 func (s *Service) ListProfiles(ctx context.Context, _ *connect.Request[fleetv1.ListProfilesRequest]) (*connect.Response[fleetv1.ListProfilesResponse], error) {
-	items := make([]*cryptosv1.CertificateProfile, 0, len(s.store.Profiles()))
+	items := make([]*nodev1.CertificateProfile, 0, len(s.store.Profiles()))
 	seen := make(map[string]struct{})
 
 	// The FM's own rows first: a profile an operator authored here wins over a
@@ -80,13 +80,13 @@ func (s *Service) ListProfiles(ctx context.Context, _ *connect.Request[fleetv1.L
 // because one node is down is worse than a partial one, and the caller has no
 // way to tell the difference from an empty fleet. Results are sorted by name so
 // the list is stable across calls regardless of which goroutine finished first.
-func (s *Service) nodeProfiles(ctx context.Context) []*cryptosv1.CertificateProfile {
+func (s *Service) nodeProfiles(ctx context.Context) []*nodev1.CertificateProfile {
 	if s.dial == nil {
 		return nil
 	}
 
 	nodes := s.store.Nodes()
-	perNode := make([][]*cryptosv1.CertificateProfile, len(nodes))
+	perNode := make([][]*nodev1.CertificateProfile, len(nodes))
 
 	var wg sync.WaitGroup
 	for i, n := range nodes {
@@ -109,7 +109,7 @@ func (s *Service) nodeProfiles(ctx context.Context) []*cryptosv1.CertificateProf
 	}
 	wg.Wait()
 
-	var out []*cryptosv1.CertificateProfile
+	var out []*nodev1.CertificateProfile
 	for _, ps := range perNode {
 		out = append(out, ps...)
 	}
@@ -119,9 +119,9 @@ func (s *Service) nodeProfiles(ctx context.Context) []*cryptosv1.CertificateProf
 }
 
 // unmarshalProfile decodes a stored profile's spec bytes into a
-// cryptos.v1.CertificateProfile.
-func unmarshalProfile(p store.Profile) (*cryptosv1.CertificateProfile, error) {
-	cp := &cryptosv1.CertificateProfile{}
+// cryptos.node.v1.CertificateProfile.
+func unmarshalProfile(p store.Profile) (*nodev1.CertificateProfile, error) {
+	cp := &nodev1.CertificateProfile{}
 	if err := proto.Unmarshal(p.Spec, cp); err != nil {
 		return nil, fmt.Errorf("fleet: unmarshal profile %q: %w", p.Name, err)
 	}

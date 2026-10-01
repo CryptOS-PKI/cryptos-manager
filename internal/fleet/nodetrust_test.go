@@ -31,12 +31,12 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
-	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
-	cryptosv1 "github.com/CryptOS-PKI/api/go/cryptos/v1"
-	"github.com/CryptOS-PKI/manager/internal/authz"
-	"github.com/CryptOS-PKI/manager/internal/nodeclient"
-	"github.com/CryptOS-PKI/manager/internal/store"
-	"github.com/CryptOS-PKI/manager/internal/store/memory"
+	fleetv1 "github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/authz"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/nodeclient"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store/memory"
+	nodev1 "github.com/CryptOS-PKI/cryptos-node/gen/go/cryptos/node/v1"
 )
 
 // detailSink records every streamed phase with its detail.
@@ -69,9 +69,9 @@ func readPEMCerts(t *testing.T, path string) [][]byte {
 
 // rootIdentity is what an adopted root reports from GetIdentity once its
 // ceremony is done: its self-signed CA certificate.
-func rootIdentity(t *testing.T) *cryptosv1.GetIdentityResponse {
+func rootIdentity(t *testing.T) *nodev1.GetIdentityResponse {
 	t.Helper()
-	return &cryptosv1.GetIdentityResponse{Identity: &cryptosv1.Identity{
+	return &nodev1.GetIdentityResponse{Identity: &nodev1.Identity{
 		ChainDer: [][]byte{issuedLeafDER(t, "Example Root CA G1", "Example Root CA G1")},
 	}}
 }
@@ -114,12 +114,12 @@ func TestRunAdoption_Root_PinsRunningCertAndRecordsCAChain(t *testing.T) {
 	running := fakeRunningCert(t)
 	rootDER := issuedLeafDER(t, "Example Root CA G1", "Example Root CA G1")
 
-	mconn := &fakeConn{applyConfigResp: &cryptosv1.ApplyConfigResponse{RequiresReboot: true, Generation: 1}}
+	mconn := &fakeConn{applyConfigResp: &nodev1.ApplyConfigResponse{RequiresReboot: true, Generation: 1}}
 	runningConn := &fakeConn{
-		status:   &cryptosv1.GetStatusResponse{},
-		identity: &cryptosv1.GetIdentityResponse{Identity: &cryptosv1.Identity{ChainDer: [][]byte{rootDER}}},
-		ceremonyStream: &scriptedCeremony{kinds: []cryptosv1.CeremonyEventKind{
-			cryptosv1.CeremonyEventKind_CEREMONY_EVENT_KIND_COMPLETE,
+		status:   &nodev1.GetStatusResponse{},
+		identity: &nodev1.GetIdentityResponse{Identity: &nodev1.Identity{ChainDer: [][]byte{rootDER}}},
+		ceremonyStream: &scriptedCeremony{kinds: []nodev1.CeremonyEventKind{
+			nodev1.CeremonyEventKind_CEREMONY_EVENT_KIND_COMPLETE,
 		}},
 	}
 	var captured []string
@@ -168,15 +168,15 @@ func TestRunAdoption_Root_PinsRunningCertAndRecordsCAChain(t *testing.T) {
 func TestRunAdoption_Subordinate_PinsRunningCertWithoutChain(t *testing.T) {
 	adoptCredsBaseDir = t.TempDir()
 	st := memory.New(nil)
-	mconn := &fakeConn{applyConfigResp: &cryptosv1.ApplyConfigResponse{RequiresReboot: true, Generation: 1}}
-	svc := New(st, dialFor(map[string]*fakeConn{"sub-node": {status: &cryptosv1.GetStatusResponse{}}})).
+	mconn := &fakeConn{applyConfigResp: &nodev1.ApplyConfigResponse{RequiresReboot: true, Generation: 1}}
+	svc := New(st, dialFor(map[string]*fakeConn{"sub-node": {status: &nodev1.GetStatusResponse{}}})).
 		WithAdoption(nil, func(string, string, string, string) (NodeConn, error) { return mconn, nil }).
 		WithServerCertCapture(func(store.Node) (*x509.Certificate, error) { return fakeRunningCert(t), nil })
 	defer setRebootTiming(5*time.Millisecond, time.Millisecond, time.Millisecond)()
 
 	cfg := adoptConfig()
 	cfg.Metadata.Name = "sub-node"
-	cfg.Role = &cryptosv1.Role{Kind: "issuing"}
+	cfg.Role = &nodev1.Role{Kind: "issuing"}
 	if err := svc.runAdoptionAs(context.Background(), "adopt-sub", &fleetv1.AdoptNodeRequest{
 		Endpoint: "192.0.2.31:4443", PinnedCertSha256: "abc", Config: cfg,
 	}, confirmingSink(t, svc, "adopt-sub", (&detailSink{}).send)); err != nil {
@@ -196,11 +196,11 @@ func TestRunAdoption_Subordinate_PinsRunningCertWithoutChain(t *testing.T) {
 func TestRunAdoption_CaptureFails_KeepsWaitingThenErrors(t *testing.T) {
 	adoptCredsBaseDir = t.TempDir()
 	st := memory.New(nil)
-	mconn := &fakeConn{applyConfigResp: &cryptosv1.ApplyConfigResponse{RequiresReboot: true}}
+	mconn := &fakeConn{applyConfigResp: &nodev1.ApplyConfigResponse{RequiresReboot: true}}
 	dialed := false
 	svc := New(st, func(store.Node) (NodeConn, error) {
 		dialed = true
-		return &fakeConn{status: &cryptosv1.GetStatusResponse{}}, nil
+		return &fakeConn{status: &nodev1.GetStatusResponse{}}, nil
 	}).
 		WithAdoption(nil, func(string, string, string, string) (NodeConn, error) { return mconn, nil }).
 		WithServerCertCapture(func(store.Node) (*x509.Certificate, error) { return nil, errors.New("connection refused") })
@@ -224,7 +224,7 @@ func TestApproveEnrollment_Subordinate_RecordsChildCAChain(t *testing.T) {
 		issuedLeafDER(t, "Example Issuing CA", "Example Root CA G1"),
 		issuedLeafDER(t, "Example Root CA G1", "Example Root CA G1"),
 	}
-	parentConn := &fakeConn{signSubordinateResp: &cryptosv1.SignSubordinateCSRResponse{ChainDer: chainDER}}
+	parentConn := &fakeConn{signSubordinateResp: &nodev1.SignSubordinateCSRResponse{ChainDer: chainDER}}
 	st := memory.NewWithCatalog(
 		[]store.Node{
 			{Name: "child-1", Endpoint: "192.0.2.41:4443", AdminCert: childAdmin, AdminKey: filepath.Join(childDir, "admin.key")},
@@ -233,8 +233,8 @@ func TestApproveEnrollment_Subordinate_RecordsChildCAChain(t *testing.T) {
 		nil, nil, nil,
 		[]store.Enrollment{{ID: "enr-1", Kind: "SUBORDINATE", Status: "PENDING", ProposedName: "child-1", ParentCN: "Example Root CA G1", Profile: "subordinate-ca"}},
 	)
-	parentIdentity := &fakeConn{identity: &cryptosv1.GetIdentityResponse{Identity: &cryptosv1.Identity{ChainDer: [][]byte{chainDER[1]}}}}
-	childIdentity := &fakeConn{identity: &cryptosv1.GetIdentityResponse{Identity: &cryptosv1.Identity{ChainDer: [][]byte{issuedLeafDER(t, "child-1", "child-1")}}}}
+	parentIdentity := &fakeConn{identity: &nodev1.GetIdentityResponse{Identity: &nodev1.Identity{ChainDer: [][]byte{chainDER[1]}}}}
+	childIdentity := &fakeConn{identity: &nodev1.GetIdentityResponse{Identity: &nodev1.Identity{ChainDer: [][]byte{issuedLeafDER(t, "child-1", "child-1")}}}}
 	dial := func(n store.Node) (NodeConn, error) {
 		switch n.Name {
 		case "child-1":
@@ -284,7 +284,7 @@ func TestListNodes_InsecureNodeFlaggedUnverified(t *testing.T) {
 		{Name: "prod-node", Endpoint: "192.0.2.51:4443"},
 	})
 	up := func() *fakeConn {
-		return &fakeConn{status: &cryptosv1.GetStatusResponse{Status: &cryptosv1.NodeStatus{}}}
+		return &fakeConn{status: &nodev1.GetStatusResponse{Status: &nodev1.NodeStatus{}}}
 	}
 	svc := New(st, dialFor(map[string]*fakeConn{"lab-node": up(), "prod-node": up()})).
 		WithUnverifiedNodes(func(n store.Node) bool { return n.Name == "lab-node" })

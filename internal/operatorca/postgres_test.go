@@ -25,8 +25,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/CryptOS-PKI/manager/internal/store"
-	"github.com/CryptOS-PKI/manager/internal/store/postgres"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store/postgres"
 	"github.com/jackc/pgx/v5"
 )
 

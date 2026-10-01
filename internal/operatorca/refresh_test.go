@@ -29,7 +29,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/CryptOS-PKI/manager/internal/store"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
 )
 
 func crlServer(t *testing.T, body func() []byte) (*httptest.Server, *atomic.Int64) {

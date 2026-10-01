@@ -24,7 +24,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/CryptOS-PKI/manager/internal/authz"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/authz"
 )
 
 // run encodes the access-level extension value for the given level token and

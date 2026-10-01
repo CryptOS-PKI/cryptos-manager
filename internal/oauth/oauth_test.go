@@ -37,9 +37,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/CryptOS-PKI/manager/internal/authz"
-	"github.com/CryptOS-PKI/manager/internal/mcpauth"
-	"github.com/CryptOS-PKI/manager/internal/store/memory"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/authz"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/mcpauth"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store/memory"
 )
 
 const publicURL = "https://fleetos.example.org"

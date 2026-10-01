@@ -23,8 +23,8 @@ import (
 	"io"
 	"time"
 
-	"github.com/CryptOS-PKI/manager/internal/auditlog"
-	"github.com/CryptOS-PKI/manager/internal/store"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/auditlog"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
 )
 
 // KindBootstrapReset is the audit kind of the break-glass reset.

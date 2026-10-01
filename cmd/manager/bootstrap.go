@@ -23,11 +23,11 @@ import (
 	"net/http"
 	"os"
 
-	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
-	"github.com/CryptOS-PKI/manager/internal/bootstrap"
-	"github.com/CryptOS-PKI/manager/internal/config"
-	"github.com/CryptOS-PKI/manager/internal/operatorca"
-	"github.com/CryptOS-PKI/manager/internal/store"
+	fleetv1 "github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/bootstrap"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/config"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/operatorca"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
 )
 
 // rootMounts is the optional route sets for the root handler: base, plus

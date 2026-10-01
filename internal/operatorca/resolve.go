@@ -23,8 +23,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/CryptOS-PKI/manager/internal/config"
-	"github.com/CryptOS-PKI/manager/internal/store"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/config"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
 )
 
 // Kind is where the operator CA trust anchors come from.

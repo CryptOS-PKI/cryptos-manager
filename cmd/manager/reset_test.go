@@ -25,7 +25,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/CryptOS-PKI/manager/internal/config"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/config"
 )
 
 func TestParseFlags_ResetFirstRun(t *testing.T) {

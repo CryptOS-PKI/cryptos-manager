@@ -22,7 +22,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/CryptOS-PKI/manager/internal/store"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
 )
 
 // checkTimeout bounds one CheckNode handshake.

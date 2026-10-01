@@ -20,7 +20,7 @@ import (
 	"reflect"
 	"testing"
 
-	fleetv1connect "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1/fleetv1connect"
+	fleetv1connect "github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1/fleetv1connect"
 )
 
 // The catalog is the complete policy table, so every FleetService method has

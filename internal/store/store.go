@@ -81,11 +81,11 @@ func IsNodeID(s string) bool {
 }
 
 // Profile is a catalog certificate-issuance template, stored as the marshaled
-// cryptos.v1.CertificateProfile so it is a lossless superset the node accepts
+// cryptos.node.v1.CertificateProfile so it is a lossless superset the node accepts
 // verbatim. Name is the catalog identity key; Spec is the marshaled proto.
 type Profile struct {
 	Name string
-	Spec []byte // marshaled cryptos.v1.CertificateProfile
+	Spec []byte // marshaled cryptos.node.v1.CertificateProfile
 }
 
 // Adapter is an enrollment protocol adapter's configuration: which protocol

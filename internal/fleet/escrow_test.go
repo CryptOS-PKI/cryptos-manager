@@ -22,11 +22,11 @@ import (
 	"testing"
 
 	connect "connectrpc.com/connect"
-	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
-	cryptosv1 "github.com/CryptOS-PKI/api/go/cryptos/v1"
-	"github.com/CryptOS-PKI/manager/internal/authz"
-	"github.com/CryptOS-PKI/manager/internal/store"
-	"github.com/CryptOS-PKI/manager/internal/store/memory"
+	fleetv1 "github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/authz"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store/memory"
+	nodev1 "github.com/CryptOS-PKI/cryptos-node/gen/go/cryptos/node/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -156,7 +156,7 @@ func TestExportCAKey_UnknownNode_NotFound(t *testing.T) {
 func TestExportCAKey_Admin_ReturnsEnvelopeAndAudits(t *testing.T) {
 	st := escrowTestStore()
 	connA := &fakeConn{
-		exportResp: &cryptosv1.ExportCAKeyResponse{Envelope: []byte("ENCRYPTED-ENVELOPE-BYTES")},
+		exportResp: &nodev1.ExportCAKeyResponse{Envelope: []byte("ENCRYPTED-ENVELOPE-BYTES")},
 	}
 	svc := New(st, dialFor(map[string]*fakeConn{"A": connA}))
 
@@ -327,8 +327,8 @@ func TestImportCAKey_Admin_ReturnsCNsAndAudits(t *testing.T) {
 
 	st := escrowTestStore()
 	connA := &fakeConn{
-		importResp: &cryptosv1.ImportCAKeyResponse{
-			Identity: &cryptosv1.Identity{ChainDer: [][]byte{interDER, rootDER}},
+		importResp: &nodev1.ImportCAKeyResponse{
+			Identity: &nodev1.Identity{ChainDer: [][]byte{interDER, rootDER}},
 		},
 	}
 	svc := New(st, dialFor(map[string]*fakeConn{"A": connA}))
@@ -416,9 +416,9 @@ func TestEscrow_AuditNeverContainsPassphrase(t *testing.T) {
 	rootDER, _, _ := signCert(t, "ACME Root CA", nil, nil)
 
 	st := escrowTestStore()
-	connA := &fakeConn{exportResp: &cryptosv1.ExportCAKeyResponse{Envelope: []byte("env")}}
-	connB := &fakeConn{importResp: &cryptosv1.ImportCAKeyResponse{
-		Identity: &cryptosv1.Identity{ChainDer: [][]byte{rootDER}},
+	connA := &fakeConn{exportResp: &nodev1.ExportCAKeyResponse{Envelope: []byte("env")}}
+	connB := &fakeConn{importResp: &nodev1.ImportCAKeyResponse{
+		Identity: &nodev1.Identity{ChainDer: [][]byte{rootDER}},
 	}}
 	svc := New(st, dialFor(map[string]*fakeConn{"A": connA, "B": connB}))
 

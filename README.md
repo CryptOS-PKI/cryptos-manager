@@ -1,9 +1,9 @@
-# manager 🛰️
+# cryptos-manager 🛰️
 
 > 🎛️ The Fleet Manager backend for [CryptOS-PKI](https://github.com/CryptOS-PKI). Optional control plane that talks to many CryptOS CA nodes over mTLS gRPC and serves the [`web`](https://github.com/CryptOS-PKI/web) frontend at the same TLS listener.
 
 > [!WARNING]
-> 🚧 **Pre-1.0: any release can change fundamentally.** CryptOS is pre-1.0. Until v1.0.0, any release may change configuration, APIs, on-disk and state formats, trust setup, and upgrade paths, sometimes with no migration path. If you run it in production, you accept that risk. Read [each release's upgrade notes](https://github.com/CryptOS-PKI/manager/releases) before you upgrade.
+> 🚧 **Pre-1.0: any release can change fundamentally.** CryptOS is pre-1.0. Until v1.0.0, any release may change configuration, APIs, on-disk and state formats, trust setup, and upgrade paths, sometimes with no migration path. If you run it in production, you accept that risk. Read [each release's upgrade notes](https://github.com/CryptOS-PKI/cryptos-manager/releases) before you upgrade.
 
 ## ✨ What it does
 
@@ -24,7 +24,7 @@ The node always checks the manager's admin credential, and the manager always ch
 
 Operators sign in with a client certificate from an **external operator CA**, never a CryptOS node; the manager never signs an operator credential. It re-checks the certificate on every request and refuses revoked ones from its own denylist, the CA's CRL and, where configured, the CA's OCSP responder. See [`docs/operator-ca.md`](docs/operator-ca.md).
 
-Once linked, the node's embedded operator surface becomes read-only and FM owns day-to-day operations. Unlinking is a config change + reboot. A node that has never been linked is managed via [`cryptosctl`](https://github.com/CryptOS-PKI/cryptos) only — no web UI in that case (by design — there's no web frontend on the CA image).
+Once linked, the node's embedded operator surface becomes read-only and FM owns day-to-day operations. Unlinking is a config change + reboot. A node that has never been linked is managed via [`cryptosctl`](https://github.com/CryptOS-PKI/cryptos-node) only — no web UI in that case (by design — there's no web frontend on the CA image).
 
 ## 🧱 Stack
 
@@ -48,7 +48,7 @@ docker run -p 443:8443 -p 80:8080 \
   --read-only --cap-drop ALL --security-opt no-new-privileges:true \
   -v /etc/cryptos/fleet:/etc/cryptos/fleet:ro \
   -v fleet-node-creds:/var/lib/cryptos-manager/node-creds \
-  ghcr.io/cryptos-pki/manager:vX.Y.Z
+  ghcr.io/cryptos-pki/cryptos-manager:vX.Y.Z
 # config.yaml (authBypass:false, tlsCert/tlsKey, operatorCAPath, nodes[]) + the
 # referenced cert/key/CA files live under the mounted /etc/cryptos/fleet.
 ```
@@ -157,7 +157,7 @@ supported path — and it stays useful afterwards for a patched build.
 
 ```sh
 mkdir -p src && cd src
-git clone https://github.com/CryptOS-PKI/manager.git manager
+git clone https://github.com/CryptOS-PKI/cryptos-manager.git manager
 git clone https://github.com/CryptOS-PKI/web.git web
 manager/deploy/build-image.sh            # tags manager:local; IMAGE=... to change
 ```
@@ -307,10 +307,13 @@ database is stopped.
 
 **Alpha.** Read-only fleet integration, mTLS client-cert auth, durable Postgres state (enrollments and the hash-chained audit log, which now records the acting operator), and the MCP endpoint with direct and step-up tools are implemented; the broader inventory write paths are in progress.
 
+## 📡 Fleet API
+
+The FleetService and BootstrapService API this manager serves is defined here, in [`proto/cryptos/fleet/v1`](proto/cryptos/fleet/v1) (package `cryptos.fleet.v1`), with the Go and connect-go stubs under [`gen/go/cryptos/fleet/v1`](gen/go/cryptos/fleet/v1). The fleet protos import the node API from [`cryptos-node`](https://github.com/CryptOS-PKI/cryptos-node) at the version `go.mod` pins: `task proto:deps` copies those protos into `.deps/`, and the generated code imports the node stubs from `github.com/CryptOS-PKI/cryptos-node/gen/go/cryptos/node/v1`. Change a `.proto` (or bump the cryptos-node pin), run `task generate`, and commit the regenerated tree in the same change; `task ci` fails when `gen/` is stale. Codegen needs [`buf`](https://buf.build) on `PATH`.
+
 ## 🧭 Companion repos
 
-- 📡 [`api`](https://github.com/CryptOS-PKI/api) — shared `.proto` definitions and generated gRPC stubs.
-- 🧠 [`cryptos`](https://github.com/CryptOS-PKI/cryptos) — the OS / engine that runs the CAs this FM manages.
+- 🧠 [`cryptos-node`](https://github.com/CryptOS-PKI/cryptos-node) — the OS / engine that runs the CAs this FM manages, and the home of the node API (`cryptos.node.v1`) the FM calls.
 - 🎨 [`web`](https://github.com/CryptOS-PKI/web) — the FM's web frontend (served by this repo).
 
 ## 📄 License

@@ -25,9 +25,9 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/CryptOS-PKI/manager/internal/bootstrap"
-	"github.com/CryptOS-PKI/manager/internal/config"
-	"github.com/CryptOS-PKI/manager/internal/store/postgres"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/bootstrap"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/config"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store/postgres"
 )
 
 // runResetFirstRun is -reset-first-run: the offline break-glass reset.

@@ -23,7 +23,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/CryptOS-PKI/manager/internal/store"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
 )
 
 // fakeStore is an in-memory store.OperatorTrust and store.Bootstrap that

@@ -27,7 +27,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/CryptOS-PKI/manager/internal/store"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
 )
 
 // Bootstrap token and session formats and lifetimes.

@@ -1,0 +1,1353 @@
+syntax = "proto3";
+/*
+   Copyright The CryptOS Authors.
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+*/
+
+package cryptos.fleet.v1;
+
+import "cryptos/fleet/v1/operator_ca.proto";
+import "cryptos/node/v1/config.proto";
+import "cryptos/node/v1/node.proto";
+import "cryptos/node/v1/status.proto";
+
+option go_package = "github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1;fleetv1";
+
+// FleetService is the Fleet Manager's surface over a set of CryptOS nodes:
+// read aggregation (status, identity, certificates, catalog) plus the
+// operator-driven enrollment writes. A single Connect endpoint for the
+// manager's web UI.
+service FleetService {
+  // ListNodes returns a summary for every node the manager knows about.
+  rpc ListNodes(ListNodesRequest) returns (ListNodesResponse);
+
+  // GetNode returns full detail, including the identity chain, for one node.
+  rpc GetNode(GetNodeRequest) returns (GetNodeResponse);
+
+  // ListCertificates returns the aggregated certificate set across nodes,
+  // optionally scoped to a single node.
+  rpc ListCertificates(ListCertificatesRequest) returns (ListCertificatesResponse);
+
+  // ListProfiles returns the manager's catalog of certificate issuance
+  // profiles. Each is a cryptos.node.v1.CertificateProfile, the same shape a node
+  // stores in pki.profiles[], so the catalog is a lossless superset the node
+  // accepts verbatim. Operator-readable.
+  rpc ListProfiles(ListProfilesRequest) returns (ListProfilesResponse);
+
+  // CreateProfile adds a new certificate profile to the manager's catalog.
+  // The profile name must be unique. Admin-gated and audited.
+  rpc CreateProfile(CreateProfileRequest) returns (CreateProfileResponse);
+
+  // UpdateProfile replaces an existing catalog profile, matched by name.
+  // Admin-gated and audited.
+  rpc UpdateProfile(UpdateProfileRequest) returns (UpdateProfileResponse);
+
+  // DeleteProfile removes a catalog profile by name. Non-cascading: it does
+  // not touch any node's existing pki.profiles[]. Admin-gated and audited.
+  rpc DeleteProfile(DeleteProfileRequest) returns (DeleteProfileResponse);
+
+  // ApplyProfileToNode pushes a catalog profile onto a managed node: the
+  // manager fetches the node's full config, inserts-or-replaces the named
+  // profile in pki.profiles[] (matched by name), and applies the whole config
+  // back via the node's ApplyConfig. Admin-gated and audited.
+  rpc ApplyProfileToNode(ApplyProfileToNodeRequest) returns (ApplyProfileToNodeResponse);
+
+  // ListAdapters returns the manager's catalog of enrollment protocol
+  // adapters.
+  rpc ListAdapters(ListAdaptersRequest) returns (ListAdaptersResponse);
+
+  // SetAdapterEnabled records whether an enrollment protocol adapter is
+  // enabled, matched by adapter name. This persists intent; the protocol
+  // engines that serve enrollment requests ship in a later program, so an
+  // enabled adapter does not yet answer requests. Admin-gated and audited.
+  rpc SetAdapterEnabled(SetAdapterEnabledRequest) returns (SetAdapterEnabledResponse);
+
+  // SetNodeProtocol switches one enrolment protocol on or off on one managed
+  // node. The manager fetches the node's config, sets that protocol block's
+  // enabled flag, leaves its other settings as the node returned them, and
+  // applies it back through the node's ApplyConfig. Write-only secrets come
+  // back blank from the node and are sent blank, so the node keeps what it
+  // stores; they never reach the manager. The other protocol blocks are left
+  // out of the apply, so the node keeps them unchanged. A switch is
+  // reboot-required: the node stores it and the listener changes at the next
+  // boot, and NodeSummary.reboot_required stays true until the node reports it
+  // running in the new state. The node's refusal (a Root refusing
+  // enabled=true, a block that fails validation) is returned as its error.
+  // Admin-gated and audited.
+  rpc SetNodeProtocol(SetNodeProtocolRequest) returns (SetNodeProtocolResponse);
+
+  // ListAudit returns the manager's audit log.
+  rpc ListAudit(ListAuditRequest) returns (ListAuditResponse);
+
+  // ListEnrollments returns the manager's pending and resolved enrollment
+  // requests.
+  rpc ListEnrollments(ListEnrollmentsRequest) returns (ListEnrollmentsResponse);
+
+  // CreateEnrollment opens a new enrollment request (LINK a node or provision a
+  // SUBORDINATE CA); the manager verifies attestation for LINK.
+  rpc CreateEnrollment(CreateEnrollmentRequest) returns (CreateEnrollmentResponse);
+
+  // ApproveEnrollment approves a pending request (LINK -> ApplyConfig managed
+  // state; SUBORDINATE -> CSR-ferry).
+  rpc ApproveEnrollment(ApproveEnrollmentRequest) returns (ApproveEnrollmentResponse);
+
+  // RejectEnrollment rejects a pending request with a reason.
+  rpc RejectEnrollment(RejectEnrollmentRequest) returns (RejectEnrollmentResponse);
+
+  // WhoAmI echoes the operator identity the manager verified from the
+  // presented client certificate (subject CN, cert serial, access level).
+  rpc WhoAmI(WhoAmIRequest) returns (WhoAmIResponse);
+
+  // RevokeCertificate revokes an issued certificate on the node that issued
+  // it, identified by node and hex serial, with an RFC 5280 reason code.
+  rpc RevokeCertificate(RevokeCertificateRequest) returns (RevokeCertificateResponse);
+
+  // GetCertificate fetches an issued certificate and its chain, PEM encoded,
+  // from the node that issued it, identified by node name and hex serial.
+  // Readable at viewer level and above; a read, so it is not audited. NotFound
+  // if the node has no certificate with that serial.
+  rpc GetCertificate(GetCertificateRequest) returns (GetCertificateResponse);
+
+  // IssueLeaf signs a leaf certificate on the named issuing node from a
+  // browser-generated PKCS#10 CSR under a named issuance profile. Only the
+  // CSR crosses the wire; the leaf private key stays in the browser.
+  rpc IssueLeaf(IssueLeafRequest) returns (IssueLeafResponse);
+
+  // RekeyNode re-keys a subordinate CA node in one orchestrated call: the
+  // manager has the child mint a new key + CSR, routes the CSR to the parent
+  // (resolved from the child's issuer CN) for signing under profile_name, and
+  // delivers the signed chain back to the child. The parent must be a node the
+  // manager already knows about.
+  rpc RekeyNode(RekeyNodeRequest) returns (RekeyNodeResponse);
+
+  // GetNodeConfig fetches the current machine configuration of a managed node,
+  // so an operator can view it (and the web can edit a subset before applying
+  // the whole config back). Operator-gated; a read, so it is not audited.
+  rpc GetNodeConfig(GetNodeConfigRequest) returns (GetNodeConfigResponse);
+
+  // ApplyNodeConfig applies a full machine configuration to a managed node.
+  // The config is the fetched baseline with the operator's edits merged in; the
+  // node's ApplyConfig is a whole-config replace, so the caller must send the
+  // complete config, never a partial one. Admin-gated and audited.
+  rpc ApplyNodeConfig(ApplyNodeConfigRequest) returns (ApplyNodeConfigResponse);
+
+  // ExportCAKey backs up a managed node's CA private key to an encrypted
+  // envelope. The node seals the backup with the operator passphrase
+  // (Argon2id + AES-256-GCM) so the plaintext key never leaves the node; the
+  // manager only relays the envelope through to the caller. The passphrase is
+  // used in transit and is never persisted. A TPM-backed node refuses export.
+  // Admin-gated and audited (the audit names the node only, never the secret).
+  rpc ExportCAKey(ExportCAKeyRequest) returns (ExportCAKeyResponse);
+
+  // ImportCAKey restores a CA identity onto a fresh managed node from an
+  // encrypted envelope produced by ExportCAKey. The node decrypts the envelope
+  // with the operator passphrase and adopts the key; it refuses the import if
+  // it already holds an identity. The passphrase transits the manager only to
+  // reach the node and is never persisted. Admin-gated and audited (the audit
+  // names the node and restored subject only, never the secret or envelope).
+  rpc ImportCAKey(ImportCAKeyRequest) returns (ImportCAKeyResponse);
+
+  // IssueOperatorCredential was removed: the manager never signs an operator
+  // credential. The external operator CA signs it, and the result is recorded
+  // with RecordOperatorCredential. Don't reuse the name.
+
+  // CreateOperatorCredentialRequest stores a pending request for an operator
+  // credential from a CSR with subject CN=<email>, for the external operator
+  // CA to sign out of band. It returns the CSR, the OpenSSL extension section
+  // for the level, and the signing command. The request expires after 30
+  // days. Admin-gated and audited.
+  rpc CreateOperatorCredentialRequest(CreateOperatorCredentialRequestRequest) returns (CreateOperatorCredentialRequestResponse);
+
+  // ListOperatorCredentialRequests returns credential requests, newest first,
+  // optionally filtered by state. Operator-readable.
+  rpc ListOperatorCredentialRequests(ListOperatorCredentialRequestsRequest) returns (ListOperatorCredentialRequestsResponse);
+
+  // CancelOperatorCredentialRequest cancels a pending request. Admin-gated and
+  // audited.
+  rpc CancelOperatorCredentialRequest(CancelOperatorCredentialRequestRequest) returns (CancelOperatorCredentialRequestResponse);
+
+  // RecordOperatorCredential checks and records an operator certificate the
+  // external operator CA signed. With request_id, the level, CN and public key
+  // must match the pending request, which is then completed; without it, a
+  // certificate made entirely out of band is imported. The certificate must
+  // chain to the active operator CA and not be recorded already. Admin-gated
+  // and audited.
+  rpc RecordOperatorCredential(RecordOperatorCredentialRequest) returns (RecordOperatorCredentialResponse);
+
+  // RevokeOperatorCredential puts an operator credential on the manager's
+  // denylist, keyed by issuer and hex serial, with an RFC 5280 reason code.
+  // The authz middleware refuses the credential from its next request. A
+  // serial the manager never recorded can be denied too. It calls no node and
+  // doesn't revoke at the CA: the response warns to revoke there too and
+  // publish a new CRL. Admin-gated and audited.
+  rpc RevokeOperatorCredential(RevokeOperatorCredentialRequest) returns (RevokeOperatorCredentialResponse);
+
+  // ListOperatorCredentials returns the operator credentials the manager
+  // knows: first-admin, requested, recorded and observed in use, with their
+  // issuer and revocation state. Operator-readable.
+  rpc ListOperatorCredentials(ListOperatorCredentialsRequest) returns (ListOperatorCredentialsResponse);
+
+  // ListOperatorCAs returns the operator CAs the manager trusts or has
+  // trusted, with their CRL and OCSP state. Operator-readable.
+  rpc ListOperatorCAs(ListOperatorCAsRequest) returns (ListOperatorCAsResponse);
+
+  // RegisterOperatorCA registers a new operator CA after first run, with the
+  // same checks, preview and confirm_sha256 step as
+  // BootstrapService.RegisterOperatorCA. The new CA becomes active and the
+  // previous active CA becomes retiring, still trusted until it is retired.
+  // Refused with 1605 ROTATION_IN_PROGRESS while a retiring CA exists.
+  // Admin-gated and audited. Every operator-CA write returns 1607 while the
+  // operator CA comes from the manager's config file.
+  rpc RegisterOperatorCA(RegisterOperatorCARequest) returns (RegisterOperatorCAResponse);
+
+  // RetireOperatorCA stops trusting an operator CA; every certificate under
+  // it is refused from its next request. Refused with 1609 for the last
+  // active CA, and refused when the caller's own certificate chains only to
+  // it unless i_understand_self_lockout is set. Admin-gated and audited.
+  rpc RetireOperatorCA(RetireOperatorCARequest) returns (RetireOperatorCAResponse);
+
+  // SetOperatorCACRLSource changes an operator CA's CRL source. A new URL or
+  // CRL must verify against the CA first; switching to none needs the NO_CRL
+  // acknowledgement and cuts off MCP for certificates under the CA.
+  // Admin-gated and audited.
+  rpc SetOperatorCACRLSource(SetOperatorCACRLSourceRequest) returns (SetOperatorCACRLSourceResponse);
+
+  // UploadOperatorCRL stores a new CRL for an operator CA whose CRL source is
+  // upload. It must verify against the CA and be newer than the stored CRL.
+  // Admin-gated and audited.
+  rpc UploadOperatorCRL(UploadOperatorCRLRequest) returns (UploadOperatorCRLResponse);
+
+  // SetOperatorCAOCSP changes an operator CA's OCSP mode. OCSP_MODE_URL must
+  // pass a probe of the responder first. Admin-gated and audited.
+  rpc SetOperatorCAOCSP(SetOperatorCAOCSPRequest) returns (SetOperatorCAOCSPResponse);
+
+  // PreviewAdoption performs the trust-on-first-use step of adopting a new
+  // node: it dials the maintenance endpoint (no pin yet), captures the
+  // self-signed certificate the node presents, and returns its SHA-256
+  // fingerprint and subject so the operator can confirm it before adoption.
+  // Admin-gated; a read, so it is not audited.
+  rpc PreviewAdoption(PreviewAdoptionRequest) returns (PreviewAdoptionResponse);
+
+  // ListInstallDisks returns the candidate install disks a maintenance node
+  // reports, so the adopt wizard can offer a real device to install to instead
+  // of a free-text guess. Pinned to the fingerprint confirmed via
+  // PreviewAdoption. Admin-gated; a read, so it is not audited.
+  rpc ListInstallDisks(ListInstallDisksRequest) returns (ListInstallDisksResponse);
+
+  // AdoptNode provisions a new maintenance node end to end and streams progress.
+  // Pinned to the fingerprint the operator confirmed via PreviewAdoption, the
+  // manager applies the initial config, awaits the reboot, waits for the
+  // operator to confirm the installed node's certificate fingerprint
+  // (ConfirmAdoptionFingerprint), drives the first-boot ceremony, and
+  // registers the node. Each streamed message carries a phase (see
+  // AdoptNodeResponse) with human-readable detail; the final message sets
+  // done. Admin-gated and audited.
+  rpc AdoptNode(AdoptNodeRequest) returns (stream AdoptNodeResponse);
+
+  // ConfirmAdoptionFingerprint lets a paused adoption continue. After the node
+  // installs and reboots it presents a new management certificate that
+  // nothing links to the maintenance fingerprint confirmed via
+  // PreviewAdoption, so AdoptNode streams the
+  // awaiting-fingerprint-confirmation phase with that certificate's SHA-256
+  // and waits. The operator compares it with the Mgmt SHA-256 line on the
+  // node's console and sends it back here. On a match (case and colons
+  // ignored) the adoption resumes and the presented certificate is what the
+  // manager trusts and records; on a mismatch the manager returns
+  // InvalidArgument, the adoption stream ends with the error phase, and
+  // nothing is recorded. NotFound means no adoption with that ID is waiting.
+  // Admin-gated and audited.
+  rpc ConfirmAdoptionFingerprint(ConfirmAdoptionFingerprintRequest) returns (ConfirmAdoptionFingerprintResponse);
+
+  // DecommissionNode remotely wipes a managed node's identity and data via the
+  // node's mTLS-served RemoteReset, then reboots it into maintenance. The caller
+  // must echo the node's current Root CA CN as confirmation. Admin-gated and
+  // audited (the audit names the node and that it was wiped, never any secret).
+  rpc DecommissionNode(DecommissionNodeRequest) returns (DecommissionNodeResponse);
+
+  // RenameNode changes a node's display name. The node is addressed by its
+  // stable ID, which never changes, so URLs, audit entries and references
+  // recorded against the ID keep pointing at the node. Returns the updated
+  // node. NotFound if no node has node_id; AlreadyExists if another node
+  // already has new_name; InvalidArgument if new_name is not an RFC 1123 label
+  // (1 to 63 lowercase letters, digits and hyphens, starting and ending with a
+  // letter or digit). Renaming a node to its current name returns it unchanged
+  // and records nothing. Admin-gated and audited (node-renamed, with the old
+  // and new names).
+  rpc RenameNode(RenameNodeRequest) returns (RenameNodeResponse);
+
+  // RemoveNode removes a node from the manager's inventory without contacting
+  // the node, for a node that is gone (destroyed, or wiped and not coming
+  // back). It does not reset or unlink the node; DecommissionNode does that.
+  // confirm_name must equal the node's current name. The node's audit
+  // history and name history are kept, and its credentials folder is moved
+  // aside rather than deleted. NotFound if no node has node_id;
+  // InvalidArgument if confirm_name doesn't match; FailedPrecondition while
+  // something still depends on the node, such as a pending enrollment that
+  // names it. Admin-gated and audited (node-removed, with the name and ID).
+  rpc RemoveNode(RemoveNodeRequest) returns (RemoveNodeResponse);
+
+  // ListMcpKeys returns the MCP agent keys bound to the calling operator's
+  // certificate. An admin may set all to list every operator's keys; a
+  // non-admin that sets all is refused. The listing never carries a key or its
+  // hash. Operator-certificate only: an MCP key can never list keys.
+  rpc ListMcpKeys(ListMcpKeysRequest) returns (ListMcpKeysResponse);
+
+  // RevokeMcpKey revokes an MCP agent key by id. An operator may revoke the
+  // keys bound to their own certificate; an admin may revoke any key. The
+  // revocation takes effect on the key's next request. Idempotent: revoking an
+  // already revoked key returns it unchanged. Operator-certificate only and
+  // audited.
+  rpc RevokeMcpKey(RevokeMcpKeyRequest) returns (RevokeMcpKeyResponse);
+
+  // CreateMcpKey mints an MCP agent key bound to the calling operator's
+  // certificate serial, for MCP clients that cannot run the OAuth login. It is
+  // the same mint and binding as the login flow. The response carries the
+  // plaintext key exactly once; the manager stores only its hash, so a lost key
+  // is revoked and re-minted, never recovered. The level ceiling may not exceed
+  // the caller's own level. Operator-certificate only and audited (the audit
+  // names the key id, label and ceiling, never the key).
+  rpc CreateMcpKey(CreateMcpKeyRequest) returns (CreateMcpKeyResponse);
+
+  // ListApprovals returns step-up approval requests, newest first, optionally
+  // filtered by status. An approval is raised when an MCP tool call needs a
+  // human decision before it runs. Operator-certificate only: an MCP key can
+  // never list approvals.
+  rpc ListApprovals(ListApprovalsRequest) returns (ListApprovalsResponse);
+
+  // DecideApproval approves or denies a pending approval by id and returns the
+  // updated approval. Operator-certificate only: an MCP key can never decide
+  // approvals. The deciding operator's level must be at least the approval's
+  // required_level. Audited.
+  rpc DecideApproval(DecideApprovalRequest) returns (DecideApprovalResponse);
+}
+
+message ListNodesRequest {}
+
+message ListNodesResponse {
+  repeated NodeSummary nodes = 1;
+}
+
+message GetNodeRequest {
+  // name is the node's display name.
+  // Deprecated: use node_id. Still resolves the node's current name for one
+  // release. Unlike other requests, a name the node held before a rename also
+  // resolves when no current node has it, so old links still find the node.
+  string name = 1;
+  // node_id is the stable ID (NodeSummary.id) of the node. Preferred over
+  // name; when both are set they must name the same node, or the
+  // manager returns InvalidArgument.
+  string node_id = 2;
+}
+
+message GetNodeResponse {
+  NodeDetail node = 1;
+}
+
+message ListCertificatesRequest {
+  // node scopes the result to a single node by name; empty means all nodes.
+  // Deprecated: use node_id. Still resolves the node's current name for one
+  // release.
+  string node = 1;
+  // node_id scopes the result to a single node by its stable ID
+  // (NodeSummary.id). Preferred over node; when both are set they must name
+  // the same node, or the manager returns InvalidArgument. Both empty means
+  // all nodes.
+  string node_id = 2;
+}
+
+message ListCertificatesResponse {
+  repeated Certificate certificates = 1;
+}
+
+message ListProfilesRequest {}
+
+message ListProfilesResponse {
+  repeated cryptos.node.v1.CertificateProfile items = 1;
+}
+
+message CreateProfileRequest {
+  cryptos.node.v1.CertificateProfile profile = 1;
+}
+
+message CreateProfileResponse {}
+
+message UpdateProfileRequest {
+  cryptos.node.v1.CertificateProfile profile = 1;
+}
+
+message UpdateProfileResponse {}
+
+message DeleteProfileRequest {
+  string name = 1;
+}
+
+message DeleteProfileResponse {}
+
+// ApplyProfileToNodeRequest names the managed node and the catalog profile to
+// push onto it.
+message ApplyProfileToNodeRequest {
+  // Deprecated: use node_id. Still resolves the node's current name for one
+  // release.
+  string node_name = 1;
+  string profile_name = 2;
+  // node_id is the stable ID (NodeSummary.id) of the node. Preferred over
+  // node_name; when both are set they must name the same node, or the
+  // manager returns InvalidArgument.
+  string node_id = 3;
+}
+
+// ApplyProfileToNodeResponse reports the node's config generation after the
+// apply and whether the change takes effect only on reboot.
+message ApplyProfileToNodeResponse {
+  uint64 generation = 1;
+  bool requires_reboot = 2;
+}
+
+message ListAdaptersRequest {}
+
+message ListAdaptersResponse {
+  repeated EnrollmentAdapter items = 1;
+}
+
+message SetAdapterEnabledRequest {
+  // name identifies the adapter to update (the store's primary key).
+  string name = 1;
+  bool enabled = 2;
+}
+
+message SetAdapterEnabledResponse {
+  // adapter is the updated adapter after the toggle.
+  EnrollmentAdapter adapter = 1;
+}
+
+message ListAuditRequest {}
+
+message ListAuditResponse {
+  repeated AuditEvent items = 1;
+}
+
+message ListEnrollmentsRequest {}
+
+message ListEnrollmentsResponse {
+  repeated EnrollmentRequest items = 1;
+}
+
+// Health reports the manager's view of node reachability, independent of
+// the node's own reported identity state.
+enum Health {
+  HEALTH_UNSPECIFIED = 0;
+  HEALTH_UP = 1;
+  HEALTH_DOWN = 2;
+  HEALTH_ERROR = 3;
+}
+
+// NodeSummary is the per-node row shown in the fleet list.
+message NodeSummary {
+  // name is the node's display name, unique across the fleet and changed with
+  // RenameNode.
+  string name = 1;
+  string address = 2;
+  // root|intermediate|issuing
+  string role = 3;
+  // ESTABLISHED|AWAITING_CERT|REVOKED|UNKNOWN
+  string identity_state = 4;
+  string cn = 5;
+  string issuer = 6;
+  Health health = 7;
+  string health_detail = 8;
+  // id is the node's stable identifier: a UUIDv7 in canonical lowercase form,
+  // assigned by the manager when the node joins the fleet and never changed or
+  // reused. Address the node by this, not by name.
+  string id = 9;
+  // protocols is the node's enrolment protocol state as it reports it:
+  // configured in the stored config against running this boot. Empty when the
+  // node is down or predates the report.
+  repeated cryptos.node.v1.ProtocolStatus protocols = 10;
+  // reboot_required is true when the node holds a stored change that takes
+  // effect only at its next boot: the node reports config_reboot_pending, or a
+  // protocol switch the manager applied has not yet shown up as running.
+  bool reboot_required = 11;
+}
+
+// NodeIdentity carries the node's CA chain, mirroring cryptos.node.v1.Identity
+// but scoped to the FleetService's own message set.
+message NodeIdentity {
+  string chain_pem = 1;
+  repeated bytes chain_der = 2;
+  string leaf_sha256 = 3;
+}
+
+// NodeDetail is the full per-node view returned by GetNode.
+message NodeDetail {
+  NodeSummary summary = 1;
+  NodeIdentity identity = 2;
+  bool tpm_available = 3;
+  uint64 boot_count = 4;
+  string uptime = 5;
+}
+
+// Certificate is a single issued or revoked certificate as aggregated from a
+// node's cert surface. Timestamps are RFC3339 strings for display parity
+// with the web UI.
+message Certificate {
+  string serial = 1;
+  string subject_cn = 2;
+  string issuer_node = 3;
+  // leaf|subordinate-ca
+  string kind = 4;
+  // VALID|EXPIRED|REVOKED
+  string status = 5;
+  string not_before = 6;
+  string not_after = 7;
+  string profile = 8;
+  string revoked_at = 9;
+  string reason = 10;
+  // issuer_node_id is the stable ID (NodeSummary.id) of issuer_node.
+  string issuer_node_id = 11;
+}
+
+// EnrollmentAdapter is an enrollment protocol adapter binding, mirroring the
+// web UI's protocol catalog entry.
+message EnrollmentAdapter {
+  // acme|est|ms-autoenroll|scep
+  string kind = 1;
+  string name = 2;
+  string endpoint = 3;
+  string profile = 4;
+  bool enabled = 5;
+  repeated string challenges = 6;
+  string gpo_template = 7;
+}
+
+// AuditEvent is a single manager audit log entry. The actor fields (7 onward)
+// name who acted and through which surface; they are empty on entries
+// recorded before the manager captured an actor.
+message AuditEvent {
+  string id = 1;
+  string at = 2;
+  // config-applied|enroll-approved|enroll-rejected|issued|mcp-key-created|
+  // mcp-key-first-used|mcp-key-rejected|mcp-key-revoked|profile-applied|
+  // node-renamed|profile-created|profile-deleted|profile-updated|
+  // protocol-toggled|rekeyed|renewed|revoked
+  string kind = 3;
+  string summary = 4;
+  // cert|enrollment|mcp-key|node|profile|protocol
+  string target_kind = 5;
+  string target_path = 6;
+  // actor_kind is how the actor authenticated: "cert" for an operator client
+  // certificate, "mcp_key" for an MCP agent key.
+  string actor_kind = 7;
+  // actor_cn is the subject CN of the operator certificate that acted, or that
+  // the MCP key is bound to.
+  string actor_cn = 8;
+  // actor_serial is the hex serial of that operator certificate.
+  string actor_serial = 9;
+  // key_id is the McpKey id when actor_kind is "mcp_key"; empty otherwise.
+  string key_id = 10;
+  // via is the surface the action arrived through: "web" | "mcp" | "api".
+  string via = 11;
+  // tool is the MCP tool name when via is "mcp"; empty otherwise.
+  string tool = 12;
+  // request_digest is the lowercase hex SHA-256 of the canonical request, so
+  // an entry can be matched to the exact request without storing its body.
+  string request_digest = 13;
+  // outcome is the result of the action: "ok" | "denied" | "pending" |
+  // "error".
+  string outcome = 14;
+  // approval_id is reserved for step-up approval and is always empty until the
+  // manager ships approvals. It will name the approval that authorized the
+  // action.
+  string approval_id = 15;
+  // approver_serial is reserved for step-up approval and is always empty until
+  // the manager ships approvals. It will carry the hex serial of the approving
+  // operator's certificate.
+  string approver_serial = 16;
+  // node_id is the stable ID (NodeSummary.id) of the node the entry concerns;
+  // empty when it concerns no node. Entries recorded before node IDs name the
+  // node in target_path only; the manager fills node_id for them from the
+  // name the node held at the entry's time.
+  string node_id = 17;
+}
+
+// EnrollmentRequest is a node enrollment request awaiting (or resolved by)
+// admin approval. Attestation and CSR detail are flattened to display
+// strings for this read-only surface.
+message EnrollmentRequest {
+  string id = 1;
+  string proposed_name = 2;
+  // root|intermediate|issuing
+  string role = 3;
+  string parent_cn = 4;
+  string address = 5;
+  // PENDING|APPROVED|REJECTED
+  string status = 6;
+  // attestation detail, e.g. "TPM . sealed" or "UNAVAILABLE . nodeID"
+  string attestation_summary = 7;
+  string attestation_node_id = 8;
+  // CSR detail, e.g. "ECDSA P-384"
+  string csr_key_type = 9;
+  string csr_subject_cn = 10;
+  string requested_at = 11;
+  string rejection_reason = 12;
+  // admitted_node_name is the node's name when it was admitted; it does not
+  // follow a later rename. Use admitted_node_id to find the node.
+  string admitted_node_name = 13;
+  // LINK|SUBORDINATE
+  string kind = 14;
+  // SPKI SHA-256 (hex) of the node identity pinned at first enroll (TOFU).
+  string pinned_key_sha256 = 15;
+  // admitted_node_id is the stable ID (NodeSummary.id) of the node this request
+  // admitted; empty until approved.
+  string admitted_node_id = 16;
+}
+
+message CreateEnrollmentRequest {
+  // LINK|SUBORDINATE
+  string kind = 1;
+  // LINK: how to reach + initially trust the node.
+  string node_endpoint = 2;
+  string admin_cert_pem = 3;
+  string admin_key_pem = 4;
+  string ca_pem = 5;
+  // SUBORDINATE: the child node, its parent CA, and the issuing profile.
+  // Deprecated: use child_node_id. Still resolves the node's current name for
+  // one release.
+  string child_node = 6;
+  string parent_cn = 7;
+  string profile = 8;
+  // child_node_id is the stable ID (NodeSummary.id) of the SUBORDINATE child
+  // node. Preferred over child_node; when both are set they must name the
+  // same node, or the manager returns InvalidArgument.
+  string child_node_id = 9;
+}
+
+message CreateEnrollmentResponse {
+  EnrollmentRequest enrollment = 1;
+}
+
+message ApproveEnrollmentRequest {
+  string id = 1;
+  // LINK approval re-supplies the node connection material (nothing sensitive
+  // is persisted between create and approve). Ignored for SUBORDINATE.
+  string node_endpoint = 2;
+  string admin_cert_pem = 3;
+  string admin_key_pem = 4;
+  string ca_pem = 5;
+}
+
+message ApproveEnrollmentResponse {
+  EnrollmentRequest enrollment = 1;
+}
+
+message RejectEnrollmentRequest {
+  string id = 1;
+  string reason = 2;
+}
+
+message RejectEnrollmentResponse {
+  EnrollmentRequest enrollment = 1;
+}
+
+message WhoAmIRequest {}
+
+// OperatorIdentity is the operator the manager verified from the mTLS client
+// certificate presented on the management-plane connection.
+message OperatorIdentity {
+  string cn = 1;
+  string serial = 2;
+  // access level: "viewer" | "operator" | "admin"
+  string level = 3;
+}
+
+message WhoAmIResponse {
+  OperatorIdentity operator = 1;
+}
+
+// RevokeCertificateRequest identifies the certificate to revoke by its issuing
+// node and hex serial, with the RFC 5280 reason code for the revocation.
+message RevokeCertificateRequest {
+  // node_name is the issuing node the certificate lives on.
+  // Deprecated: use node_id. Still resolves the node's current name for one
+  // release.
+  string node_name = 1;
+  // serial_hex is the certificate to revoke.
+  string serial_hex = 2;
+  // reason_code is the RFC 5280 CRLReason code.
+  int32 reason_code = 3;
+  // node_id is the stable ID (NodeSummary.id) of the node. Preferred over
+  // node_name; when both are set they must name the same node, or the
+  // manager returns InvalidArgument.
+  string node_id = 4;
+}
+
+// RevokeCertificateResponse echoes the revoked certificate's serial, the time
+// it was revoked (RFC3339), and the reason code the node recorded.
+message RevokeCertificateResponse {
+  string serial_hex = 1;
+  string revoked_at = 2;
+  int32 reason_code = 3;
+}
+
+// GetCertificateRequest names the issuing node and the certificate to fetch.
+message GetCertificateRequest {
+  // node_name is the issuing node the certificate lives on.
+  string node_name = 1;
+  // serial_hex is the hex-encoded serial of the certificate.
+  string serial_hex = 2;
+}
+
+// GetCertificateResponse carries the certificate, its chain and its status.
+message GetCertificateResponse {
+  // certificate_pem is the PEM-encoded issued certificate.
+  string certificate_pem = 1;
+  // chain_pem is the concatenated PEM chain, from the issuer up to the root.
+  string chain_pem = 2;
+  // status is "valid" | "revoked" | "expired".
+  string status = 3;
+  // revoked_at is when the certificate was revoked (RFC3339); empty unless
+  // status is revoked.
+  string revoked_at = 4;
+}
+
+// IssueLeafRequest carries the issuing node, the browser-generated PKCS#10
+// CSR, and the issuance profile to sign the leaf under.
+message IssueLeafRequest {
+  // node_name is the issuing node that signs the leaf.
+  // Deprecated: use node_id. Still resolves the node's current name for one
+  // release.
+  string node_name = 1;
+  // csr_der is the DER-encoded PKCS#10 CSR from the browser.
+  bytes csr_der = 2;
+  // profile_name is the issuance profile the node signs under.
+  string profile_name = 3;
+  // node_id is the stable ID (NodeSummary.id) of the node. Preferred over
+  // node_name; when both are set they must name the same node, or the
+  // manager returns InvalidArgument.
+  string node_id = 4;
+}
+
+// IssueLeafResponse carries the signed leaf certificate.
+message IssueLeafResponse {
+  // cert_der is the signed leaf certificate, DER-encoded.
+  bytes cert_der = 1;
+}
+
+// RekeyNodeRequest names the subordinate to re-key and the CA profile the
+// parent signs the new key under.
+message RekeyNodeRequest {
+  // node_name is the subordinate CA to re-key.
+  // Deprecated: use node_id. Still resolves the node's current name for one
+  // release.
+  string node_name = 1;
+  // profile_name is the CA profile the parent signs the new CSR under (e.g.
+  // "sub-ca").
+  string profile_name = 2;
+  // node_id is the stable ID (NodeSummary.id) of the node. Preferred over
+  // node_name; when both are set they must name the same node, or the
+  // manager returns InvalidArgument.
+  string node_id = 3;
+}
+
+// RekeyNodeResponse reports the re-keyed identity: the node's own subject CN,
+// the parent that signed it, and the number of certificates in the new chain.
+message RekeyNodeResponse {
+  // subject_cn is the re-keyed node's identity CN.
+  string subject_cn = 1;
+  // issuer_cn is the parent CA that signed the new key.
+  string issuer_cn = 2;
+  // chain_len is the number of certificates in the new chain.
+  int32 chain_len = 3;
+}
+
+// GetNodeConfigRequest names the managed node whose current config to fetch.
+message GetNodeConfigRequest {
+  // node_name is the managed node to read the configuration from.
+  // Deprecated: use node_id. Still resolves the node's current name for one
+  // release.
+  string node_name = 1;
+  // node_id is the stable ID (NodeSummary.id) of the node. Preferred over
+  // node_name; when both are set they must name the same node, or the
+  // manager returns InvalidArgument.
+  string node_id = 2;
+}
+
+// GetNodeConfigResponse carries the node's current full machine configuration.
+message GetNodeConfigResponse {
+  cryptos.node.v1.MachineConfig config = 1;
+}
+
+// ApplyNodeConfigRequest names the managed node and carries the FULL config to
+// apply (the fetched baseline with edits merged in, never a partial config).
+message ApplyNodeConfigRequest {
+  // node_name is the managed node to apply the configuration to.
+  // Deprecated: use node_id. Still resolves the node's current name for one
+  // release.
+  string node_name = 1;
+  // config is the complete machine configuration to replace the node's current
+  // config with.
+  cryptos.node.v1.MachineConfig config = 2;
+  // node_id is the stable ID (NodeSummary.id) of the node. Preferred over
+  // node_name; when both are set they must name the same node, or the
+  // manager returns InvalidArgument.
+  string node_id = 3;
+}
+
+// ApplyNodeConfigResponse reports the node's config generation after the apply
+// and whether the change takes effect only on reboot.
+message ApplyNodeConfigResponse {
+  // generation is the node's monotonically increasing config generation.
+  uint64 generation = 1;
+  // requires_reboot is true when the applied change takes effect only on reboot.
+  bool requires_reboot = 2;
+}
+
+// SetNodeProtocolRequest names the node, the protocol and its new state.
+message SetNodeProtocolRequest {
+  // node_name is the managed node to switch the protocol on.
+  string node_name = 1;
+  // protocol is the enrolment protocol to switch.
+  cryptos.node.v1.ServiceProtocol protocol = 2;
+  // enabled switches the protocol on (true) or off (false) at the node's next
+  // boot.
+  bool enabled = 3;
+}
+
+// SetNodeProtocolResponse carries the node's answer to the apply.
+message SetNodeProtocolResponse {
+  // generation is the node's config generation after the apply.
+  uint64 generation = 1;
+  // requires_reboot is true when the node stored a change that takes effect at
+  // its next boot. False when the protocol was already in the requested state
+  // and nothing was applied.
+  bool requires_reboot = 2;
+}
+
+// ExportCAKeyRequest names the managed node to back up and carries the operator
+// passphrase the node seals the backup with. The passphrase is relayed to the
+// node in transit and is never persisted by the manager.
+message ExportCAKeyRequest {
+  // node_name is the managed node whose CA key to export.
+  // Deprecated: use node_id. Still resolves the node's current name for one
+  // release.
+  string node_name = 1;
+  // passphrase seals the backup node-side; it is never persisted.
+  bytes passphrase = 2;
+  // node_id is the stable ID (NodeSummary.id) of the node. Preferred over
+  // node_name; when both are set they must name the same node, or the
+  // manager returns InvalidArgument.
+  string node_id = 3;
+}
+
+// ExportCAKeyResponse carries the encrypted backup envelope (Argon2id +
+// AES-256-GCM over the node's CA key material). It is opaque to the manager.
+message ExportCAKeyResponse {
+  // envelope is the encrypted CA key backup.
+  bytes envelope = 1;
+}
+
+// ImportCAKeyRequest names the fresh target node, the encrypted envelope to
+// restore, and the passphrase that unseals it. The passphrase is relayed to
+// the node in transit and is never persisted by the manager.
+message ImportCAKeyRequest {
+  // node_name is the fresh managed node to restore the identity onto.
+  // Deprecated: use node_id. Still resolves the node's current name for one
+  // release.
+  string node_name = 1;
+  // envelope is the encrypted CA key backup produced by ExportCAKey.
+  bytes envelope = 2;
+  // passphrase unseals the envelope node-side; it is never persisted.
+  bytes passphrase = 3;
+  // node_id is the stable ID (NodeSummary.id) of the node. Preferred over
+  // node_name; when both are set they must name the same node, or the
+  // manager returns InvalidArgument.
+  string node_id = 4;
+}
+
+// ImportCAKeyResponse summarizes the restored identity so the web can confirm
+// what was imported, without returning the full identity chain.
+message ImportCAKeyResponse {
+  // subject_cn is the restored identity's subject common name.
+  string subject_cn = 1;
+  // issuer_cn is the restored identity's issuer common name.
+  string issuer_cn = 2;
+}
+
+// RevokeOperatorCredentialRequest names the operator credential to deny by
+// hex serial, with the RFC 5280 reason code.
+message RevokeOperatorCredentialRequest {
+  string serial_hex = 1;
+  int32 reason_code = 2;
+  // issuer_sha256 is the operator CA's fingerprint. Empty means the recorded
+  // credential's issuer, or the active operator CA when the serial isn't
+  // recorded.
+  string issuer_sha256 = 3;
+  // note is a free-text reason kept with the denylist entry.
+  string note = 4;
+}
+
+// RevokeOperatorCredentialResponse echoes the denied serial, its issuer and
+// the time it was denied (RFC3339).
+message RevokeOperatorCredentialResponse {
+  string serial_hex = 1;
+  string revoked_at = 2;
+  string issuer_sha256 = 3;
+  // warnings include the reminder that the manager's denylist doesn't revoke
+  // at the CA.
+  repeated string warnings = 4;
+}
+
+message ListOperatorCredentialsRequest {}
+
+// OperatorCredential is one operator credential the manager knows.
+// Timestamps are RFC3339 strings, empty when unset.
+message OperatorCredential {
+  // common_name is the certificate's CN, the holder's email.
+  string common_name = 1;
+  string serial_hex = 2;
+  string level = 3; // "viewer"|"operator"|"admin"
+  string not_after = 4;
+  // revoked is true when any revocation source refuses the credential.
+  bool revoked = 5;
+  // kind is how the manager learned of it: "first_admin", "requested",
+  // "recorded", "observed" (seen in use, never recorded) or "legacy_node"
+  // (issued by a node before external operator CAs; read-only).
+  string kind = 6;
+  // issuer_sha256 is the operator CA's fingerprint, empty for legacy_node.
+  string issuer_sha256 = 7;
+  string email = 8;
+  string full_name = 9;
+  // denylisted is true when the credential is on the manager's denylist.
+  bool denylisted = 10;
+  // crl_revoked is true when the operator CA's CRL lists the credential.
+  bool crl_revoked = 11;
+  string first_seen_at = 12;
+  string last_seen_at = 13;
+}
+
+message ListOperatorCredentialsResponse {
+  repeated OperatorCredential items = 1;
+}
+
+// CreateOperatorCredentialRequestRequest asks for a credential at a level for
+// a holder, from a CSR made in the browser or on the holder's machine.
+message CreateOperatorCredentialRequestRequest {
+  string level = 1; // "viewer"|"operator"|"admin"
+  string email = 2;
+  string full_name = 3;
+  // csr_der has subject exactly CN=<email> and a P-384 or RSA 3072+ key, at
+  // most 4 KiB.
+  bytes csr_der = 4;
+}
+
+// CreateOperatorCredentialRequestResponse carries what the CA operator needs
+// to sign the request.
+message CreateOperatorCredentialRequestResponse {
+  string request_id = 1;
+  string csr_pem = 2;
+  // extfile_section is the OpenSSL extension section for the level.
+  string extfile_section = 3;
+  // openssl_command is the openssl ca command that signs the CSR.
+  string openssl_command = 4;
+  string expires_at = 5;
+}
+
+message ListOperatorCredentialRequestsRequest {
+  // state filters to "pending", "completed", "cancelled" or "expired"; empty
+  // lists all.
+  string state = 1;
+}
+
+message ListOperatorCredentialRequestsResponse {
+  repeated OperatorCredentialRequest items = 1;
+}
+
+message CancelOperatorCredentialRequestRequest {
+  string request_id = 1;
+}
+
+message CancelOperatorCredentialRequestResponse {
+  OperatorCredentialRequest request = 1;
+}
+
+// OperatorCredentialRequest is one request for an operator credential.
+// Timestamps are RFC3339 strings, empty when unset.
+message OperatorCredentialRequest {
+  string id = 1;
+  string level = 2;
+  string email = 3;
+  string full_name = 4;
+  // csr_pem is empty once the request is no longer pending.
+  string csr_pem = 5;
+  // state is "pending", "completed", "cancelled" or "expired".
+  string state = 6;
+  string created_by_cn = 7;
+  string created_at = 8;
+  string expires_at = 9;
+  // completed_serial is the recorded certificate's hex serial once completed.
+  string completed_serial = 10;
+}
+
+message RecordOperatorCredentialRequest {
+  // cert_der is exactly one certificate, DER, at most 8 KiB.
+  bytes cert_der = 1;
+  // request_id is the pending request the certificate answers. Optional.
+  string request_id = 2;
+  // full_name is the holder's name when there is no request. Optional.
+  string full_name = 3;
+}
+
+message RecordOperatorCredentialResponse {
+  OperatorCredential credential = 1;
+  // warnings, for example a validity over 400 days.
+  repeated string warnings = 2;
+}
+
+message ListOperatorCAsRequest {}
+
+message ListOperatorCAsResponse {
+  repeated OperatorCA items = 1;
+}
+
+// RegisterOperatorCARequest has the same fields as
+// BootstrapServiceRegisterOperatorCARequest, which documents them.
+message RegisterOperatorCARequest {
+  bytes ca_cert_der = 1;
+  oneof crl_source {
+    string url = 2;
+    bytes crl_der = 3;
+    bool none = 4;
+  }
+  OcspMode ocsp_mode = 5;
+  string ocsp_url = 6;
+  repeated OperatorCAAcknowledgement acknowledgements = 7;
+  string confirm_sha256 = 8;
+}
+
+// RegisterOperatorCAResponse has the same fields as
+// BootstrapServiceRegisterOperatorCAResponse, which documents them.
+message RegisterOperatorCAResponse {
+  OperatorCA operator_ca = 1;
+  bool confirmed = 2;
+  string admin_extfile = 3;
+  OcspProbeResult ocsp_probe = 4;
+}
+
+message RetireOperatorCARequest {
+  string sha256 = 1;
+  // i_understand_self_lockout allows retiring the CA the caller's own
+  // certificate chains to.
+  bool i_understand_self_lockout = 2;
+}
+
+message RetireOperatorCAResponse {
+  OperatorCA operator_ca = 1;
+}
+
+message SetOperatorCACRLSourceRequest {
+  string sha256 = 1;
+  oneof crl_source {
+    // url is an http or https URL; the CRL there must verify first.
+    string url = 2;
+    // none, set to true, means no CRL. It needs the NO_CRL acknowledgement.
+    bool none = 3;
+    // crl_der switches to the upload source with this initial CRL, DER or
+    // PEM, at most 4 MiB.
+    bytes crl_der = 5;
+  }
+  repeated OperatorCAAcknowledgement acknowledgements = 4;
+}
+
+message SetOperatorCACRLSourceResponse {
+  OperatorCA operator_ca = 1;
+}
+
+message UploadOperatorCRLRequest {
+  string sha256 = 1;
+  // crl_der is the CRL, DER or PEM, at most 4 MiB.
+  bytes crl_der = 2;
+}
+
+message UploadOperatorCRLResponse {
+  OperatorCA operator_ca = 1;
+}
+
+message SetOperatorCAOCSPRequest {
+  string sha256 = 1;
+  OcspMode ocsp_mode = 2;
+  // ocsp_url is required for OCSP_MODE_URL, http or https, at most 2 KiB.
+  string ocsp_url = 3;
+}
+
+message SetOperatorCAOCSPResponse {
+  OperatorCA operator_ca = 1;
+  // ocsp_probe is the probe result for OCSP_MODE_URL, absent otherwise.
+  OcspProbeResult ocsp_probe = 2;
+}
+
+// PreviewAdoptionRequest names the maintenance endpoint to inspect.
+message PreviewAdoptionRequest {
+  string endpoint = 1;
+}
+
+// PreviewAdoptionResponse returns the maintenance node's certificate
+// fingerprint and subject for the operator to confirm (trust on first use).
+message PreviewAdoptionResponse {
+  string cert_sha256 = 1;
+  string subject = 2;
+}
+
+message ListInstallDisksRequest {
+  string endpoint = 1;
+  string pinned_cert_sha256 = 2;
+}
+
+message ListInstallDisksResponse {
+  repeated cryptos.node.v1.InstallDisk disks = 1;
+}
+
+// AdoptNodeRequest carries the maintenance endpoint, the fingerprint the
+// operator confirmed via PreviewAdoption, and the initial config to apply.
+message AdoptNodeRequest {
+  string endpoint = 1;
+  string pinned_cert_sha256 = 2; // operator-confirmed fingerprint from PreviewAdoption
+  cryptos.node.v1.MachineConfig config = 3; // initial config to apply
+}
+
+// AdoptNodeResponse is streamed during adoption. phase is one of
+// applying-config, installing, awaiting-reboot,
+// awaiting-fingerprint-confirmation, ceremony, established,
+// awaiting-certificate or error; done is set on the final message.
+message AdoptNodeResponse {
+  string phase = 1;
+  string detail = 2;
+  bool done = 3;
+  // node_id is the stable ID (NodeSummary.id) the manager assigned the adopted
+  // node; set on the final message only.
+  string node_id = 4;
+  // adoption_id names this adoption run; set on every message. Pass it to
+  // ConfirmAdoptionFingerprint.
+  string adoption_id = 5;
+  // presented_cert_sha256 is the lowercase hex SHA-256 of the management
+  // certificate the installed node presents after its reboot. Set only on the
+  // awaiting-fingerprint-confirmation phase, where the adoption waits for
+  // ConfirmAdoptionFingerprint.
+  string presented_cert_sha256 = 6;
+}
+
+// ConfirmAdoptionFingerprintRequest names the paused adoption and the
+// fingerprint the operator read on the node's console.
+message ConfirmAdoptionFingerprintRequest {
+  // adoption_id is AdoptNodeResponse.adoption_id.
+  string adoption_id = 1;
+  // cert_sha256 is the SHA-256 the operator confirmed, hex with or without
+  // colons, in either case.
+  string cert_sha256 = 2;
+}
+
+// ConfirmAdoptionFingerprintResponse is empty: the adoption's progress
+// continues on the AdoptNode stream.
+message ConfirmAdoptionFingerprintResponse {}
+
+// DecommissionNodeRequest names the managed node to wipe and echoes its current
+// Root CA CN as destructive confirmation.
+message DecommissionNodeRequest {
+  // Deprecated: use node_id. Still resolves the node's current name for one
+  // release.
+  string node_name = 1;
+  string confirm_common_name = 2;
+  // node_id is the stable ID (NodeSummary.id) of the node. Preferred over
+  // node_name; when both are set they must name the same node, or the
+  // manager returns InvalidArgument.
+  string node_id = 3;
+}
+
+// DecommissionNodeResponse reports that the node accepted the wipe and is
+// rebooting into maintenance.
+message DecommissionNodeResponse {
+  bool rebooting = 1;
+}
+
+// RenameNodeRequest names the node by its stable ID and carries its new
+// display name.
+message RenameNodeRequest {
+  // node_id is the stable ID (NodeSummary.id) of the node to rename.
+  string node_id = 1;
+  // new_name is the new display name: an RFC 1123 label, unique across the
+  // fleet.
+  string new_name = 2;
+}
+
+// RenameNodeResponse returns the node after the rename.
+message RenameNodeResponse {
+  // node is the renamed node; its id is unchanged.
+  NodeSummary node = 1;
+}
+
+// RemoveNodeRequest names the node to remove from the inventory.
+message RemoveNodeRequest {
+  // node_id is the stable ID (NodeSummary.id) of the node to remove.
+  string node_id = 1;
+  // confirm_name must equal the node's current name, so a mistyped ID
+  // can't remove another node.
+  string confirm_name = 2;
+}
+
+// RemoveNodeResponse carries the node as it was before removal.
+message RemoveNodeResponse {
+  // node is the removed node's id, name, address and role.
+  NodeSummary node = 1;
+}
+
+// ListMcpKeysRequest scopes the MCP key listing.
+message ListMcpKeysRequest {
+  // all lists every operator's keys instead of only the caller's. Admin only.
+  bool all = 1;
+}
+
+// ListMcpKeysResponse carries the listed MCP keys, revoked ones included.
+message ListMcpKeysResponse {
+  // items are the listed keys, newest first.
+  repeated McpKey items = 1;
+}
+
+// RevokeMcpKeyRequest names the MCP key to revoke.
+message RevokeMcpKeyRequest {
+  // id is the McpKey id to revoke.
+  string id = 1;
+}
+
+// RevokeMcpKeyResponse returns the key after revocation.
+message RevokeMcpKeyResponse {
+  // mcp_key is the revoked key, with revoked_at set.
+  McpKey mcp_key = 1;
+}
+
+// CreateMcpKeyRequest carries the operator's label for the new key and an
+// optional level ceiling.
+message CreateMcpKeyRequest {
+  // label is the operator's free-text name for the key, shown in listings.
+  string label = 1;
+  // level_ceiling caps what the key may do: "viewer" | "operator" | "admin".
+  // Empty means no ceiling below the operator's own level. It may not exceed
+  // the caller's level.
+  string level_ceiling = 2;
+}
+
+// CreateMcpKeyResponse carries the new key. plaintext_key is returned only
+// here and only once; the manager cannot show it again.
+message CreateMcpKeyResponse {
+  // plaintext_key is the bearer key the MCP client presents, "fos_mcp_"
+  // followed by base64url of 32 random bytes. Show it once and never log it.
+  string plaintext_key = 1;
+  // mcp_key is the stored metadata for the new key.
+  McpKey mcp_key = 2;
+}
+
+// McpKey is the metadata of one MCP agent key. It never carries the key or
+// its hash. A key is identity only: on every request its effective level is
+// the lower of the bound operator certificate's live level and level_ceiling,
+// and it stops working when that certificate is revoked or expires.
+// Timestamps are RFC3339 strings; an unset timestamp is empty.
+message McpKey {
+  // id is the key's stable identifier, used by RevokeMcpKey and audit key_id.
+  string id = 1;
+  // label is the operator's free-text name for the key.
+  string label = 2;
+  // client_name is the name the MCP client registered with during the OAuth
+  // login; empty for a key minted with CreateMcpKey.
+  string client_name = 3;
+  // operator_cn is the subject CN of the operator certificate the key is
+  // bound to.
+  string operator_cn = 4;
+  // operator_serial is the hex serial of that operator certificate.
+  string operator_serial = 5;
+  // level_ceiling caps the key's level: "viewer" | "operator" | "admin".
+  // Empty means no ceiling below the operator's own level.
+  string level_ceiling = 6;
+  // created_at is when the key was minted.
+  string created_at = 7;
+  // last_used_at is when the key last authenticated a request; empty if never.
+  string last_used_at = 8;
+  // revoked_at is when the key was revoked; empty while it is active.
+  string revoked_at = 9;
+}
+
+// ListApprovalsRequest filters the approval listing.
+message ListApprovalsRequest {
+  // status keeps only approvals in that state: "pending" | "approved" |
+  // "denied" | "expired" | "used". Empty means all.
+  string status = 1;
+}
+
+// ListApprovalsResponse carries the listed approvals.
+message ListApprovalsResponse {
+  // items are the listed approvals, newest first.
+  repeated Approval items = 1;
+}
+
+// DecideApprovalRequest names the approval to decide and the decision.
+message DecideApprovalRequest {
+  // id is the Approval id to decide.
+  string id = 1;
+  // approve approves the request when true and denies it when false.
+  bool approve = 2;
+}
+
+// DecideApprovalResponse returns the approval after the decision.
+message DecideApprovalResponse {
+  // approval is the decided approval, with status and the decided_by fields
+  // set.
+  Approval approval = 1;
+}
+
+// Approval is one step-up approval request for an MCP tool call. Listing and
+// deciding approvals take an operator certificate; an MCP key can never list
+// or decide them, and the decider's level must be at least required_level.
+// Timestamps are RFC3339 strings; an unset timestamp is empty.
+message Approval {
+  // id is the approval's stable identifier, used by DecideApproval and audit
+  // approval_id.
+  string id = 1;
+  // tool is the MCP tool the request would run.
+  string tool = 2;
+  // summary is a human-readable description of the action.
+  string summary = 3;
+  // request_digest is the lowercase hex SHA-256 of the canonical request, so
+  // an approval covers exactly the request that raised it.
+  string request_digest = 4;
+  // requested_by_cn is the subject CN of the operator certificate behind the
+  // requesting MCP key.
+  string requested_by_cn = 5;
+  // requested_by_serial is the hex serial of that operator certificate.
+  string requested_by_serial = 6;
+  // key_id is the McpKey id that made the request.
+  string key_id = 7;
+  // required_level is the lowest level that may decide the approval:
+  // "viewer" | "operator" | "admin".
+  string required_level = 8;
+  // created_at is when the approval was raised.
+  string created_at = 9;
+  // expires_at is when a pending approval lapses to expired.
+  string expires_at = 10;
+  // status is "pending" | "approved" | "denied" | "expired" | "used".
+  string status = 11;
+  // decided_by_cn is the subject CN of the deciding operator certificate;
+  // empty until decided.
+  string decided_by_cn = 12;
+  // decided_by_serial is the hex serial of that certificate; empty until
+  // decided.
+  string decided_by_serial = 13;
+  // decided_at is when the approval was decided; empty until decided.
+  string decided_at = 14;
+}

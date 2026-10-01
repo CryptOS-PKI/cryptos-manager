@@ -26,8 +26,8 @@ import (
 	"os"
 	"path/filepath"
 
-	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
-	"github.com/CryptOS-PKI/manager/internal/store"
+	fleetv1 "github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
 )
 
 // caChainFile is the name of the file, next to a node's admin certificate,

@@ -33,8 +33,8 @@ import (
 	"testing"
 	"time"
 
-	cryptosv1 "github.com/CryptOS-PKI/api/go/cryptos/v1"
-	"github.com/CryptOS-PKI/manager/internal/store"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
+	nodev1 "github.com/CryptOS-PKI/cryptos-node/gen/go/cryptos/node/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
@@ -42,46 +42,46 @@ import (
 // fakeNodeService is a minimal NodeService that answers GetStatus and
 // GetIdentity with canned, distinctive responses.
 type fakeNodeService struct {
-	cryptosv1.UnimplementedNodeServiceServer
+	nodev1.UnimplementedNodeServiceServer
 }
 
-func (fakeNodeService) GetStatus(context.Context, *cryptosv1.GetStatusRequest) (*cryptosv1.GetStatusResponse, error) {
-	return &cryptosv1.GetStatusResponse{
-		Status: &cryptosv1.NodeStatus{
+func (fakeNodeService) GetStatus(context.Context, *nodev1.GetStatusRequest) (*nodev1.GetStatusResponse, error) {
+	return &nodev1.GetStatusResponse{
+		Status: &nodev1.NodeStatus{
 			SoftwareVersion: "fake-node-v0.0.1-test-marker",
 		},
 	}, nil
 }
 
-func (fakeNodeService) GetIdentity(context.Context, *cryptosv1.GetIdentityRequest) (*cryptosv1.GetIdentityResponse, error) {
-	return &cryptosv1.GetIdentityResponse{
-		Identity: &cryptosv1.Identity{
+func (fakeNodeService) GetIdentity(context.Context, *nodev1.GetIdentityRequest) (*nodev1.GetIdentityResponse, error) {
+	return &nodev1.GetIdentityResponse{
+		Identity: &nodev1.Identity{
 			ChainPem: "-----BEGIN CERTIFICATE-----\nfake-identity-test-marker\n-----END CERTIFICATE-----\n",
 		},
 	}, nil
 }
 
-func (fakeNodeService) GetConfig(context.Context, *cryptosv1.GetConfigRequest) (*cryptosv1.GetConfigResponse, error) {
-	return &cryptosv1.GetConfigResponse{
-		Config: &cryptosv1.MachineConfig{
+func (fakeNodeService) GetConfig(context.Context, *nodev1.GetConfigRequest) (*nodev1.GetConfigResponse, error) {
+	return &nodev1.GetConfigResponse{
+		Config: &nodev1.MachineConfig{
 			ApiVersion: "cryptos.dev/v1alpha1",
 			Kind:       "MachineConfig",
-			Role:       &cryptosv1.Role{Kind: "fake-config-test-marker"},
+			Role:       &nodev1.Role{Kind: "fake-config-test-marker"},
 		},
 	}, nil
 }
 
-func (fakeNodeService) ListIssued(context.Context, *cryptosv1.ListIssuedRequest) (*cryptosv1.ListIssuedResponse, error) {
-	return &cryptosv1.ListIssuedResponse{
-		Issued: []*cryptosv1.IssuedCert{
+func (fakeNodeService) ListIssued(context.Context, *nodev1.ListIssuedRequest) (*nodev1.ListIssuedResponse, error) {
+	return &nodev1.ListIssuedResponse{
+		Issued: []*nodev1.IssuedCert{
 			{SerialHex: "fake-issued-test-marker"},
 		},
 	}, nil
 }
 
-func (fakeNodeService) ListRevocations(context.Context, *cryptosv1.ListRevocationsRequest) (*cryptosv1.ListRevocationsResponse, error) {
-	return &cryptosv1.ListRevocationsResponse{
-		Revocations: []*cryptosv1.Revocation{
+func (fakeNodeService) ListRevocations(context.Context, *nodev1.ListRevocationsRequest) (*nodev1.ListRevocationsResponse, error) {
+	return &nodev1.ListRevocationsResponse{
+		Revocations: []*nodev1.Revocation{
 			{SerialHex: "fake-revoked-test-marker"},
 		},
 	}, nil
@@ -89,21 +89,21 @@ func (fakeNodeService) ListRevocations(context.Context, *cryptosv1.ListRevocatio
 
 // GetIssuedCertificate echoes the requested serial back as the certificate
 // bytes, so the test can assert the Client relayed it unchanged.
-func (fakeNodeService) GetIssuedCertificate(_ context.Context, req *cryptosv1.GetIssuedCertificateRequest) (*cryptosv1.GetIssuedCertificateResponse, error) {
-	return &cryptosv1.GetIssuedCertificateResponse{CertificateDer: []byte(req.GetSerialHex()), Status: "valid"}, nil
+func (fakeNodeService) GetIssuedCertificate(_ context.Context, req *nodev1.GetIssuedCertificateRequest) (*nodev1.GetIssuedCertificateResponse, error) {
+	return &nodev1.GetIssuedCertificateResponse{CertificateDer: []byte(req.GetSerialHex()), Status: "valid"}, nil
 }
 
-func (fakeNodeService) ExportCAKey(_ context.Context, req *cryptosv1.ExportCAKeyRequest) (*cryptosv1.ExportCAKeyResponse, error) {
+func (fakeNodeService) ExportCAKey(_ context.Context, req *nodev1.ExportCAKeyRequest) (*nodev1.ExportCAKeyResponse, error) {
 	// Echo the passphrase back inside the envelope so the test can assert the
 	// Client relayed it unchanged.
-	return &cryptosv1.ExportCAKeyResponse{
+	return &nodev1.ExportCAKeyResponse{
 		Envelope: append([]byte("envelope-for-"), req.GetPassphrase()...),
 	}, nil
 }
 
-func (fakeNodeService) ImportCAKey(_ context.Context, req *cryptosv1.ImportCAKeyRequest) (*cryptosv1.ImportCAKeyResponse, error) {
-	return &cryptosv1.ImportCAKeyResponse{
-		Identity: &cryptosv1.Identity{
+func (fakeNodeService) ImportCAKey(_ context.Context, req *nodev1.ImportCAKeyRequest) (*nodev1.ImportCAKeyResponse, error) {
+	return &nodev1.ImportCAKeyResponse{
+		Identity: &nodev1.Identity{
 			ChainPem: "imported:" + string(req.GetEnvelope()) + ":" + string(req.GetPassphrase()),
 		},
 	}, nil
@@ -237,7 +237,7 @@ func startFakeNode(t *testing.T, serverCA *testCA, clientCA *testCA) (addr strin
 	}
 
 	srv := grpc.NewServer(grpc.Creds(credentials.NewTLS(tlsCfg)))
-	cryptosv1.RegisterNodeServiceServer(srv, fakeNodeService{})
+	nodev1.RegisterNodeServiceServer(srv, fakeNodeService{})
 
 	go func() {
 		_ = srv.Serve(lis)

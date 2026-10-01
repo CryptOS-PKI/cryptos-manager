@@ -22,7 +22,7 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/CryptOS-PKI/manager/internal/authz"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/authz"
 )
 
 // A certificate the MCP admission check refuses, for example one whose

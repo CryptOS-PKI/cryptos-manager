@@ -23,11 +23,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/CryptOS-PKI/manager/internal/approval"
-	"github.com/CryptOS-PKI/manager/internal/authz"
-	"github.com/CryptOS-PKI/manager/internal/fleet"
-	"github.com/CryptOS-PKI/manager/internal/mcpauth"
-	"github.com/CryptOS-PKI/manager/internal/store/memory"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/approval"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/authz"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/fleet"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/mcpauth"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store/memory"
 )
 
 type noRevocations struct{}

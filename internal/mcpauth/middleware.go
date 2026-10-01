@@ -22,8 +22,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/CryptOS-PKI/manager/internal/authz"
-	"github.com/CryptOS-PKI/manager/internal/ratelimit"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/authz"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/ratelimit"
 	"github.com/modelcontextprotocol/go-sdk/auth"
 )
 

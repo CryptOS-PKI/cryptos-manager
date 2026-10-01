@@ -21,11 +21,11 @@ import (
 	"testing"
 
 	connect "connectrpc.com/connect"
-	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
-	cryptosv1 "github.com/CryptOS-PKI/api/go/cryptos/v1"
-	"github.com/CryptOS-PKI/manager/internal/authz"
-	"github.com/CryptOS-PKI/manager/internal/store"
-	"github.com/CryptOS-PKI/manager/internal/store/memory"
+	fleetv1 "github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/authz"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store/memory"
+	nodev1 "github.com/CryptOS-PKI/cryptos-node/gen/go/cryptos/node/v1"
 )
 
 // rekeyStore builds an inventory with a child subordinate and its parent, the
@@ -87,17 +87,17 @@ func TestRekeyNode_ParentNotInFleet_FailedPrecondition(t *testing.T) {
 	// The child's issuer CN names a parent that no inventory node's identity
 	// leaf matches, so resolveParentByCN finds nothing.
 	childIdentity := &fakeConn{
-		identity: &cryptosv1.GetIdentityResponse{
-			Identity: &cryptosv1.Identity{ChainDer: [][]byte{issuedLeafDER(t, "child-1", "Off-Fleet Parent CA")}},
+		identity: &nodev1.GetIdentityResponse{
+			Identity: &nodev1.Identity{ChainDer: [][]byte{issuedLeafDER(t, "child-1", "Off-Fleet Parent CA")}},
 		},
 	}
 	childFerry := &fakeConn{
 		calls:             &calls,
-		beginRotationResp: &cryptosv1.BeginKeyRotationResponse{CsrDer: []byte("child-csr")},
+		beginRotationResp: &nodev1.BeginKeyRotationResponse{CsrDer: []byte("child-csr")},
 	}
 	parentIdentity := &fakeConn{
-		identity: &cryptosv1.GetIdentityResponse{
-			Identity: &cryptosv1.Identity{ChainDer: [][]byte{issuedLeafDER(t, "parent-1", "ACME Root CA")}},
+		identity: &nodev1.GetIdentityResponse{
+			Identity: &nodev1.Identity{ChainDer: [][]byte{issuedLeafDER(t, "parent-1", "ACME Root CA")}},
 		},
 	}
 	parentFerry := &fakeConn{calls: &calls}
@@ -119,18 +119,18 @@ func TestRekeyNode_SelfSignedRoot_FailedPrecondition(t *testing.T) {
 	// resolveParentByCN resolves the child as its own parent. Re-keying must
 	// refuse rather than ask the root to re-sign itself under a sub-ca profile.
 	childIdentity := &fakeConn{
-		identity: &cryptosv1.GetIdentityResponse{
-			Identity: &cryptosv1.Identity{ChainDer: [][]byte{issuedLeafDER(t, "ACME Root CA", "ACME Root CA")}},
+		identity: &nodev1.GetIdentityResponse{
+			Identity: &nodev1.Identity{ChainDer: [][]byte{issuedLeafDER(t, "ACME Root CA", "ACME Root CA")}},
 		},
 	}
 	childFerry := &fakeConn{
 		calls:             &calls,
-		beginRotationResp: &cryptosv1.BeginKeyRotationResponse{CsrDer: []byte("root-csr")},
+		beginRotationResp: &nodev1.BeginKeyRotationResponse{CsrDer: []byte("root-csr")},
 	}
 	// parent-1's leaf does not match "ACME Root CA", so only child-1 (itself) matches.
 	parentIdentity := &fakeConn{
-		identity: &cryptosv1.GetIdentityResponse{
-			Identity: &cryptosv1.Identity{ChainDer: [][]byte{issuedLeafDER(t, "parent-1", "ACME Other CA")}},
+		identity: &nodev1.GetIdentityResponse{
+			Identity: &nodev1.Identity{ChainDer: [][]byte{issuedLeafDER(t, "parent-1", "ACME Other CA")}},
 		},
 	}
 	parentFerry := &fakeConn{calls: &calls}
@@ -155,15 +155,15 @@ func TestRekeyNode_Operator_RunsFerryAndAudits(t *testing.T) {
 	childIssuerCN := "ACME Intermediate CA"
 
 	childIdentity := &fakeConn{
-		identity: &cryptosv1.GetIdentityResponse{
-			Identity: &cryptosv1.Identity{ChainDer: [][]byte{issuedLeafDER(t, "child-1", childIssuerCN)}},
+		identity: &nodev1.GetIdentityResponse{
+			Identity: &nodev1.Identity{ChainDer: [][]byte{issuedLeafDER(t, "child-1", childIssuerCN)}},
 		},
 	}
 	childFerry := &fakeConn{
 		calls:             &calls,
-		beginRotationResp: &cryptosv1.BeginKeyRotationResponse{CsrDer: []byte("child-csr")},
-		completeRotationResp: &cryptosv1.CompleteKeyRotationResponse{
-			Identity: &cryptosv1.Identity{
+		beginRotationResp: &nodev1.BeginKeyRotationResponse{CsrDer: []byte("child-csr")},
+		completeRotationResp: &nodev1.CompleteKeyRotationResponse{
+			Identity: &nodev1.Identity{
 				ChainDer: [][]byte{
 					issuedLeafDER(t, "ACME Issuing CA", childIssuerCN),
 					issuedLeafDER(t, childIssuerCN, "ACME Root CA"),
@@ -174,13 +174,13 @@ func TestRekeyNode_Operator_RunsFerryAndAudits(t *testing.T) {
 	// The parent's identity leaf CN matches the child's issuer CN, so
 	// resolveParentByCN maps it to parent-1.
 	parentIdentity := &fakeConn{
-		identity: &cryptosv1.GetIdentityResponse{
-			Identity: &cryptosv1.Identity{ChainDer: [][]byte{issuedLeafDER(t, childIssuerCN, "ACME Root CA")}},
+		identity: &nodev1.GetIdentityResponse{
+			Identity: &nodev1.Identity{ChainDer: [][]byte{issuedLeafDER(t, childIssuerCN, "ACME Root CA")}},
 		},
 	}
 	parentFerry := &fakeConn{
 		calls: &calls,
-		signSubordinateResp: &cryptosv1.SignSubordinateCSRResponse{
+		signSubordinateResp: &nodev1.SignSubordinateCSRResponse{
 			ChainDer: [][]byte{[]byte("child-der"), []byte("parent-der")},
 			ChainPem: "-----BEGIN CERTIFICATE-----\nchain\n-----END CERTIFICATE-----\n",
 		},
@@ -242,15 +242,15 @@ func TestRekeyNode_Operator_RunsFerryAndAudits(t *testing.T) {
 func TestRekeyNode_NodeStepError_MappedNoAudit(t *testing.T) {
 	var calls []string
 	childIdentity := &fakeConn{
-		identity: &cryptosv1.GetIdentityResponse{
-			Identity: &cryptosv1.Identity{ChainDer: [][]byte{issuedLeafDER(t, "child-1", "ACME Intermediate CA")}},
+		identity: &nodev1.GetIdentityResponse{
+			Identity: &nodev1.Identity{ChainDer: [][]byte{issuedLeafDER(t, "child-1", "ACME Intermediate CA")}},
 		},
 	}
 	// The child fails BeginKeyRotation, so the ferry aborts before signing.
 	childFerry := &fakeConn{calls: &calls, err: errors.New("node down")}
 	parentIdentity := &fakeConn{
-		identity: &cryptosv1.GetIdentityResponse{
-			Identity: &cryptosv1.Identity{ChainDer: [][]byte{issuedLeafDER(t, "ACME Intermediate CA", "ACME Root CA")}},
+		identity: &nodev1.GetIdentityResponse{
+			Identity: &nodev1.Identity{ChainDer: [][]byte{issuedLeafDER(t, "ACME Intermediate CA", "ACME Root CA")}},
 		},
 	}
 	parentFerry := &fakeConn{calls: &calls}

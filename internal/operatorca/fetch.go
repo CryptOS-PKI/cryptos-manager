@@ -26,8 +26,8 @@ import (
 	"net/url"
 	"time"
 
-	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
-	"github.com/CryptOS-PKI/manager/internal/apperr"
+	fleetv1 "github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/apperr"
 )
 
 // Limits on the manager's outbound fetches of CRLs and OCSP responses.

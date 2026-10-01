@@ -21,7 +21,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/CryptOS-PKI/manager/internal/authz"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/authz"
 )
 
 // The extension section a credential request hands the CA operator is the
