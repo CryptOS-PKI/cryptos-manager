@@ -46,7 +46,7 @@ jobs:
       - name: 📥 Checkout web
         uses: actions/checkout@v4
         with:
-          repository: CryptOS-PKI/web
+          repository: CryptOS-PKI/cryptos-web
           ref: ${{ vars.WEB_RELEASE_REF || 'main' }}
           path: web
 
