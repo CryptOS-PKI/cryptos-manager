@@ -356,6 +356,27 @@ func TestRecordOperatorCredential_ImportsOutOfBand(t *testing.T) {
 	requireReason(t, err, apperr.CodeCertRejected, fleetv1.ErrorReason_ERROR_REASON_NOT_CHAINED)
 }
 
+// A bad full name is refused with 1610 FULL_NAME before anything is checked
+// or recorded.
+func TestRecordOperatorCredential_BadFullName(t *testing.T) {
+	f := newCredFixture(t)
+	_, key := newCSR(t, "carol@example.org", false)
+	cert := f.ca.leaf(t, &key.PublicKey, "carol@example.org", "operator", 0x90)
+	for name, full := range map[string]string{
+		"too long":          strings.Repeat("a", 129),
+		"control character": "Carol\u0007Example",
+		"newline":           "Carol\nExample",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := f.svc.RecordOperatorCredential(adminCtx(), connect.NewRequest(&fleetv1.RecordOperatorCredentialRequest{CertDer: cert.Raw, FullName: full}))
+			requireReason(t, err, apperr.CodeCertRejected, fleetv1.ErrorReason_ERROR_REASON_FULL_NAME)
+		})
+	}
+	if rows := f.st.OperatorCredentials(); len(rows) != 0 {
+		t.Fatalf("a credential with a bad name was recorded: %+v", rows)
+	}
+}
+
 // A certificate on the denylist can't be recorded.
 func TestRecordOperatorCredential_RefusesADeniedCertificate(t *testing.T) {
 	f := newCredFixture(t)

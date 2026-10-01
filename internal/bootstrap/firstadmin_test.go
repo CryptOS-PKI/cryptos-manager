@@ -228,7 +228,7 @@ func TestSubmit_NameAndEmailValidation(t *testing.T) {
 				}
 				return
 			}
-			wantCode(t, err, apperr.CodeCertRejected, "")
+			wantCode(t, err, apperr.CodeCertRejected, "FULL_NAME")
 		})
 	}
 	for i, cn := range []string{"Ada <admin@example.org>", "not-an-email", strings.Repeat("a", 250) + "@example.org"} {
