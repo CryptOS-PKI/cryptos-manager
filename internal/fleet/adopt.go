@@ -119,7 +119,7 @@ func (s *Service) ListInstallDisks(ctx context.Context, req *connect.Request[fle
 	defer func() { _ = conn.Close() }()
 	resp, err := conn.ListInstallDisks(ctx)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("fleet: list install disks: %w", err))
+		return nil, nodeError("list install disks", err)
 	}
 	return connect.NewResponse(&fleetv1.ListInstallDisksResponse{Disks: resp.GetDisks()}), nil
 }

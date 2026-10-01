@@ -7,6 +7,8 @@ Every failure leaving the web-facing API carries one of these numbers, on the
 A 16xx failure usually also names a sub-reason on `x-cryptos-error-reason`, for example
 `STALE_CRL` under 1608. The 16xx block is defined by the api contract
 (`cryptos.fleet.v1.ErrorCode` and `ErrorReason`).
+When a node refused the request (1108, 1500), the node's own reason, sanitised,
+is on `x-cryptos-node-reason`.
 The manager owns the 1000-1999 block; another service takes its own first digit.
 
 | Code | Area | Cause |
@@ -24,7 +26,7 @@ The manager owns the 1000-1999 block; another service takes its own first digit.
 | 1011 | Authorization | over MCP, the approval has not been decided yet; poll approval_status and call again once it is approved |
 | 1012 | Authorization | over MCP, the approval was raised for a different tool, different arguments or a different key |
 | 1013 | Authorization | over MCP, the approval was denied, has expired or was already used; call the tool without approval_id to request a new one |
-| 1014 | Authorization | the approval status filter is not pending, approved, denied, expired or used |
+| 1014 | Authorization | the approval status filter is not all, pending, approved, denied, expired or used |
 | 1100 | Fleet | the node could not be dialled or did not answer |
 | 1101 | Fleet | no node with that name or ID is in the inventory |
 | 1102 | Fleet | another node already has that name |
@@ -33,6 +35,9 @@ The manager owns the 1000-1999 block; another service takes its own first digit.
 | 1105 | Fleet | no longer returned: it refused renaming the node that was the operator CA, and a CryptOS node can't be the operator CA any more |
 | 1106 | Fleet | the node's server certificate did not verify: it doesn't chain to the CA the manager trusts for the node (for LINK, the request's ca_pem) for the node's address, and it matches no pin |
 | 1107 | Fleet | a LINK request needs ca_pem: the PEM CA certificate that signed the node's management certificate, or the node's exact management certificate |
+| 1108 | Fleet | the node refused the request; the node's own reason is on the x-cryptos-node-reason error metadata |
+| 1109 | Fleet | RemoveNode's confirm_name is not the node's current name |
+| 1110 | Fleet | the node can't be removed while something still depends on it, such as a pending enrollment that names it |
 | 1200 | Catalog | no certificate profile of that name is known |
 | 1300 | Certificates | the issuing node refused to sign the request |
 | 1301 | Certificates | the request needs human step-up approval (a CA profile or the root node) |

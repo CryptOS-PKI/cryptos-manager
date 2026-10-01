@@ -74,14 +74,17 @@ const (
 	CodeApprovalUnusable      = 1013
 	CodeApprovalStatusInvalid = 1014
 
-	CodeNodeUnreachable   = 1100
-	CodeNodeNotFound      = 1101
-	CodeNodeNameTaken     = 1102
-	CodeNodeNameInvalid   = 1103
-	CodeNodeRefMismatch   = 1104
-	CodeNodeRenameRefused = 1105
-	CodeNodeUntrusted     = 1106
-	CodeLinkCARequired    = 1107
+	CodeNodeUnreachable    = 1100
+	CodeNodeNotFound       = 1101
+	CodeNodeNameTaken      = 1102
+	CodeNodeNameInvalid    = 1103
+	CodeNodeRefMismatch    = 1104
+	CodeNodeRenameRefused  = 1105
+	CodeNodeUntrusted      = 1106
+	CodeLinkCARequired     = 1107
+	CodeNodeRefused        = 1108
+	CodeRemoveNotConfirmed = 1109
+	CodeNodeInUse          = 1110
 
 	CodeProfileNotFound = 1200
 
@@ -130,7 +133,7 @@ var entries = []apperr.Entry{
 	{Code: CodeApprovalAwaiting, Title: "Authorization", Cause: "over MCP, the approval has not been decided yet; poll approval_status and call again once it is approved"},
 	{Code: CodeApprovalMismatch, Title: "Authorization", Cause: "over MCP, the approval was raised for a different tool, different arguments or a different key"},
 	{Code: CodeApprovalUnusable, Title: "Authorization", Cause: "over MCP, the approval was denied, has expired or was already used; call the tool without approval_id to request a new one"},
-	{Code: CodeApprovalStatusInvalid, Title: "Authorization", Cause: "the approval status filter is not pending, approved, denied, expired or used"},
+	{Code: CodeApprovalStatusInvalid, Title: "Authorization", Cause: "the approval status filter is not all, pending, approved, denied, expired or used"},
 	{Code: CodeNodeUnreachable, Title: "Fleet", Cause: "the node could not be dialled or did not answer"},
 	{Code: CodeNodeNotFound, Title: "Fleet", Cause: "no node with that name or ID is in the inventory"},
 	{Code: CodeNodeNameTaken, Title: "Fleet", Cause: "another node already has that name"},
@@ -139,6 +142,9 @@ var entries = []apperr.Entry{
 	{Code: CodeNodeRenameRefused, Title: "Fleet", Cause: "no longer returned: it refused renaming the node that was the operator CA, and a CryptOS node can't be the operator CA any more"},
 	{Code: CodeNodeUntrusted, Title: "Fleet", Cause: "the node's server certificate did not verify: it doesn't chain to the CA the manager trusts for the node (for LINK, the request's ca_pem) for the node's address, and it matches no pin"},
 	{Code: CodeLinkCARequired, Title: "Fleet", Cause: "a LINK request needs ca_pem: the PEM CA certificate that signed the node's management certificate, or the node's exact management certificate"},
+	{Code: CodeNodeRefused, Title: "Fleet", Cause: "the node refused the request; the node's own reason is on the x-cryptos-node-reason error metadata"},
+	{Code: CodeRemoveNotConfirmed, Title: "Fleet", Cause: "RemoveNode's confirm_name is not the node's current name"},
+	{Code: CodeNodeInUse, Title: "Fleet", Cause: "the node can't be removed while something still depends on it, such as a pending enrollment that names it"},
 	{Code: CodeProfileNotFound, Title: "Catalog", Cause: "no certificate profile of that name is known"},
 	{Code: CodeIssuanceRefused, Title: "Certificates", Cause: "the issuing node refused to sign the request"},
 	{Code: CodeIssuanceNeedsApproval, Title: "Certificates", Cause: "the request needs human step-up approval (a CA profile or the root node)"},
@@ -200,6 +206,8 @@ func Doc() string {
 		"A 16xx failure usually also names a sub-reason on `" + ReasonKey + "`, for example\n" +
 		"`STALE_CRL` under 1608. The 16xx block is defined by the api contract\n" +
 		"(`cryptos.fleet.v1.ErrorCode` and `ErrorReason`).\n" +
+		"When a node refused the request (1108, 1500), the node's own reason, sanitised,\n" +
+		"is on `" + NodeReasonKey + "`.\n" +
 		"The manager owns the 1000-1999 block; another service takes its own first digit.\n\n" +
 		registry.Markdown()
 }

@@ -189,8 +189,8 @@ func DialMaintenance(endpoint, pinnedSHA256, clientCertPEM, clientKeyPEM string)
 				return fmt.Errorf("nodeclient: maintenance endpoint presented no certificate")
 			}
 			got := sha256.Sum256(cs.PeerCertificates[0].Raw)
-			if hex.EncodeToString(got[:]) != pin {
-				return fmt.Errorf("nodeclient: maintenance cert fingerprint does not match the pinned value")
+			if fp := hex.EncodeToString(got[:]); fp != pin {
+				return &refusal{msg: fmt.Sprintf("nodeclient: maintenance endpoint %s "+refusalMarker+"%s) does not match the pinned value", endpoint, fp)}
 			}
 			return nil
 		},

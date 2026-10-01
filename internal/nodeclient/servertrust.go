@@ -56,6 +56,16 @@ var ErrNodeUnreachable = errors.New("nodeclient: node unreachable")
 // certificate, so there is nothing to verify the node against.
 var ErrCAPEMRequired = errors.New("nodeclient: ca_pem with at least one PEM certificate is required to verify the node")
 
+// refusalMarker is in every refusal's text, so a refusal can be recognised
+// after gRPC has reduced it to a status message.
+const refusalMarker = "refused: its server certificate (sha256 "
+
+// IsRefusal reports whether err is, or carries the text of, a refusal of a
+// node's server certificate, as opposed to a node that could not be reached.
+func IsRefusal(err error) bool {
+	return err != nil && (errors.Is(err, ErrNodeUntrusted) || strings.Contains(err.Error(), refusalMarker))
+}
+
 // Option adjusts how Dial verifies a node.
 type Option func(*dialOptions)
 
@@ -335,11 +345,11 @@ func (t *serverTrust) verify(cs tls.ConnectionState) error {
 
 	var r *refusal
 	if len(reasons) == 0 {
-		r = &refusal{msg: fmt.Sprintf("nodeclient: node %s refused: its server certificate (sha256 %s) cannot be verified: no CA chain is recorded and no server certificate is pinned. "+
+		r = &refusal{msg: fmt.Sprintf("nodeclient: node %s "+refusalMarker+"%s) cannot be verified: no CA chain is recorded and no server certificate is pinned. "+
 			"Check the fingerprint against the Mgmt SHA-256 line on the node's console, then pin it by saving the certificate as %s or with manager -pin-node %q -expect-sha256 <fingerprint>",
 			t.node.Name, fingerprint, t.pinPath, t.node.Name)}
 	} else {
-		r = &refusal{msg: fmt.Sprintf("nodeclient: node %s refused: its server certificate (sha256 %s) %s. %s",
+		r = &refusal{msg: fmt.Sprintf("nodeclient: node %s "+refusalMarker+"%s) %s. %s",
 			t.node.Name, fingerprint, strings.Join(reasons, "; and it "), t.hint)}
 	}
 	log.Print(r)
