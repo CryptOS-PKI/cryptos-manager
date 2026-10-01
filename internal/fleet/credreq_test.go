@@ -231,8 +231,8 @@ func TestCancelOperatorCredentialRequest(t *testing.T) {
 	requireReason(t, err, apperr.CodeRequestInvalid, fleetv1.ErrorReason_ERROR_REASON_NOT_FOUND)
 }
 
-// Recording against a request checks the certificate against it, records it
-// as requested, completes the request and drops its CSR.
+// Recording against a request checks the certificate against it, stores it
+// with the kind "requested", completes the request and drops its CSR.
 func TestRecordOperatorCredential_CompletesTheRequest(t *testing.T) {
 	f := newCredFixture(t)
 	created, _, key := f.create(t, "operator", "alice@example.org")
