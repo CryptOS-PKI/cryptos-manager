@@ -49,8 +49,6 @@ import (
 	"github.com/CryptOS-PKI/manager/internal/store/postgres"
 	"github.com/CryptOS-PKI/manager/internal/store/seed"
 	"github.com/CryptOS-PKI/manager/internal/webui"
-	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
 )
 
 func main() {
@@ -248,7 +246,11 @@ func main() {
 	server := &http.Server{Addr: cfg.Listen}
 
 	if cfg.AuthBypass {
-		server.Handler = h2c.NewHandler(rootHandler, &http2.Server{})
+		var protocols http.Protocols
+		protocols.SetHTTP1(true)
+		protocols.SetUnencryptedHTTP2(true)
+		server.Protocols = &protocols
+		server.Handler = rootHandler
 		log.Printf("manager: listening on %s (authBypass=true, h2c)", cfg.Listen)
 		if err := server.ListenAndServe(); err != nil {
 			log.Fatalf("manager: serve: %v", err)
