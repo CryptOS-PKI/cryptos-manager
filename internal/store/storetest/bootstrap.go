@@ -368,4 +368,104 @@ func Bootstrap(t *testing.T, newStore func(t *testing.T) BootstrapStore) {
 			t.Fatalf("FirstAdminCredentials() = %+v, want both", got)
 		}
 	})
+
+	t.Run("ResetFirstRun", func(t *testing.T) {
+		st := newStore(t)
+		active := store.OperatorCA{SHA256: "aa", CertDER: []byte{1}, State: store.OperatorCAActive, CRLSource: store.CRLSourceUpload, RegisteredAt: at}
+		crl := &store.OperatorCRL{IssuerSHA256: "aa", DER: []byte{9}, Number: big.NewInt(3), ThisUpdate: at, NextUpdate: at.Add(time.Hour), FetchedAt: at, Source: store.CRLSourceUpload}
+		if err := st.RegisterFirstRunOperatorCA(ctx, active, "s0", crl, acceptAll); err != nil {
+			t.Fatalf("RegisterFirstRunOperatorCA: %v", err)
+		}
+		retiring := store.OperatorCA{SHA256: "bb", CertDER: []byte{2}, State: store.OperatorCARetiring, CRLSource: store.CRLSourceNone, RegisteredAt: at}
+		if err := st.AddOperatorCA(ctx, retiring); err != nil {
+			t.Fatalf("AddOperatorCA(retiring): %v", err)
+		}
+		old := store.OperatorCA{SHA256: "cc", CertDER: []byte{3}, State: store.OperatorCARetired, CRLSource: store.CRLSourceNone,
+			RegisteredAt: at, RetiredAt: at, RetiredReason: store.RetiredSuperseded}
+		if err := st.AddOperatorCA(ctx, old); err != nil {
+			t.Fatalf("AddOperatorCA(retired): %v", err)
+		}
+		if _, err := st.AddOperatorDenylistEntry(ctx, store.DenylistEntry{IssuerSHA256: "aa", SerialHex: "1f", RevokedAt: at, RevokedByCN: "admin@example.org"}); err != nil {
+			t.Fatalf("AddOperatorDenylistEntry: %v", err)
+		}
+		issue(t, st, "t1", at.Add(time.Hour))
+		if !start(t, st, "t1", "s1") {
+			t.Fatal("the session didn't start")
+		}
+		issue(t, st, "t2", at.Add(time.Hour))
+		by := store.BootstrapState{ClosedAt: at, ClosedBySerial: "1f", ClosedByCN: "admin@example.org", ClosedByIssuerSHA256: "aa"}
+		if closed, err := st.CloseBootstrap(ctx, by); err != nil || !closed {
+			t.Fatalf("CloseBootstrap() = %v, %v", closed, err)
+		}
+		before := trustVersion(t, st)
+
+		later := at.Add(24 * time.Hour)
+		got, err := st.ResetFirstRun(ctx, later)
+		if err != nil {
+			t.Fatalf("ResetFirstRun: %v", err)
+		}
+		if got.Previous.ClosedByCN != "admin@example.org" || !got.Previous.ClosedAt.Equal(at) {
+			t.Errorf("Previous = %+v, want the latch as it was", got.Previous)
+		}
+		// Closing already deleted the tokens.
+		if got.Sessions != 1 || got.Tokens != 0 || got.RetiredCAs != 2 {
+			t.Errorf("ResetFirstRun() = %+v; want 1 session, no tokens and 2 operator CAs", got)
+		}
+
+		if s, err := st.BootstrapState(ctx); err != nil || s.Closed() || s.ClosedByCN != "" || s.ClosedBySerial != "" || s.ClosedByIssuerSHA256 != "" {
+			t.Errorf("BootstrapState() = %+v, %v; want open and cleared", s, err)
+		}
+		if _, ok, _ := st.BootstrapSession(ctx, "s1"); ok {
+			t.Error("the session is still stored after the reset")
+		}
+		cas, err := st.OperatorCAs(ctx)
+		if err != nil || len(cas) != 3 {
+			t.Fatalf("OperatorCAs() = %+v, %v; want all three rows kept", cas, err)
+		}
+		for _, c := range cas {
+			if c.State != store.OperatorCARetired {
+				t.Errorf("%s is %s, want retired", c.SHA256, c.State)
+			}
+			want := store.RetiredReset
+			if c.SHA256 == "cc" {
+				want = store.RetiredSuperseded
+			}
+			if c.RetiredReason != want {
+				t.Errorf("%s retired_reason = %q, want %q", c.SHA256, c.RetiredReason, want)
+			}
+		}
+		deny, err := st.OperatorDenylist(ctx)
+		if err != nil || len(deny) != 1 || deny[0].SerialHex != "1f" {
+			t.Errorf("OperatorDenylist() = %+v, %v; want the entry kept", deny, err)
+		}
+		crls, err := st.OperatorCRLs(ctx)
+		if err != nil || len(crls) != 1 || crls[0].IssuerSHA256 != "aa" || crls[0].Number.Int64() != 3 {
+			t.Errorf("OperatorCRLs() = %+v, %v; want the CRL kept", crls, err)
+		}
+		if after := trustVersion(t, st); after.CAs == before.CAs {
+			t.Errorf("trust version %+v -> %+v; want the CAs to move", before, after)
+		}
+
+		// First run works again: a token can be issued and a session started.
+		issue(t, st, "t3", later.Add(time.Hour))
+		if ok, err := st.StartBootstrapSession(ctx, "t3", store.BootstrapSession{Hash: "s2", CreatedAt: later, LastUsedAt: later, ExpiresAt: later.Add(time.Hour)}, later); err != nil || !ok {
+			t.Errorf("StartBootstrapSession after reset = %v, %v; want started", ok, err)
+		}
+	})
+
+	t.Run("ResetFirstRunWhenOpen", func(t *testing.T) {
+		st := newStore(t)
+		issue(t, st, "t1", at.Add(time.Hour))
+		if !start(t, st, "t1", "s1") {
+			t.Fatal("the session didn't start")
+		}
+		issue(t, st, "t2", at.Add(time.Hour))
+		got, err := st.ResetFirstRun(ctx, at)
+		if err != nil || got.Previous.Closed() || got.Sessions != 1 || got.Tokens != 2 || got.RetiredCAs != 0 {
+			t.Fatalf("ResetFirstRun() while open = %+v, %v; want 1 session and 2 tokens removed", got, err)
+		}
+		if _, ok, _ := st.LiveBootstrapToken(ctx, at); ok {
+			t.Error("a token is still live after the reset")
+		}
+	})
 }

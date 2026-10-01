@@ -51,8 +51,12 @@ const (
 	secretBytes     = 32
 	tokenBodyLength = 52 // 256 bits in base32
 	tokenGroup      = 4
-	tokenLockName   = "fleetos.bootstrap_token"
 )
+
+// TokenLockName is the advisory lock a replica holds while it keeps the
+// bootstrap token live. The break-glass reset takes it too, so it can't run
+// beside a manager that has first run open.
+const TokenLockName = "fleetos.bootstrap_token"
 
 const crockfordAlphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 
@@ -190,7 +194,7 @@ func (t *tokens) holdLock(ctx context.Context) bool {
 	if t.release != nil {
 		return true
 	}
-	release, ok, err := t.lock(ctx, tokenLockName)
+	release, ok, err := t.lock(ctx, TokenLockName)
 	if err != nil {
 		t.logf("bootstrap: can't take the token lock: %v", err)
 		return false

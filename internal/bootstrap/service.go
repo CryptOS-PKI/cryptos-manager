@@ -222,7 +222,7 @@ func (s *Service) Start(ctx context.Context) error {
 	if closed {
 		if len(s.trust.Anchors()) == 0 {
 			s.logf("manager: WARNING no operator CA is trusted and first run is closed, so every API caller is refused; " +
-				"restore operatorCAPath, or reopen first run with the break-glass reset")
+				"restore operatorCAPath, or reopen first run with manager -reset-first-run (break-glass)")
 		}
 		return nil
 	}

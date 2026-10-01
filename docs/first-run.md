@@ -129,10 +129,46 @@ the audit log. Viewer and operator certificates don't close it.
 
 After that `GetBootstrapState` reports `CLOSED`, every session procedure
 returns 1601 before it reads a token or session, and no banner is printed
-again. Denying or retiring every admin doesn't reopen it.
+again. Denying or retiring every admin doesn't reopen it; only the break-glass
+reset does.
 
 If a manager whose first run is closed ends up trusting no operator CA (for
 example `operatorCAPath` was removed), it refuses every caller and logs why.
+
+## 🧯 Break-glass: reopening first run
+
+If every admin credential is lost, `manager -config <config> -reset-first-run`
+reopens first run. It is an offline command: shell access to a host that can
+reach the database is the authority, and it asks for nothing else.
+
+> [!WARNING]
+> Stop every replica first. The command refuses while a replica holds the
+> `fleetos.bootstrap_token` lock, or while anything answers `/healthz` on the
+> configured `listen` address. The health check only sees the host it runs
+> on, so on Kubernetes scale the Deployment to zero before running it.
+
+It then, in one transaction:
+
+1. clears the latch and deletes every bootstrap session and token;
+2. marks every registered operator CA `retired` (reason `reset`). The rows are
+   kept for the record, and no certificate from any of them signs in after the
+   next start;
+3. keeps the operator denylist and the stored CRLs. A CA registered again keeps
+   its earlier revocations.
+
+It writes a `bootstrap-reset` audit row (actor kind `host`, via `cli`, with the
+host name) and prints what it changed and this guidance:
+
+```
+The FM never held your operator CA key. If you believe the CA itself is compromised, create a new operator CA before registering again. Otherwise you may register the same CA again.
+Revoke at your CA any credential you no longer trust, and publish a new CRL.
+```
+
+The next start is a fresh day zero with a new token. MCP keys bound to the old
+certificates stop working on their own. With `operatorCAPath` set, the command
+warns that first run stays `NOT_APPLICABLE`; with `firstRun: disabled`, that it
+stays unavailable. There is no flag to revoke issued credentials: the manager
+can't revoke at an external CA, so do that at the CA.
 
 ## 🚦 Limits
 
@@ -157,7 +193,8 @@ little for `RegisterOperatorCA`, which can carry a CRL.
 Rows written with actor kind `bootstrap_session`: `bootstrap-session-started`,
 `operator-ca-registered`, `operator-first-admin-recorded`,
 `operator-first-admin-superseded`, `bootstrap-token-rotated`. The latch closing
-is written as `bootstrap-closed`, with the admin certificate as the actor.
+is written as `bootstrap-closed`, with the admin certificate as the actor, and
+the break-glass reset as `bootstrap-reset`.
 Neither the token nor the session secret appears in any audit row, error or log
 line other than the token's own banner.
 

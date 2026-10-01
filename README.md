@@ -39,7 +39,7 @@ The manager ships as a **single self-contained image**: the Go binary with the `
 
 Bring your own trust material: a **server TLS cert** (`tlsCert`/`tlsKey`, any public or CryptOS-issued cert) and the **operator CA** (`operatorCAPath`, the client-auth trust anchor). No usernames or passwords are stored.
 
-Or start from nothing: with Postgres and no `operatorCAPath`, the manager serves a self-signed certificate and prints a single-use bootstrap token in its log. The token holder registers the operator CA's certificate and checks the first admin certificate it signed; first run then closes for good. See [`docs/first-run.md`](docs/first-run.md).
+Or start from nothing: with Postgres and no `operatorCAPath`, the manager serves a self-signed certificate and prints a single-use bootstrap token in its log. The token holder registers the operator CA's certificate and checks the first admin certificate it signed; first run then closes for good, unless every admin credential is lost and the offline `-reset-first-run` break-glass reopens it. See [`docs/first-run.md`](docs/first-run.md).
 
 **Docker:**
 

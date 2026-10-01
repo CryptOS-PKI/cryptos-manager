@@ -355,3 +355,47 @@ func (s *Store) FirstAdminCredentials(ctx context.Context) ([]store.OperatorCred
 	}
 	return out, nil
 }
+
+// ResetFirstRun clears the latch, deletes the sessions and tokens and
+// retires every operator CA row, in one transaction. The denylist and
+// operator_crls are left as they are.
+func (s *Store) ResetFirstRun(ctx context.Context, at time.Time) (store.FirstRunReset, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return store.FirstRunReset{}, fmt.Errorf("postgres: begin first-run reset: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var (
+		r      store.FirstRunReset
+		closed *time.Time
+	)
+	err = tx.QueryRow(ctx, `SELECT closed_at, closed_by_serial, closed_by_cn, closed_by_issuer_sha256 FROM bootstrap_state WHERE id FOR UPDATE`).
+		Scan(&closed, &r.Previous.ClosedBySerial, &r.Previous.ClosedByCN, &r.Previous.ClosedByIssuerSHA256)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return store.FirstRunReset{}, fmt.Errorf("postgres: read bootstrap state: %w", err)
+	}
+	r.Previous.ClosedAt = timeOrZero(closed)
+	if _, err := tx.Exec(ctx, `INSERT INTO bootstrap_state (id) VALUES (true)
+		ON CONFLICT (id) DO UPDATE SET closed_at = NULL, closed_by_serial = '', closed_by_cn = '', closed_by_issuer_sha256 = ''`); err != nil {
+		return store.FirstRunReset{}, fmt.Errorf("postgres: clear the first-run latch: %w", err)
+	}
+	tag, err := tx.Exec(ctx, `DELETE FROM bootstrap_sessions`)
+	if err != nil {
+		return store.FirstRunReset{}, fmt.Errorf("postgres: delete bootstrap sessions: %w", err)
+	}
+	r.Sessions = int(tag.RowsAffected())
+	if tag, err = tx.Exec(ctx, `DELETE FROM bootstrap_tokens`); err != nil {
+		return store.FirstRunReset{}, fmt.Errorf("postgres: delete bootstrap tokens: %w", err)
+	}
+	r.Tokens = int(tag.RowsAffected())
+	if tag, err = tx.Exec(ctx, `UPDATE operator_cas SET state = 'retired', retired_at = $1, retired_reason = $2, updated_at = clock_timestamp()
+		WHERE state <> 'retired'`, at, store.RetiredReset); err != nil {
+		return store.FirstRunReset{}, fmt.Errorf("postgres: retire operator CAs: %w", err)
+	}
+	r.RetiredCAs = int(tag.RowsAffected())
+	if err := tx.Commit(ctx); err != nil {
+		return store.FirstRunReset{}, fmt.Errorf("postgres: commit first-run reset: %w", err)
+	}
+	return r, nil
+}
