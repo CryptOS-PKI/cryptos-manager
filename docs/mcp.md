@@ -61,7 +61,9 @@ because a key could not be re-validated on each request:
 A key also needs its operator certificate's CA to have a **CRL source with a fresh CRL**.
 That is checked when the key is created and on every call, not at start, so MCP can be
 enabled before the CRL is set up; until then keys are refused with
-[1608](error-codes.md) `NO_CRL` or `STALE_CRL`. See [operator-ca.md](operator-ca.md#mcp-needs-a-fresh-crl).
+[1608](error-codes.md) `NO_CRL` or `STALE_CRL`. Where OCSP is configured for the
+certificate, a fresh `revoked` or `unknown` answer refuses the key as well. See
+[operator-ca.md](operator-ca.md#mcp-needs-a-fresh-crl).
 
 Keys and login state live in Postgres, so every replica shares them and a login can
 start on one replica and finish on another.

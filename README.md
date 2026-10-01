@@ -22,7 +22,7 @@ Adopting a fresh node from its maintenance endpoint is safe to retry. The manage
 
 The node always checks the manager's admin credential, and the manager always checks the node's server certificate: against the node's recorded CA chain once the node signs its management certificate with its CA, or against a pinned `server.crt` before that. A node it can't verify is refused. `manager -check-node-trust` lists how each node is verified. See [`docs/node-trust.md`](docs/node-trust.md).
 
-Operators sign in with a client certificate from an **external operator CA**, never a CryptOS node; the manager never signs an operator credential. It re-checks the certificate on every request and refuses revoked ones from its own denylist and the CA's CRL. See [`docs/operator-ca.md`](docs/operator-ca.md).
+Operators sign in with a client certificate from an **external operator CA**, never a CryptOS node; the manager never signs an operator credential. It re-checks the certificate on every request and refuses revoked ones from its own denylist, the CA's CRL and, where configured, the CA's OCSP responder. See [`docs/operator-ca.md`](docs/operator-ca.md).
 
 Once linked, the node's embedded operator surface becomes read-only and FM owns day-to-day operations. Unlinking is a config change + reboot. A node that has never been linked is managed via [`cryptosctl`](https://github.com/CryptOS-PKI/cryptos) only — no web UI in that case (by design — there's no web frontend on the CA image).
 
@@ -214,7 +214,7 @@ The MCP endpoint is off in the chart too. `mcp.enabled` and `mcp.publicURL` turn
 The manager can serve a [Model Context Protocol](https://modelcontextprotocol.io) endpoint at `/mcp` for AI agents. It is off by default.
 
 - 🔑 **Logged in with your operator certificate.** An MCP client such as the `claude` CLI runs a one-time OAuth login; the consent page in the web UI needs your operator certificate, and the client receives a long-lived `fos_mcp_` key bound to that certificate's serial. Clients without OAuth use a key from the Agent keys page.
-- 🧮 **Checked live on every call.** The key's certificate is re-validated against the operator CAs trusted now, the denylist and its CA's CRL each time, and its CA must have a fresh CRL, and the key never acts above the certificate's level or its own ceiling.
+- 🧮 **Checked live on every call.** The key's certificate is re-validated against the operator CAs trusted now, the denylist, its CA's CRL and OCSP responder (where configured) each time, and its CA must have a fresh CRL, and the key never acts above the certificate's level or its own ceiling.
 - 🛑 **Narrow by design.** Agents get read tools and non-CA leaf issuance on intermediate or issuing nodes. CA key material, node provisioning and operator credentials are not exposed.
 - ✋ **A person approves the risky calls.** Revocation, profile and adapter changes, and CA or root issuance only raise an approval; they run when the agent calls again after a person approves it in the web UI with their operator certificate. An approval covers one exact request, runs once and lapses after 15 minutes.
 - 🧾 **Audited.** Every MCP call, reads included, is in the hash-chained audit log with the operator, key and tool.

@@ -21,6 +21,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"math/big"
 	"sync"
 	"time"
 
@@ -94,6 +95,7 @@ type AnchorStatus struct {
 	LastError     string
 	Banner        string
 	Badge         string
+	OCSPBanner    string
 }
 
 type anchorState struct {
@@ -103,6 +105,10 @@ type anchorState struct {
 	lastError      string
 	lastStaleLog   time.Time
 	expiredAudited bool
+	// ocspOutage is set while the web path is allowing certificates under
+	// soft policy with no fresh OCSP response and no fresh CRL.
+	ocspOutage  bool
+	lastOCSPLog time.Time
 }
 
 // RevocationOptions configures a Revocations.
@@ -113,6 +119,9 @@ type RevocationOptions struct {
 	Logf   func(format string, args ...any)
 	// Audit records an audit event on behalf of the manager itself.
 	Audit func(store.AuditEvent)
+	// OCSPFetcher turns OCSP on; nil leaves it off.
+	OCSPFetcher    *Fetcher
+	OCSPBackground func(func())
 }
 
 // Revocations holds, per anchor, the manager's denylist and the anchor's
@@ -130,6 +139,8 @@ type Revocations struct {
 	anchors  map[string]*anchorState
 	denylist map[string]map[string]struct{}
 	polledAt time.Time
+
+	ocsp *OCSPClient
 }
 
 // NewRevocations builds an empty engine; SetAnchors and Reload fill it.
@@ -148,8 +159,14 @@ func NewRevocations(o RevocationOptions) *Revocations {
 	if r.audit == nil {
 		r.audit = func(store.AuditEvent) {}
 	}
+	if o.OCSPFetcher != nil {
+		r.ocsp = NewOCSPClient(OCSPOptions{Fetch: o.OCSPFetcher, Now: r.now, Logf: r.logf, Audit: r.audit, Background: o.OCSPBackground})
+	}
 	return r
 }
+
+// OCSP returns the OCSP client, nil when OCSP is off.
+func (r *Revocations) OCSP() *OCSPClient { return r.ocsp }
 
 // Policy returns the operatorRevocationPolicy in force.
 func (r *Revocations) Policy() string { return r.policy }
@@ -361,33 +378,132 @@ func noRevocationSource(reason fleetv1.ErrorReason, format string, args ...any) 
 	return apperr.Reasoned(apperr.CodeNoRevocationSource, reason, fmt.Errorf("operatorca: "+format, args...))
 }
 
-// CheckWeb is the web-path revocation decision for a certificate that
-// already verified against the anchor: refuse a revoked serial; allow when
-// the anchor's CRL is within nextUpdate or the anchor has no CRL source;
-// otherwise follow operatorRevocationPolicy. Soft keeps enforcing the last
-// good CRL and the denylist, with a banner, an hourly log line and one
-// audit row per expiry; hard refuses with 1608 STALE_CRL.
+// CheckWeb is the web-path revocation decision for a serial under an
+// anchor, when only the serial is known. It is CheckWebCert without the
+// leaf, so an aia-mode anchor has no responder URI and no OCSP check.
 func (r *Revocations) CheckWeb(anchorSHA256, serial string) error {
-	serial = NormalizeSerial(serial)
+	n, ok := new(big.Int).SetString(NormalizeSerial(serial), 16)
+	if !ok {
+		return rejectCert(fleetv1.ErrorReason_ERROR_REASON_REVOKED, "serial %q isn't hex", serial)
+	}
+	return r.checkWeb(anchorSHA256, n, nil)
+}
+
+// CheckWebCert is the web-path revocation decision for a certificate that
+// already verified against the anchor, in order:
+//  1. the denylist or the last good CRL, fresh or not, lists the serial:
+//     refuse (1610 REVOKED);
+//  2. OCSP is configured for the certificate: revoked or unknown refuse
+//     (1610 REVOKED_OCSP, OCSP_UNKNOWN); a fresh good allows;
+//  3. otherwise a CRL within nextUpdate, or no CRL source and no OCSP for
+//     the certificate at all, allows;
+//  4. otherwise operatorRevocationPolicy: soft allows, with a banner, an
+//     hourly log line and one audit row per CRL expiry or OCSP outage; hard
+//     refuses with 1608 STALE_OCSP when OCSP was configured for the
+//     certificate, else 1608 STALE_CRL.
+func (r *Revocations) CheckWebCert(anchorSHA256 string, leaf *x509.Certificate) error {
+	return r.checkWeb(anchorSHA256, leaf.SerialNumber, leaf)
+}
+
+func (r *Revocations) checkWeb(anchorSHA256 string, serial *big.Int, leaf *x509.Certificate) error {
+	key := SerialKey(serial)
+	r.mu.RLock()
+	st, ok := r.anchors[anchorSHA256]
+	if !ok {
+		r.mu.RUnlock()
+		return unknownAnchor(anchorSHA256)
+	}
+	a := st.anchor
+	isRevoked := r.revokedLocked(anchorSHA256, key)
+	r.mu.RUnlock()
+	if isRevoked {
+		return revoked(key, a)
+	}
+
+	responder := r.responderFor(a, leaf)
+	if responder != "" {
+		res, err := r.ocsp.Check(a, serial, responder, func(s string) bool { return r.IsRevoked(anchorSHA256, s) })
+		if err == nil {
+			r.endOCSPOutage(anchorSHA256)
+			if refusal := ocspRefusal(res, key, a); refusal != nil {
+				return refusal
+			}
+			return nil
+		}
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	st, ok := r.anchors[anchorSHA256]
+	st, ok = r.anchors[anchorSHA256]
 	if !ok {
 		return unknownAnchor(anchorSHA256)
 	}
-	if r.revokedLocked(anchorSHA256, serial) {
-		return revoked(serial, st.anchor)
-	}
 	now := r.now()
-	if !st.anchor.HasCRL() || (st.crl != nil && st.crl.Fresh(now)) {
+	crlFresh := st.anchor.HasCRL() && st.crl != nil && st.crl.Fresh(now)
+	if crlFresh || (!st.anchor.HasCRL() && responder == "") {
 		return nil
 	}
 	if r.policy == PolicyHard {
+		if responder != "" {
+			return noRevocationSource(fleetv1.ErrorReason_ERROR_REASON_STALE_OCSP,
+				"no fresh OCSP response and no fresh CRL for serial %s under operator CA %s, and operatorRevocationPolicy is hard", key, st.anchor.name())
+		}
 		return noRevocationSource(fleetv1.ErrorReason_ERROR_REASON_STALE_CRL,
 			"no fresh CRL for operator CA %s and operatorRevocationPolicy is hard", st.anchor.name())
 	}
-	r.noteStaleLocked(st, now)
+	if st.anchor.HasCRL() {
+		r.noteStaleLocked(st, now)
+	}
+	if responder != "" {
+		r.noteOCSPOutageLocked(st, responder, now)
+	}
 	return nil
+}
+
+func (r *Revocations) responderFor(a Anchor, leaf *x509.Certificate) string {
+	if r.ocsp == nil {
+		return ""
+	}
+	return ResponderURL(a, leaf)
+}
+
+func ocspRefusal(res OCSPResult, serial string, a Anchor) error {
+	switch res.Status {
+	case OCSPRevoked:
+		return rejectCert(fleetv1.ErrorReason_ERROR_REASON_REVOKED_OCSP,
+			"the OCSP responder for operator CA %s says serial %s is revoked", a.name(), serial)
+	case OCSPUnknown:
+		return rejectCert(fleetv1.ErrorReason_ERROR_REASON_OCSP_UNKNOWN,
+			"the OCSP responder for operator CA %s says serial %s is unknown, which counts as revoked", a.name(), serial)
+	}
+	return nil
+}
+
+func (r *Revocations) endOCSPOutage(anchorSHA256 string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if st, ok := r.anchors[anchorSHA256]; ok && st.ocspOutage {
+		st.ocspOutage = false
+		r.logf("operatorca: the OCSP responder for operator CA %s answers again", st.anchor.name())
+	}
+}
+
+func (r *Revocations) noteOCSPOutageLocked(st *anchorState, responder string, now time.Time) {
+	if st.lastOCSPLog.IsZero() || now.Sub(st.lastOCSPLog) >= staleLogEvery {
+		st.lastOCSPLog = now
+		r.logf("operatorca: WARNING OCSP responder unreachable for operator CA %s (%s) and no fresh CRL; allowing under operatorRevocationPolicy soft",
+			st.anchor.name(), redact(responder))
+	}
+	if !st.ocspOutage {
+		st.ocspOutage = true
+		r.audit(store.AuditEvent{
+			Kind: KindOCSPUnavailable,
+			Summary: fmt.Sprintf("No fresh OCSP response and no fresh CRL for operator CA %s; certificates are allowed under operatorRevocationPolicy soft until the responder answers",
+				st.anchor.name()),
+			TargetKind: "operator-ca",
+			TargetPath: "/operator-cas/" + st.anchor.SHA256,
+		})
+	}
 }
 
 func (r *Revocations) noteStaleLocked(st *anchorState, now time.Time) {
@@ -412,36 +528,69 @@ func (r *Revocations) noteStaleLocked(st *anchorState, now time.Time) {
 	}
 }
 
-// CheckMCP is the stricter decision for MCP keys, which are long-lived
+// CheckMCP is CheckMCPCert when only the serial is known, so an aia-mode
+// anchor has no responder URI and no OCSP check.
+func (r *Revocations) CheckMCP(anchorSHA256, serial string) error {
+	n, ok := new(big.Int).SetString(NormalizeSerial(serial), 16)
+	if !ok {
+		return rejectCert(fleetv1.ErrorReason_ERROR_REASON_REVOKED, "serial %q isn't hex", serial)
+	}
+	return r.checkMCP(anchorSHA256, n, nil)
+}
+
+// CheckMCPCert is the stricter decision for MCP keys, which are long-lived
 // bearer credentials: the serial must not be revoked, this replica's last
 // successful revocation poll must be under 5 minutes old, and the anchor
 // must have a CRL source whose CRL is within nextUpdate. Both policies fail
-// closed here.
-func (r *Revocations) CheckMCP(anchorSHA256, serial string) error {
-	serial = NormalizeSerial(serial)
+// closed here. When OCSP is configured for the certificate and a fresh
+// response is available, it must be good; an OCSP failure is allowed,
+// because the fresh CRL covers it.
+func (r *Revocations) CheckMCPCert(anchorSHA256 string, cert *x509.Certificate) error {
+	return r.checkMCP(anchorSHA256, cert.SerialNumber, cert)
+}
+
+func (r *Revocations) checkMCP(anchorSHA256 string, serial *big.Int, cert *x509.Certificate) error {
+	key := SerialKey(serial)
+	a, err := r.checkMCPSets(anchorSHA256, key)
+	if err != nil {
+		return err
+	}
+	responder := r.responderFor(a, cert)
+	if responder == "" {
+		return nil
+	}
+	res, err := r.ocsp.Check(a, serial, responder, func(s string) bool { return r.IsRevoked(anchorSHA256, s) })
+	if err != nil {
+		return nil
+	}
+	r.endOCSPOutage(anchorSHA256)
+	return ocspRefusal(res, key, a)
+}
+
+func (r *Revocations) checkMCPSets(anchorSHA256, serial string) (Anchor, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	st, ok := r.anchors[anchorSHA256]
 	if !ok {
-		return unknownAnchor(anchorSHA256)
+		return Anchor{}, unknownAnchor(anchorSHA256)
 	}
 	if r.revokedLocked(anchorSHA256, serial) {
-		return revoked(serial, st.anchor)
+		return Anchor{}, revoked(serial, st.anchor)
 	}
 	now := r.now()
 	if now.Sub(r.polledAt) > maxDenylistAge {
-		return noRevocationSource(fleetv1.ErrorReason_ERROR_REASON_STALE_DENYLIST,
+		return Anchor{}, noRevocationSource(fleetv1.ErrorReason_ERROR_REASON_STALE_DENYLIST,
 			"the last successful revocation poll was at %s, more than 5 minutes ago", r.polledAt.UTC().Format(time.RFC3339))
 	}
 	if !st.anchor.HasCRL() {
-		return noRevocationSource(fleetv1.ErrorReason_ERROR_REASON_NO_CRL,
+		return Anchor{}, noRevocationSource(fleetv1.ErrorReason_ERROR_REASON_NO_CRL,
 			"operator CA %s has no CRL source, and MCP needs one", st.anchor.name())
 	}
 	if st.crl == nil || !st.crl.Fresh(now) {
-		return noRevocationSource(fleetv1.ErrorReason_ERROR_REASON_STALE_CRL,
+		return Anchor{}, noRevocationSource(fleetv1.ErrorReason_ERROR_REASON_STALE_CRL,
 			"no CRL within nextUpdate for operator CA %s", st.anchor.name())
 	}
-	return nil
+	return st.anchor, nil
 }
 
 // Status reports the anchor's revocation state on this replica.
@@ -454,6 +603,9 @@ func (r *Revocations) Status(anchorSHA256 string) AnchorStatus {
 	}
 	now := r.now()
 	out := AnchorStatus{CRLConfigured: st.anchor.HasCRL(), LastError: st.lastError}
+	if st.ocspOutage {
+		out.OCSPBanner = fmt.Sprintf("OCSP responder unreachable for %s.", st.anchor.name())
+	}
 	if !st.anchor.HasCRL() {
 		out.Badge = BadgeNotObserved
 		if st.anchor.OCSPMode != "" && st.anchor.OCSPMode != store.OCSPModeOff {

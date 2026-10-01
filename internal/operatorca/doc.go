@@ -10,7 +10,9 @@
 // over registered rows). TrustStore holds the current anchors as numbered
 // generations, serves them to the TLS handshake and re-verifies the peer on
 // every request. Revocations combines the manager's denylist with each
-// anchor's CRL, keyed by anchor, because serials are unique per issuer only.
+// anchor's CRL, keyed by anchor, because serials are unique per issuer only,
+// and asks the anchor's OCSP responder about each certificate through
+// OCSPClient, which can only add a refusal.
 package operatorca
 
 /*
