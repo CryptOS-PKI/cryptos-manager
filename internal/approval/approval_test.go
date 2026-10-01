@@ -244,3 +244,24 @@ func TestList_DerivesExpiryAndFilters(t *testing.T) {
 		t.Fatalf("ForKey(agent) = %+v", mine)
 	}
 }
+
+// "all" is the filter the docs and the Approvals page name for every status;
+// it lists the same as an empty filter.
+func TestList_AllMeansEveryStatus(t *testing.T) {
+	s, _, c := newService()
+	s.Request(context.Background(), agent, "cert_revoke", "d1", "Revoke 1", authz.LevelOperator)
+	c.now = t0.Add(16 * time.Minute)
+	s.Request(context.Background(), agent, "cert_revoke", "d2", "Revoke 2", authz.LevelOperator)
+
+	want, err := s.List("")
+	if err != nil {
+		t.Fatalf("List(\"\"): %v", err)
+	}
+	got, err := s.List("all")
+	if err != nil {
+		t.Fatalf("List(all) error = %v, want nil", err)
+	}
+	if len(got) != len(want) || len(got) != 2 {
+		t.Errorf("List(all) = %d approval(s), want %d", len(got), len(want))
+	}
+}
