@@ -13,19 +13,25 @@
 # is what is pulled. Bump both together.
 
 # Stage 1: build the web bundle. The build context holds sibling checkouts of
-# the manager and web repos; the resulting dist is embedded by the Go stage.
+# the manager and web repos; the web repo is an npm workspaces monorepo, and
+# the console app's dist is embedded by the Go stage.
 FROM node:22-bookworm-slim@sha256:43ac6c60b8f89723f746e8a92ce91abd5017e627ce1ddfe4238355d3a30b772c AS web
 WORKDIR /web
+# The workspace manifests come first so the npm ci layer is cached until a
+# dependency changes.
 COPY web/package.json web/package-lock.json ./
+COPY web/apps/console/package.json apps/console/
+COPY web/packages/ui/package.json packages/ui/
+COPY web/packages/api-client/package.json packages/api-client/
 RUN npm ci
 COPY web/ ./
 ENV VITE_FLEET_MODE=live-auth
 # The SPA is served by the manager itself, so the API is same-origin. Without
-# this the fallback in web/src/lib/fleet/client.ts bakes http://localhost:8080
+# this the fallback in web/apps/console/src/lib/fleet/client.ts bakes http://localhost:8080
 # into the bundle and the shipped UI calls the operator's own machine.
 ARG VITE_FLEET_API=/
 ENV VITE_FLEET_API=${VITE_FLEET_API}
-RUN npm run build
+RUN npm run build -w @cryptos-pki/console
 
 # Stage 2: build the manager with the web bundle embedded.
 FROM golang:1.26-bookworm@sha256:a688600ca24f8a4d3ca77f95b0dd40704a9fc787c826660eb7ba0b641b8b175d AS build
@@ -33,7 +39,7 @@ WORKDIR /src
 COPY manager/go.mod manager/go.sum ./
 RUN go mod download
 COPY manager/ ./
-COPY --from=web /web/dist ./internal/webui/dist
+COPY --from=web /web/apps/console/dist ./internal/webui/dist
 # Build identity, stamped at link time (#81). A running manager has to be able
 # to say which build it is: the image copies the repo without a usable .git, so
 # nothing can derive this at runtime. Defaults keep a bare `docker build`

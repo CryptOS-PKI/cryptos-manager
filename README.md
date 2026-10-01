@@ -1,6 +1,6 @@
 # cryptos-manager 🛰️
 
-> 🎛️ The Fleet Manager backend for [CryptOS-PKI](https://github.com/CryptOS-PKI). Optional control plane that talks to many CryptOS CA nodes over mTLS gRPC and serves the [`web`](https://github.com/CryptOS-PKI/web) frontend at the same TLS listener.
+> 🎛️ The Fleet Manager backend for [CryptOS-PKI](https://github.com/CryptOS-PKI). Optional control plane that talks to many CryptOS CA nodes over mTLS gRPC and serves the [`cryptos-web`](https://github.com/CryptOS-PKI/cryptos-web) frontend at the same TLS listener.
 
 > [!WARNING]
 > 🚧 **Pre-1.0: any release can change fundamentally.** CryptOS is pre-1.0. Until v1.0.0, any release may change configuration, APIs, on-disk and state formats, trust setup, and upgrade paths, sometimes with no migration path. If you run it in production, you accept that risk. Read [each release's upgrade notes](https://github.com/CryptOS-PKI/cryptos-manager/releases) before you upgrade.
@@ -30,7 +30,7 @@ Once linked, the node's embedded operator surface becomes read-only and FM owns 
 
 - 🐹 **Go backend**, served behind mTLS TLS 1.3.
 - 🐘 **Postgres** for cross-node inventory.
-- 📦 **Serves the [`web`](https://github.com/CryptOS-PKI/web) bundle** (pinned version, embedded via `embed.FS`) on the same listener as the FM gRPC API.
+- 📦 **Serves the [`cryptos-web`](https://github.com/CryptOS-PKI/cryptos-web) console bundle** (pinned version, embedded via `embed.FS`) on the same listener as the FM gRPC API.
 - ☸️ **Designed to run on Kubernetes** (Deployment + Service + Ingress, Helm chart shipped alongside the container image). Single-node Docker / `docker compose` is supported for small deployments; K8s is the primary target.
 
 ## 🚀 Deploying
@@ -158,7 +158,7 @@ supported path — and it stays useful afterwards for a patched build.
 ```sh
 mkdir -p src && cd src
 git clone https://github.com/CryptOS-PKI/cryptos-manager.git manager
-git clone https://github.com/CryptOS-PKI/web.git web
+git clone https://github.com/CryptOS-PKI/cryptos-web.git web
 manager/deploy/build-image.sh            # tags manager:local; IMAGE=... to change
 ```
 
@@ -314,7 +314,7 @@ The FleetService and BootstrapService API this manager serves is defined here, i
 ## 🧭 Companion repos
 
 - 🧠 [`cryptos-node`](https://github.com/CryptOS-PKI/cryptos-node) — the OS / engine that runs the CAs this FM manages, and the home of the node API (`cryptos.node.v1`) the FM calls.
-- 🎨 [`web`](https://github.com/CryptOS-PKI/web) — the FM's web frontend (served by this repo).
+- 🎨 [`cryptos-web`](https://github.com/CryptOS-PKI/cryptos-web) — the FM's web frontend (its `apps/console` bundle is served by this repo).
 
 ## 📄 License
 
