@@ -88,6 +88,7 @@ var Catalog = []Spec{
 	{Name: "import_ca_key", RPC: "ImportCAKey", Policy: Excluded, Reason: "CA key material"},
 	{Name: "decommission_node", RPC: "DecommissionNode", Policy: Excluded, Reason: "wipes a node"},
 	{Name: "rename_node", RPC: "RenameNode", Policy: Excluded, Reason: "changes the name people and configs use for a node"},
+	{Name: "remove_node", RPC: "RemoveNode", Policy: Excluded, Reason: "drops a node from the inventory"},
 	{Name: "adopt_node", RPC: "AdoptNode", Policy: Excluded, Reason: "wipes and provisions a disk"},
 	{Name: "preview_adoption", RPC: "PreviewAdoption", Policy: Excluded, Reason: "part of disk provisioning"},
 	{Name: "list_install_disks", RPC: "ListInstallDisks", Policy: Excluded, Reason: "part of disk provisioning"},

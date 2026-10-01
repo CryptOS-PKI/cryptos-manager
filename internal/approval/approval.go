@@ -139,8 +139,11 @@ func (s *Service) Get(id string) (store.Approval, bool) {
 }
 
 // List returns every approval, newest first, with its status at now. A
-// non-empty status keeps only approvals in that status.
+// non-empty status other than StatusAll keeps only approvals in that status.
 func (s *Service) List(status string) ([]store.Approval, error) {
+	if status == StatusAll {
+		status = ""
+	}
 	switch status {
 	case "", store.ApprovalPending, store.ApprovalApproved, store.ApprovalDenied, store.ApprovalExpired, store.ApprovalUsed:
 	default:
@@ -156,6 +159,9 @@ func (s *Service) List(status string) ([]store.Approval, error) {
 	}
 	return out, nil
 }
+
+// StatusAll is the List filter for every status, the same as an empty one.
+const StatusAll = "all"
 
 // ForKey returns the approvals raised by the MCP key keyID, newest first,
 // with their status at now.

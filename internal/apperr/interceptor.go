@@ -65,6 +65,9 @@ func withCode(ctx context.Context, err error) error {
 	if r, ok := ReasonOf(err); ok {
 		out.Meta().Set(ReasonKey, ReasonName(r))
 	}
+	if r, ok := NodeReasonOf(err); ok {
+		out.Meta().Set(NodeReasonKey, r)
+	}
 
 	return out
 }

@@ -177,6 +177,26 @@ func (s *Store) AddNode(n store.Node) {
 	log.Printf("memory: node %s joined the inventory with id %s", n.Name, n.ID)
 }
 
+// RemoveNode drops the node with the given ID and closes its current name
+// span at at; the history is kept.
+func (s *Store) RemoveNode(id string, at time.Time) (store.Node, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	n, ok := s.nodeByIDLocked(id)
+	if !ok {
+		return store.Node{}, fmt.Errorf("memory: remove %s: %w", id, store.ErrNodeNotFound)
+	}
+	delete(s.nodes, n.Name)
+	for i := range s.nodeNames {
+		if s.nodeNames[i].NodeID == id && s.nodeNames[i].Until.IsZero() {
+			s.nodeNames[i].Until = at
+		}
+	}
+	log.Printf("memory: node %s (%s) removed from the inventory", n.Name, id)
+	return n, nil
+}
+
 // RenameNode changes the name of the node with the given ID and records the
 // change in the name history.
 func (s *Store) RenameNode(id, newName string, at time.Time) (store.Node, error) {

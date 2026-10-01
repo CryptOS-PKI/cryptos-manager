@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -30,8 +31,11 @@ import (
 	log "github.com/Bugs5382/go-log"
 	fleetv1 "github.com/CryptOS-PKI/api/go/cryptos/fleet/v1"
 	cryptosv1 "github.com/CryptOS-PKI/api/go/cryptos/v1"
+	"github.com/CryptOS-PKI/manager/internal/apperr"
 	"github.com/CryptOS-PKI/manager/internal/auditlog"
+	"github.com/CryptOS-PKI/manager/internal/nodeclient"
 	"github.com/CryptOS-PKI/manager/internal/store"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -241,20 +245,50 @@ func (s *Service) auditProtocol(ctx context.Context, node store.Node, p cryptosv
 	})
 }
 
-// nodeError wraps a node RPC failure, keeping the node's gRPC code and message
-// so a refusal (InvalidArgument, FailedPrecondition) reaches the caller as
-// the node said it. Anything without a status is Internal.
+// nodeError classifies a node RPC failure for the client. A node's refusal
+// keeps the node's gRPC code and carries its reason on the error metadata:
+// an invalid config from ApplyConfig is CodeConfigRejected, any other refusal
+// CodeNodeRefused. A node whose server certificate the manager refused (the
+// refusal arrives as the text of an Unavailable status) is CodeNodeUntrusted,
+// with only the certificate's fingerprint as its reason, since the full
+// refusal names manager-side paths. A node that could not be reached is
+// CodeNodeUnreachable. Anything else is Internal, unclassified.
 func nodeError(op string, err error) error {
+	wrapped := fmt.Errorf("fleet: %s: %w", op, err)
 	st, ok := status.FromError(err)
 	if !ok || st.Code() == 0 || st.Code() > 16 {
-		return connect.NewError(connect.CodeInternal, fmt.Errorf("fleet: %s: %w", op, err))
+		return connect.NewError(connect.CodeInternal, wrapped)
 	}
-	code := connect.Code(st.Code())
-	if code == connect.CodeUnknown {
-		code = connect.CodeInternal
+	msg := st.Message()
+	switch st.Code() {
+	case codes.Unavailable, codes.DeadlineExceeded:
+		if nodeclient.IsRefusal(err) {
+			reason := "the node's server certificate did not verify"
+			if m := refusedFingerprint.FindStringSubmatch(msg); m != nil {
+				reason = "the node's server certificate (sha256 " + m[1] + ") did not verify"
+			}
+			return apperr.WithNodeReason(apperr.Coded(apperr.CodeNodeUntrusted,
+				connect.NewError(connect.CodeFailedPrecondition, wrapped)), reason)
+		}
+		return apperr.Coded(apperr.CodeNodeUnreachable, connect.NewError(connect.CodeUnavailable, wrapped))
+	case codes.InvalidArgument, codes.FailedPrecondition, codes.PermissionDenied, codes.NotFound,
+		codes.AlreadyExists, codes.OutOfRange, codes.Unimplemented, codes.ResourceExhausted, codes.Aborted:
+		code := apperr.CodeNodeRefused
+		if op == "apply config" && st.Code() == codes.InvalidArgument {
+			code = apperr.CodeConfigRejected
+		}
+		return apperr.WithNodeReason(apperr.Coded(code,
+			connect.NewError(connect.Code(st.Code()), fmt.Errorf("fleet: %s: %s", op, msg))), msg)
 	}
-	return connect.NewError(code, fmt.Errorf("fleet: %s: %s", op, st.Message()))
+	ccode := connect.Code(st.Code())
+	if ccode == connect.CodeUnknown {
+		ccode = connect.CodeInternal
+	}
+	return connect.NewError(ccode, fmt.Errorf("fleet: %s: %s", op, msg))
 }
+
+// refusedFingerprint finds the presented certificate's SHA-256 in a refusal.
+var refusedFingerprint = regexp.MustCompile(`\(sha256 ([0-9a-f]+)\)`)
 
 // rebootTracker holds, per node ID, the protocol switches a node accepted with
 // requires_reboot and has not yet shown running. It lives in memory: the

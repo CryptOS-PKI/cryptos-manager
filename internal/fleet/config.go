@@ -57,7 +57,7 @@ func (s *Service) GetNodeConfig(ctx context.Context, req *connect.Request[fleetv
 
 	resp, err := conn.GetConfig(ctx)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("fleet: get config: %w", err))
+		return nil, nodeError("get config", err)
 	}
 
 	return connect.NewResponse(&fleetv1.GetNodeConfigResponse{Config: resp.GetConfig()}), nil
@@ -116,7 +116,7 @@ func (s *Service) ApplyNodeConfig(ctx context.Context, req *connect.Request[flee
 	applied, err := conn.ApplyConfig(ctx, cfg)
 	if err != nil {
 		l.Error(err, "apply node config: node refused the config")
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("fleet: apply config: %w", err))
+		return nil, nodeError("apply config", err)
 	}
 	l.Info("apply node config: applied", log.F("generation", applied.GetGeneration()), log.F("requires_reboot", applied.GetRequiresReboot()))
 
