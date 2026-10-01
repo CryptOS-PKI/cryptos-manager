@@ -275,6 +275,8 @@ go test ./internal/store/... -v
 
 Pull-request CI (`.github/workflows/ci-go.yaml`) runs the same checks as `task ci` (gofmt, vet, golangci-lint, build, tests) with a Postgres service container and `MANAGER_TEST_DATABASE_URL` set, so these integration tests always run there. It skips draft PRs.
 
+After a stacked pull request is retargeted onto `main`, CI starts on its next push, or when it is toggled to draft and back to ready.
+
 ## 📦 Releasing
 
 Nothing tags automatically. On push to `main`, release-drafter categorises the merged conventional-commit PRs into the draft release notes, and [`Bugs5382/changelog-updater-action`](https://github.com/Bugs5382/changelog-updater-action) writes those notes into `CHANGELOG.md` (committed back to `main` as a `[skip ci]` pre-release commit). The maintainer then publishes the GitHub Release by hand, which creates the `vX.Y.Z` tag. That tag triggers `job-release-image.yaml`, which builds and pushes the container image (`ghcr.io/cryptos-pki/manager`) via BuildKit and packages+pushes the Helm chart (`oci://ghcr.io/cryptos-pki/charts/fleet-manager`). The node ISO ships from [`cryptos`](https://github.com/CryptOS-PKI/cryptos). The image and chart assume no particular deploy environment — adopters bring their own registry, trust material, and orchestrator. (The repo's own release/governance tooling — release-drafter, `Bugs5382/changelog-updater-action`, golic — is the maintainer's; adopters don't need it.)
