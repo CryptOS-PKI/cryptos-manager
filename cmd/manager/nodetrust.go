@@ -51,8 +51,10 @@ func (s insecureNodeSet) options(n store.Node) []nodeclient.Option {
 }
 
 // reportNodeTrust writes one line per node saying how its server certificate
-// is verified, flags the nodes that will be refused and the ones that skip
-// verification, and returns how many nodes will be refused.
+// is verified, from the trust files alone, flags the nodes that will be
+// refused for having none and the ones that skip verification, and returns
+// how many nodes will be refused. It doesn't connect to the nodes, so it can
+// run at startup; liveNodeTrust is the live check.
 func reportNodeTrust(w io.Writer, nodes []store.Node, insecure insecureNodeSet) (refused int) {
 	for _, n := range nodes {
 		mode, err := nodeclient.NodeTrust(n, insecure.options(n)...)
@@ -69,6 +71,28 @@ func reportNodeTrust(w io.Writer, nodes []store.Node, insecure insecureNodeSet) 
 				n.Name, n.Endpoint)
 		default:
 			_, _ = fmt.Fprintf(w, "node trust: %s (%s): %s\n", n.Name, n.Endpoint, mode)
+		}
+	}
+	return refused
+}
+
+// liveNodeTrust connects to every node and runs the dial's verification on
+// the certificate it presents, writing one line per node: verified, with how,
+// or REFUSED with the reason. A node that can't be reached counts as refused,
+// because the check can't vouch for it. Nodes with insecureSkipNodeVerify are
+// not dialled and get a warning. It returns how many nodes were refused.
+func liveNodeTrust(w io.Writer, nodes []store.Node, insecure insecureNodeSet) (refused int) {
+	for _, n := range nodes {
+		mode, err := nodeclient.CheckNode(n, insecure.options(n)...)
+		switch {
+		case err != nil:
+			refused++
+			_, _ = fmt.Fprintf(w, "node trust: %s (%s): REFUSED: %v\n", n.Name, n.Endpoint, err)
+		case mode == nodeclient.TrustInsecure:
+			_, _ = fmt.Fprintf(w, "node trust: %s (%s): WARNING server certificate NOT verified: insecureSkipNodeVerify is set; lab testing only, never in production\n",
+				n.Name, n.Endpoint)
+		default:
+			_, _ = fmt.Fprintf(w, "node trust: %s (%s): verified (%s)\n", n.Name, n.Endpoint, mode)
 		}
 	}
 	return refused
