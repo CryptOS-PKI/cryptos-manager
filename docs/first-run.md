@@ -113,7 +113,8 @@ certificate the operator CA signed out of band against the confirmed CA:
 
 With `csr_der`, the CSR must verify, carry the same key and the same email.
 Without it, the call is a pre-flight for a certificate made entirely at the CA.
-`full_name` is 1 to 128 characters with no control characters.
+`full_name` is 1 to 128 characters with no control characters; otherwise the
+call fails with 1610 `FULL_NAME`.
 
 A later submission with a different certificate puts the earlier first-admin
 certificate on the denylist (reason superseded).

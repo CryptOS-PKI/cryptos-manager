@@ -107,6 +107,10 @@ extension.
   is read from the extension, and it is recorded with the kind `recorded`.
   `full_name` is optional.
 
+A `full_name` that is given must be 1 to 128 characters with no control
+characters; otherwise the call fails with 1610 `FULL_NAME` and nothing is
+recorded.
+
 Either way the certificate must pass the operator certificate profile (the
 [operator-ca.md](operator-ca.md) rules), not be on the denylist or in the CA's
 CRL, and not be recorded already. It is audited as

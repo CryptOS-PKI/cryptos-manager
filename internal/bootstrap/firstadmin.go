@@ -135,7 +135,7 @@ func (s *Service) SubmitFirstAdminCertificate(ctx context.Context, req *connect.
 // active anchor.
 func (s *Service) checkFirstAdmin(m *fleetv1.SubmitFirstAdminCertificateRequest, anchor *x509.Certificate) (operatorca.CertResult, *x509.Certificate, error) {
 	if err := operatorca.ValidateFullName(m.GetFullName()); err != nil {
-		return operatorca.CertResult{}, nil, certRejected(0, "full_name: %v", err)
+		return operatorca.CertResult{}, nil, certRejected(fleetv1.ErrorReason_ERROR_REASON_FULL_NAME, "full_name: %v", err)
 	}
 	cert, err := parseLeaf(m.GetCertDer())
 	if err != nil {

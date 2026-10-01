@@ -251,7 +251,8 @@ func (s *Service) RecordOperatorCredential(ctx context.Context, req *connect.Req
 	fullName := req.Msg.GetFullName()
 	if fullName != "" {
 		if err := operatorca.ValidateFullName(fullName); err != nil {
-			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+			return nil, connect.NewError(connect.CodeInvalidArgument, apperr.Reasoned(apperr.CodeCertRejected,
+				fleetv1.ErrorReason_ERROR_REASON_FULL_NAME, err))
 		}
 	}
 	if !s.hasOperatorCA() {
