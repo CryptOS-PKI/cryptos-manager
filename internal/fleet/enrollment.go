@@ -45,9 +45,9 @@ func operatorLevel(ctx context.Context) (authz.Identity, error) {
 }
 
 // CreateEnrollment opens a new enrollment request. LINK dials the not-yet-
-// inventoried node with the caller-supplied admin cert/key, runs the
-// attestation challenge to TOFU-pin its identity, and records it as
-// PENDING. SUBORDINATE just records the requested child/parent/profile as
+// inventoried node with the caller-supplied admin cert/key, verifying the
+// node's management certificate against the request's ca_pem, runs the
+// attestation challenge to pin its identity key, and records it as PENDING. SUBORDINATE just records the requested child/parent/profile as
 // PENDING; the ferry itself runs at approval time. Both kinds require
 // operator level or above.
 func (s *Service) CreateEnrollment(ctx context.Context, req *connect.Request[fleetv1.CreateEnrollmentRequest]) (*connect.Response[fleetv1.CreateEnrollmentResponse], error) {
@@ -70,15 +70,19 @@ func (s *Service) CreateEnrollment(ctx context.Context, req *connect.Request[fle
 }
 
 // createLinkEnrollment dials the candidate node with the supplied admin
-// material, attests it, and stores a PENDING LINK enrollment pinned to the
-// attested identity's fingerprint.
+// material, refusing it unless its certificate verifies against ca_pem,
+// attests it, and stores a PENDING LINK enrollment pinned to the attested
+// identity's fingerprint.
 func (s *Service) createLinkEnrollment(ctx context.Context, msg *fleetv1.CreateEnrollmentRequest) (*connect.Response[fleetv1.CreateEnrollmentResponse], error) {
 	if s.dialPEM == nil {
 		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("fleet: enrollment not configured (no PEM dial seam)"))
 	}
+	if err := requireLinkCA(msg.GetCaPem()); err != nil {
+		return nil, err
+	}
 	conn, err := s.dialPEM(msg.GetNodeEndpoint(), msg.GetAdminCertPem(), msg.GetAdminKeyPem(), msg.GetCaPem())
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("fleet: dial node: %w", err))
+		return nil, linkDialError(err)
 	}
 	defer func() { _ = conn.Close() }()
 
@@ -144,10 +148,11 @@ func (s *Service) createSubordinateEnrollment(msg *fleetv1.CreateEnrollmentReque
 
 // ApproveEnrollment admits a PENDING enrollment. LINK approval requires
 // admin level: it re-dials the node with freshly re-supplied admin material,
-// re-attests, and rejects the approval outright if the node's identity
-// fingerprint no longer matches the one pinned at CreateEnrollment (the node
-// may have been re-provisioned, or the request may be targeting the wrong
-// node entirely) — only then does it push managed-state via SetManagement.
+// verifying it against ca_pem again, re-attests, and rejects the approval
+// outright if the node's identity fingerprint no longer matches the one
+// pinned at CreateEnrollment (the node may have been re-provisioned, or the
+// request may be targeting the wrong node entirely) — only then does it push
+// managed-state via SetManagement and add the node to the inventory.
 // SUBORDINATE approval requires operator level: it resolves the parent node
 // by CN against the inventory and runs the CSR/sign/submit ferry.
 func (s *Service) ApproveEnrollment(ctx context.Context, req *connect.Request[fleetv1.ApproveEnrollmentRequest]) (*connect.Response[fleetv1.ApproveEnrollmentResponse], error) {
@@ -194,8 +199,9 @@ func (s *Service) ApproveEnrollment(ctx context.Context, req *connect.Request[fl
 	return connect.NewResponse(&fleetv1.ApproveEnrollmentResponse{Enrollment: enrollmentToProto(final)}), nil
 }
 
-// approveLinkEnrollment is the admin-gated LINK approval path: re-attest,
-// pin-check, push managed-state, then mark the enrollment APPROVED.
+// approveLinkEnrollment is the admin-gated LINK approval path: verify and
+// re-attest the node, pin-check, work out its inventory entry, push
+// managed-state, register the node, then mark the enrollment APPROVED.
 func (s *Service) approveLinkEnrollment(ctx context.Context, id authz.Identity, e store.Enrollment, msg *fleetv1.ApproveEnrollmentRequest) error {
 	if id.Level < authz.LevelAdmin {
 		return connect.NewError(connect.CodePermissionDenied, errors.New("fleet: admin level required to approve a LINK"))
@@ -206,10 +212,13 @@ func (s *Service) approveLinkEnrollment(ctx context.Context, id authz.Identity, 
 	if s.dialPEM == nil {
 		return connect.NewError(connect.CodeUnimplemented, errors.New("fleet: enrollment not configured (no PEM dial seam)"))
 	}
+	if err := requireLinkCA(msg.GetCaPem()); err != nil {
+		return err
+	}
 
 	conn, err := s.dialPEM(msg.GetNodeEndpoint(), msg.GetAdminCertPem(), msg.GetAdminKeyPem(), msg.GetCaPem())
 	if err != nil {
-		return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("fleet: dial node: %w", err))
+		return linkDialError(err)
 	}
 	defer func() { _ = conn.Close() }()
 
@@ -219,6 +228,12 @@ func (s *Service) approveLinkEnrollment(ctx context.Context, id authz.Identity, 
 	}
 	if fp != e.PinnedKeySHA256 {
 		return connect.NewError(connect.CodeFailedPrecondition, errors.New("fleet: node identity changed since enrollment"))
+	}
+
+	plan, err := s.planLinkedNode(e.ProposedName, msg.GetNodeEndpoint(), msg.GetAdminCertPem(), msg.GetAdminKeyPem(), msg.GetCaPem())
+	if err != nil {
+		log.Printf("fleet: LINK approval %s: refused: %v", e.ID, err)
+		return err
 	}
 
 	// trust_pem stays empty: the operator CA is never pushed to a node, so
@@ -231,20 +246,18 @@ func (s *Service) approveLinkEnrollment(ctx context.Context, id authz.Identity, 
 		return connect.NewError(connect.CodeInternal, fmt.Errorf("fleet: set management: %w", err))
 	}
 
-	// A linked node already in the inventory keeps its ID. One that is not
-	// gets its ID now, the moment it is admitted to the fleet.
-	nodeID := store.NewNodeID()
-	if n, ok := s.store.Node(e.ProposedName); ok && e.ProposedName != "" {
-		nodeID = n.ID
-		log.Printf("fleet: LINK approval %s: admitted node %q is inventory node %s", e.ID, e.ProposedName, nodeID)
-	} else {
-		log.Printf("fleet: LINK approval %s: admitted node %q is not in the inventory, assigned id %s", e.ID, e.ProposedName, nodeID)
+	// The enrollment stays PENDING if registering fails, so the approval can
+	// be retried; SetManagement only merges the same managed state again.
+	node, err := s.registerLinkedNode(ctx, conn, plan)
+	if err != nil {
+		return connect.NewError(connect.CodeInternal, err)
 	}
+	log.Printf("fleet: LINK approval %s: admitted node %q is inventory node %s", e.ID, node.Name, node.ID)
 
 	if err := s.store.UpdateEnrollment(e.ID, func(en *store.Enrollment) {
 		en.Status = "APPROVED"
-		en.AdmittedNodeName = en.ProposedName
-		en.AdmittedNodeID = nodeID
+		en.AdmittedNodeName = node.Name
+		en.AdmittedNodeID = node.ID
 	}); err != nil {
 		return connect.NewError(connect.CodeInternal, fmt.Errorf("fleet: update enrollment: %w", err))
 	}

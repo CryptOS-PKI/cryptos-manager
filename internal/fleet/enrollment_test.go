@@ -129,6 +129,7 @@ func TestCreateEnrollment_Link_AttestationFails(t *testing.T) {
 		NodeEndpoint: "node.acme.com:4443",
 		AdminCertPem: "cert",
 		AdminKeyPem:  "key",
+		CaPem:        "ca",
 	}))
 	requireConnectCode(t, err, connect.CodeFailedPrecondition)
 }
@@ -222,6 +223,8 @@ func TestApproveEnrollment_Link_OperatorDenied(t *testing.T) {
 }
 
 func TestApproveEnrollment_Link_Admin(t *testing.T) {
+	adoptCredsBaseDir = t.TempDir()
+	caPEM := linkCAPEM(t)
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatalf("GenerateKey: %v", err)
@@ -237,7 +240,7 @@ func TestApproveEnrollment_Link_Admin(t *testing.T) {
 		NodeEndpoint: "node.acme.com:4443",
 		AdminCertPem: "cert",
 		AdminKeyPem:  "key",
-		CaPem:        "ca",
+		CaPem:        caPEM,
 	}))
 	if err != nil {
 		t.Fatalf("CreateEnrollment(LINK) error = %v, want nil", err)
@@ -253,7 +256,7 @@ func TestApproveEnrollment_Link_Admin(t *testing.T) {
 		NodeEndpoint: "node.acme.com:4443",
 		AdminCertPem: "cert",
 		AdminKeyPem:  "key",
-		CaPem:        "ca",
+		CaPem:        caPEM,
 	}))
 	if err != nil {
 		t.Fatalf("ApproveEnrollment(LINK) error = %v, want nil", err)
@@ -474,6 +477,8 @@ func TestRejectEnrollment_AppendsAuditEvent(t *testing.T) {
 }
 
 func TestApproveEnrollment_Link_AppendsAuditEvent(t *testing.T) {
+	adoptCredsBaseDir = t.TempDir()
+	caPEM := linkCAPEM(t)
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatalf("GenerateKey: %v", err)
@@ -489,7 +494,7 @@ func TestApproveEnrollment_Link_AppendsAuditEvent(t *testing.T) {
 		NodeEndpoint: "node.acme.com:4443",
 		AdminCertPem: "cert",
 		AdminKeyPem:  "key",
-		CaPem:        "ca",
+		CaPem:        caPEM,
 	}))
 	if err != nil {
 		t.Fatalf("CreateEnrollment(LINK) error = %v, want nil", err)
@@ -504,7 +509,7 @@ func TestApproveEnrollment_Link_AppendsAuditEvent(t *testing.T) {
 		NodeEndpoint: "node.acme.com:4443",
 		AdminCertPem: "cert",
 		AdminKeyPem:  "key",
-		CaPem:        "ca",
+		CaPem:        caPEM,
 	})); err != nil {
 		t.Fatalf("ApproveEnrollment(LINK) error = %v, want nil", err)
 	}

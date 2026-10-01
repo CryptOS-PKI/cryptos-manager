@@ -31,6 +31,8 @@ The manager owns the 1000-1999 block; another service takes its own first digit.
 | 1103 | Fleet | the node name is not an RFC 1123 label (1 to 63 lowercase letters, digits and hyphens, starting and ending with a letter or digit), or has the form of a node ID |
 | 1104 | Fleet | the request's node_id and node name point at different nodes; send node_id alone |
 | 1105 | Fleet | no longer returned: it refused renaming the node that was the operator CA, and a CryptOS node can't be the operator CA any more |
+| 1106 | Fleet | the node's server certificate did not verify: it doesn't chain to the CA the manager trusts for the node (for LINK, the request's ca_pem) for the node's address, and it matches no pin |
+| 1107 | Fleet | a LINK request needs ca_pem: the PEM CA certificate that signed the node's management certificate, or the node's exact management certificate |
 | 1200 | Catalog | no certificate profile of that name is known |
 | 1300 | Certificates | the issuing node refused to sign the request |
 | 1301 | Certificates | the request needs human step-up approval (a CA profile or the root node) |

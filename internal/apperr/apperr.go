@@ -80,6 +80,8 @@ const (
 	CodeNodeNameInvalid   = 1103
 	CodeNodeRefMismatch   = 1104
 	CodeNodeRenameRefused = 1105
+	CodeNodeUntrusted     = 1106
+	CodeLinkCARequired    = 1107
 
 	CodeProfileNotFound = 1200
 
@@ -135,6 +137,8 @@ var entries = []apperr.Entry{
 	{Code: CodeNodeNameInvalid, Title: "Fleet", Cause: "the node name is not an RFC 1123 label (1 to 63 lowercase letters, digits and hyphens, starting and ending with a letter or digit), or has the form of a node ID"},
 	{Code: CodeNodeRefMismatch, Title: "Fleet", Cause: "the request's node_id and node name point at different nodes; send node_id alone"},
 	{Code: CodeNodeRenameRefused, Title: "Fleet", Cause: "no longer returned: it refused renaming the node that was the operator CA, and a CryptOS node can't be the operator CA any more"},
+	{Code: CodeNodeUntrusted, Title: "Fleet", Cause: "the node's server certificate did not verify: it doesn't chain to the CA the manager trusts for the node (for LINK, the request's ca_pem) for the node's address, and it matches no pin"},
+	{Code: CodeLinkCARequired, Title: "Fleet", Cause: "a LINK request needs ca_pem: the PEM CA certificate that signed the node's management certificate, or the node's exact management certificate"},
 	{Code: CodeProfileNotFound, Title: "Catalog", Cause: "no certificate profile of that name is known"},
 	{Code: CodeIssuanceRefused, Title: "Certificates", Cause: "the issuing node refused to sign the request"},
 	{Code: CodeIssuanceNeedsApproval, Title: "Certificates", Cause: "the request needs human step-up approval (a CA profile or the root node)"},

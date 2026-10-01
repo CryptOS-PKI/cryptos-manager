@@ -583,12 +583,14 @@ func subordinateApprovalFixture(t *testing.T) (store.Store, *Service) {
 func TestApproveEnrollment_Link_RecordsAdmittedNodeID(t *testing.T) {
 	for label, inventoried := range map[string]bool{"node in the inventory": true, "node not in the inventory": false} {
 		t.Run(label, func(t *testing.T) {
+			adoptCredsBaseDir = t.TempDir()
+			caPEM := linkCAPEM(t)
 			key := mustKey(t)
 			st := memory.New(nil)
 			nodeIdentity := &cryptosv1.GetIdentityResponse{Identity: &cryptosv1.Identity{ChainDer: [][]byte{issuedLeafDER(t, "node-1", "ACME Root CA")}}}
 			svc := New(st, dialFor(nil)).WithEnrollment(dialPEMFakeFor(&fakeConn{attestKey: key, identity: nodeIdentity}))
 			create, err := svc.CreateEnrollment(operatorCtx("op@acme.example", authz.LevelOperator), connect.NewRequest(&fleetv1.CreateEnrollmentRequest{
-				Kind: "LINK", NodeEndpoint: "node:4443", AdminCertPem: "cert", AdminKeyPem: "key", CaPem: "ca",
+				Kind: "LINK", NodeEndpoint: "node:4443", AdminCertPem: "cert", AdminKeyPem: "key", CaPem: caPEM,
 			}))
 			if err != nil {
 				t.Fatalf("CreateEnrollment: %v", err)
@@ -601,7 +603,7 @@ func TestApproveEnrollment_Link_RecordsAdmittedNodeID(t *testing.T) {
 			}
 
 			resp, err := svc.ApproveEnrollment(operatorCtx("admin@acme.example", authz.LevelAdmin), connect.NewRequest(&fleetv1.ApproveEnrollmentRequest{
-				Id: enr.GetId(), NodeEndpoint: "node:4443", AdminCertPem: "cert", AdminKeyPem: "key", CaPem: "ca",
+				Id: enr.GetId(), NodeEndpoint: "node:4443", AdminCertPem: "cert", AdminKeyPem: "key", CaPem: caPEM,
 			}))
 			if err != nil {
 				t.Fatalf("ApproveEnrollment: %v", err)
