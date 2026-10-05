@@ -316,6 +316,10 @@ The FleetService and BootstrapService API this manager serves is defined here, i
 - 🧠 [`cryptos-node`](https://github.com/CryptOS-PKI/cryptos-node) — the OS / engine that runs the CAs this FM manages, and the home of the node API (`cryptos.node.v1`) the FM calls.
 - 🎨 [`cryptos-web`](https://github.com/CryptOS-PKI/cryptos-web) — the FM's web frontend (its `apps/console` bundle is served by this repo).
 
+## 🙏 Acknowledgements
+
+CryptOS was originally written by [@Bugs5382](https://github.com/Bugs5382).
+
 ## 📄 License
 
 [Apache License 2.0](LICENSE). Copyright The CryptOS Authors.
