@@ -25,6 +25,7 @@ import (
 	"github.com/CryptOS-PKI/cryptos-manager/internal/apperr"
 	"github.com/CryptOS-PKI/cryptos-manager/internal/approval"
 	"github.com/CryptOS-PKI/cryptos-manager/internal/authz"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
 )
 
 // ListApprovals returns the step-up approvals, newest first, optionally
@@ -66,6 +67,10 @@ func (s *Service) DecideApproval(ctx context.Context, req *connect.Request[fleet
 		return nil, approvalError(err)
 	}
 
+	if decided.Kind == store.ApprovalKindCertificateRequest {
+		s.onCertificateRequestDecided(ctx, decided)
+	}
+
 	return connect.NewResponse(&fleetv1.DecideApprovalResponse{Approval: approval.ToProto(decided)}), nil
 }
 
@@ -94,6 +99,8 @@ func approvalError(err error) error {
 		return apperr.Coded(apperr.CodeApproverLevelTooLow, connect.NewError(connect.CodePermissionDenied, err))
 	case errors.Is(err, approval.ErrBadStatus):
 		return apperr.Coded(apperr.CodeApprovalStatusInvalid, connect.NewError(connect.CodeInvalidArgument, err))
+	case errors.Is(err, approval.ErrSelfApproval):
+		return apperr.Coded(apperr.CodeRequestSelfApproval, connect.NewError(connect.CodePermissionDenied, err))
 	default:
 		return connect.NewError(connect.CodeInternal, err)
 	}

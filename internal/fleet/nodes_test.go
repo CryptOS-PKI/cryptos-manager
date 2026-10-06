@@ -103,6 +103,10 @@ type fakeConn struct {
 	// issueResp, when set, is returned by IssueLeaf instead of the
 	// zero-value response.
 	issueResp *nodev1.IssueLeafResponse
+	// issueErr, when set, is returned by IssueLeaf instead of err, so a test
+	// can make GetConfig succeed (to resolve the issuing node) while IssueLeaf
+	// itself fails.
+	issueErr error
 
 	// beginRotationResp, when set, is returned by BeginKeyRotation instead of
 	// the zero-value response (the re-key ferry reads its CSR).
@@ -373,6 +377,9 @@ func (f *fakeConn) RevokeCertificate(_ context.Context, serialHex string, reason
 func (f *fakeConn) IssueLeaf(_ context.Context, csrDER []byte, profileName string) (*nodev1.IssueLeafResponse, error) {
 	f.gotIssueCSR = csrDER
 	f.gotIssueProfile = profileName
+	if f.issueErr != nil {
+		return nil, f.issueErr
+	}
 	if f.err != nil {
 		return nil, f.err
 	}

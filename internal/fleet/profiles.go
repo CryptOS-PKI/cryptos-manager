@@ -82,6 +82,11 @@ func (s *Service) UpdateProfile(ctx context.Context, req *connect.Request[fleetv
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
+	// UpdateProfileRequest carries no requestable field, so a plain profile
+	// edit must not silently reset it; carry the stored value forward.
+	if current, ok := s.store.Profile(name); ok {
+		p.Requestable = current.Requestable
+	}
 
 	if err := s.store.UpdateProfile(p); err != nil {
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("fleet: update profile: %w", err))
@@ -113,6 +118,58 @@ func (s *Service) DeleteProfile(ctx context.Context, req *connect.Request[fleetv
 	s.auditProfile(ctx, "profile-deleted", "Deleted profile "+name, name)
 
 	return connect.NewResponse(&fleetv1.DeleteProfileResponse{}), nil
+}
+
+// SetProfileRequestable records whether a signed-in user may request a
+// certificate under the named catalog profile via CreateCertificateRequest.
+// It is admin-gated, rejects an empty name (InvalidArgument), and maps an
+// absent profile to NotFound. On success it appends a single
+// "profile-requestable-set" audit event.
+func (s *Service) SetProfileRequestable(ctx context.Context, req *connect.Request[fleetv1.SetProfileRequestableRequest]) (*connect.Response[fleetv1.SetProfileRequestableResponse], error) {
+	if err := requireAdmin(ctx); err != nil {
+		return nil, err
+	}
+
+	name := req.Msg.GetName()
+	if name == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("fleet: profile name is required"))
+	}
+
+	if _, err := s.store.SetProfileRequestable(name, req.Msg.GetRequestable()); err != nil {
+		return nil, apperr.Coded(apperr.CodeProfileNotFound,
+			connect.NewError(connect.CodeNotFound, fmt.Errorf("fleet: set profile requestable: %w", err)))
+	}
+
+	verb := "Marked"
+	if !req.Msg.GetRequestable() {
+		verb = "Unmarked"
+	}
+	s.auditProfile(ctx, "profile-requestable-set", fmt.Sprintf("%s profile %s requestable", verb, name), name)
+
+	return connect.NewResponse(&fleetv1.SetProfileRequestableResponse{}), nil
+}
+
+// ListRequestableProfiles returns the catalog profiles marked requestable,
+// for the "Request a certificate" picker. Any signed-in identity may list
+// them; a read, so it is not audited.
+func (s *Service) ListRequestableProfiles(ctx context.Context, _ *connect.Request[fleetv1.ListRequestableProfilesRequest]) (*connect.Response[fleetv1.ListRequestableProfilesResponse], error) {
+	if _, err := operatorLevel(ctx); err != nil {
+		return nil, err
+	}
+
+	var items []*nodev1.CertificateProfile
+	for _, p := range s.store.Profiles() {
+		if !p.Requestable {
+			continue
+		}
+		cp, err := unmarshalProfile(p)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
+		items = append(items, cp)
+	}
+
+	return connect.NewResponse(&fleetv1.ListRequestableProfilesResponse{Items: items}), nil
 }
 
 // ApplyProfileToNode pushes a catalog profile onto a managed node. It is
