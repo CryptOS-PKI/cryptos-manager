@@ -141,6 +141,16 @@ type fakeConn struct {
 	remoteResetErr  error
 	remoteResetResp *nodev1.RemoteResetResponse
 
+	// gotRebootCN and gotRebootPowerOff record what Reboot was called with, so
+	// a reboot test can assert the handler relayed the confirmation and the
+	// power-off flag unchanged.
+	gotRebootCN       string
+	gotRebootPowerOff bool
+	// rebootErr, when set, is returned by Reboot (e.g. a gRPC PermissionDenied
+	// for a CN mismatch); rebootResp is the success reply.
+	rebootErr  error
+	rebootResp *nodev1.RebootResponse
+
 	// gotCeremonyYAML records the config YAML StartCeremony was called with;
 	// ceremonyStream, when set, is the stream it returns (an adoption test
 	// feeds it a scripted event sequence). ceremonyErr fails StartCeremony.
@@ -405,6 +415,19 @@ func (f *fakeConn) RemoteReset(_ context.Context, confirmCN string) (*nodev1.Rem
 		return f.remoteResetResp, nil
 	}
 	return &nodev1.RemoteResetResponse{Rebooting: true}, nil
+}
+
+func (f *fakeConn) Reboot(_ context.Context, confirmCN string, powerOff bool) (*nodev1.RebootResponse, error) {
+	f.record("Reboot")
+	f.gotRebootCN = confirmCN
+	f.gotRebootPowerOff = powerOff
+	if f.rebootErr != nil {
+		return nil, f.rebootErr
+	}
+	if f.rebootResp != nil {
+		return f.rebootResp, nil
+	}
+	return &nodev1.RebootResponse{Rebooting: true}, nil
 }
 
 func (f *fakeConn) StartCeremony(_ context.Context, _ nodev1.CeremonyKind, machineConfigYAML []byte) (nodeclient.CeremonyStream, error) {

@@ -275,6 +275,16 @@ service FleetService {
   // audited (the audit names the node and that it was wiped, never any secret).
   rpc DecommissionNode(DecommissionNodeRequest) returns (DecommissionNodeResponse);
 
+  // RebootNode asks a managed node to perform an orderly reboot or power-off,
+  // the way a config change ApplyNodeConfig reported as requires_reboot (or
+  // any other staged change surfaced as NodeSummary.reboot_required) takes
+  // effect without an out-of-band hypervisor reset. It proxies the node's own
+  // Reboot RPC, which requires the same confirmation as ActivateImage: the
+  // caller must echo the node's current CA CN, checked by the node itself.
+  // Admin-gated (rebooting an issuing CA is an outage of everything that
+  // depends on it) and audited.
+  rpc RebootNode(RebootNodeRequest) returns (RebootNodeResponse);
+
   // RenameNode changes a node's display name. The node is addressed by its
   // stable ID, which never changes, so URLs, audit entries and references
   // recorded against the ID keep pointing at the node. Returns the updated
@@ -1175,6 +1185,31 @@ message DecommissionNodeRequest {
 // DecommissionNodeResponse reports that the node accepted the wipe and is
 // rebooting into maintenance.
 message DecommissionNodeResponse {
+  bool rebooting = 1;
+}
+
+// RebootNodeRequest names the managed node to reboot and confirms the
+// operator's intent.
+message RebootNodeRequest {
+  // node_name is the managed node to reboot.
+  // Deprecated: use node_id. Still resolves the node's current name for one
+  // release.
+  string node_name = 1;
+  // confirm_ca_cn must equal the node's current CA common name, the same
+  // confirmation ActivateImage requires on the node itself.
+  string confirm_ca_cn = 2;
+  // power_off halts the node and powers it off instead of restarting it. It
+  // stays off until the hypervisor or a person powers it back on.
+  bool power_off = 3;
+  // node_id is the stable ID (NodeSummary.id) of the node. Preferred over
+  // node_name; when both are set they must name the same node, or the
+  // manager returns InvalidArgument.
+  string node_id = 4;
+}
+
+// RebootNodeResponse mirrors the node's own RebootResponse: the node replies
+// before it goes down, so the caller learns the request was accepted.
+message RebootNodeResponse {
   bool rebooting = 1;
 }
 

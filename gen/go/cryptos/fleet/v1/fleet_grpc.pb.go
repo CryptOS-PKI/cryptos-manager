@@ -61,6 +61,7 @@ const (
 	FleetService_AdoptNode_FullMethodName                       = "/cryptos.fleet.v1.FleetService/AdoptNode"
 	FleetService_ConfirmAdoptionFingerprint_FullMethodName      = "/cryptos.fleet.v1.FleetService/ConfirmAdoptionFingerprint"
 	FleetService_DecommissionNode_FullMethodName                = "/cryptos.fleet.v1.FleetService/DecommissionNode"
+	FleetService_RebootNode_FullMethodName                      = "/cryptos.fleet.v1.FleetService/RebootNode"
 	FleetService_RenameNode_FullMethodName                      = "/cryptos.fleet.v1.FleetService/RenameNode"
 	FleetService_RemoveNode_FullMethodName                      = "/cryptos.fleet.v1.FleetService/RemoveNode"
 	FleetService_ListMcpKeys_FullMethodName                     = "/cryptos.fleet.v1.FleetService/ListMcpKeys"
@@ -279,6 +280,15 @@ type FleetServiceClient interface {
 	// must echo the node's current Root CA CN as confirmation. Admin-gated and
 	// audited (the audit names the node and that it was wiped, never any secret).
 	DecommissionNode(ctx context.Context, in *DecommissionNodeRequest, opts ...grpc.CallOption) (*DecommissionNodeResponse, error)
+	// RebootNode asks a managed node to perform an orderly reboot or power-off,
+	// the way a config change ApplyNodeConfig reported as requires_reboot (or
+	// any other staged change surfaced as NodeSummary.reboot_required) takes
+	// effect without an out-of-band hypervisor reset. It proxies the node's own
+	// Reboot RPC, which requires the same confirmation as ActivateImage: the
+	// caller must echo the node's current CA CN, checked by the node itself.
+	// Admin-gated (rebooting an issuing CA is an outage of everything that
+	// depends on it) and audited.
+	RebootNode(ctx context.Context, in *RebootNodeRequest, opts ...grpc.CallOption) (*RebootNodeResponse, error)
 	// RenameNode changes a node's display name. The node is addressed by its
 	// stable ID, which never changes, so URLs, audit entries and references
 	// recorded against the ID keep pointing at the node. Returns the updated
@@ -767,6 +777,16 @@ func (c *fleetServiceClient) DecommissionNode(ctx context.Context, in *Decommiss
 	return out, nil
 }
 
+func (c *fleetServiceClient) RebootNode(ctx context.Context, in *RebootNodeRequest, opts ...grpc.CallOption) (*RebootNodeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RebootNodeResponse)
+	err := c.cc.Invoke(ctx, FleetService_RebootNode_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *fleetServiceClient) RenameNode(ctx context.Context, in *RenameNodeRequest, opts ...grpc.CallOption) (*RenameNodeResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(RenameNodeResponse)
@@ -1046,6 +1066,15 @@ type FleetServiceServer interface {
 	// must echo the node's current Root CA CN as confirmation. Admin-gated and
 	// audited (the audit names the node and that it was wiped, never any secret).
 	DecommissionNode(context.Context, *DecommissionNodeRequest) (*DecommissionNodeResponse, error)
+	// RebootNode asks a managed node to perform an orderly reboot or power-off,
+	// the way a config change ApplyNodeConfig reported as requires_reboot (or
+	// any other staged change surfaced as NodeSummary.reboot_required) takes
+	// effect without an out-of-band hypervisor reset. It proxies the node's own
+	// Reboot RPC, which requires the same confirmation as ActivateImage: the
+	// caller must echo the node's current CA CN, checked by the node itself.
+	// Admin-gated (rebooting an issuing CA is an outage of everything that
+	// depends on it) and audited.
+	RebootNode(context.Context, *RebootNodeRequest) (*RebootNodeResponse, error)
 	// RenameNode changes a node's display name. The node is addressed by its
 	// stable ID, which never changes, so URLs, audit entries and references
 	// recorded against the ID keep pointing at the node. Returns the updated
@@ -1229,6 +1258,9 @@ func (UnimplementedFleetServiceServer) ConfirmAdoptionFingerprint(context.Contex
 }
 func (UnimplementedFleetServiceServer) DecommissionNode(context.Context, *DecommissionNodeRequest) (*DecommissionNodeResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DecommissionNode not implemented")
+}
+func (UnimplementedFleetServiceServer) RebootNode(context.Context, *RebootNodeRequest) (*RebootNodeResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RebootNode not implemented")
 }
 func (UnimplementedFleetServiceServer) RenameNode(context.Context, *RenameNodeRequest) (*RenameNodeResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RenameNode not implemented")
@@ -2020,6 +2052,24 @@ func _FleetService_DecommissionNode_Handler(srv interface{}, ctx context.Context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _FleetService_RebootNode_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RebootNodeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FleetServiceServer).RebootNode(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FleetService_RebootNode_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FleetServiceServer).RebootNode(ctx, req.(*RebootNodeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _FleetService_RenameNode_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(RenameNodeRequest)
 	if err := dec(in); err != nil {
@@ -2316,6 +2366,10 @@ var FleetService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DecommissionNode",
 			Handler:    _FleetService_DecommissionNode_Handler,
+		},
+		{
+			MethodName: "RebootNode",
+			Handler:    _FleetService_RebootNode_Handler,
 		},
 		{
 			MethodName: "RenameNode",

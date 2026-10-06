@@ -348,6 +348,13 @@ func (c *Client) RemoteReset(ctx context.Context, confirmCN string) (*nodev1.Rem
 	return c.node.RemoteReset(ctx, &nodev1.RemoteResetRequest{ConfirmCommonName: confirmCN})
 }
 
+// Reboot asks the dialed node to perform an orderly reboot or power-off.
+// confirmCN must equal the node's current CA CN or the node refuses
+// (PermissionDenied), the same confirmation ActivateImage requires.
+func (c *Client) Reboot(ctx context.Context, confirmCN string, powerOff bool) (*nodev1.RebootResponse, error) {
+	return c.node.Reboot(ctx, &nodev1.RebootRequest{ConfirmCaCn: confirmCN, PowerOff: powerOff})
+}
+
 // CeremonyStream is the receive side of a StartCeremony server stream, narrowed
 // to what the adoption orchestrator consumes so it can be faked in tests.
 type CeremonyStream interface {

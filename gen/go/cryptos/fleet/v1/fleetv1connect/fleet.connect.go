@@ -152,6 +152,8 @@ const (
 	// FleetServiceDecommissionNodeProcedure is the fully-qualified name of the FleetService's
 	// DecommissionNode RPC.
 	FleetServiceDecommissionNodeProcedure = "/cryptos.fleet.v1.FleetService/DecommissionNode"
+	// FleetServiceRebootNodeProcedure is the fully-qualified name of the FleetService's RebootNode RPC.
+	FleetServiceRebootNodeProcedure = "/cryptos.fleet.v1.FleetService/RebootNode"
 	// FleetServiceRenameNodeProcedure is the fully-qualified name of the FleetService's RenameNode RPC.
 	FleetServiceRenameNodeProcedure = "/cryptos.fleet.v1.FleetService/RenameNode"
 	// FleetServiceRemoveNodeProcedure is the fully-qualified name of the FleetService's RemoveNode RPC.
@@ -375,6 +377,15 @@ type FleetServiceClient interface {
 	// must echo the node's current Root CA CN as confirmation. Admin-gated and
 	// audited (the audit names the node and that it was wiped, never any secret).
 	DecommissionNode(context.Context, *connect.Request[v1.DecommissionNodeRequest]) (*connect.Response[v1.DecommissionNodeResponse], error)
+	// RebootNode asks a managed node to perform an orderly reboot or power-off,
+	// the way a config change ApplyNodeConfig reported as requires_reboot (or
+	// any other staged change surfaced as NodeSummary.reboot_required) takes
+	// effect without an out-of-band hypervisor reset. It proxies the node's own
+	// Reboot RPC, which requires the same confirmation as ActivateImage: the
+	// caller must echo the node's current CA CN, checked by the node itself.
+	// Admin-gated (rebooting an issuing CA is an outage of everything that
+	// depends on it) and audited.
+	RebootNode(context.Context, *connect.Request[v1.RebootNodeRequest]) (*connect.Response[v1.RebootNodeResponse], error)
 	// RenameNode changes a node's display name. The node is addressed by its
 	// stable ID, which never changes, so URLs, audit entries and references
 	// recorded against the ID keep pointing at the node. Returns the updated
@@ -689,6 +700,12 @@ func NewFleetServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(fleetServiceMethods.ByName("DecommissionNode")),
 			connect.WithClientOptions(opts...),
 		),
+		rebootNode: connect.NewClient[v1.RebootNodeRequest, v1.RebootNodeResponse](
+			httpClient,
+			baseURL+FleetServiceRebootNodeProcedure,
+			connect.WithSchema(fleetServiceMethods.ByName("RebootNode")),
+			connect.WithClientOptions(opts...),
+		),
 		renameNode: connect.NewClient[v1.RenameNodeRequest, v1.RenameNodeResponse](
 			httpClient,
 			baseURL+FleetServiceRenameNodeProcedure,
@@ -778,6 +795,7 @@ type fleetServiceClient struct {
 	adoptNode                       *connect.Client[v1.AdoptNodeRequest, v1.AdoptNodeResponse]
 	confirmAdoptionFingerprint      *connect.Client[v1.ConfirmAdoptionFingerprintRequest, v1.ConfirmAdoptionFingerprintResponse]
 	decommissionNode                *connect.Client[v1.DecommissionNodeRequest, v1.DecommissionNodeResponse]
+	rebootNode                      *connect.Client[v1.RebootNodeRequest, v1.RebootNodeResponse]
 	renameNode                      *connect.Client[v1.RenameNodeRequest, v1.RenameNodeResponse]
 	removeNode                      *connect.Client[v1.RemoveNodeRequest, v1.RemoveNodeResponse]
 	listMcpKeys                     *connect.Client[v1.ListMcpKeysRequest, v1.ListMcpKeysResponse]
@@ -998,6 +1016,11 @@ func (c *fleetServiceClient) ConfirmAdoptionFingerprint(ctx context.Context, req
 // DecommissionNode calls cryptos.fleet.v1.FleetService.DecommissionNode.
 func (c *fleetServiceClient) DecommissionNode(ctx context.Context, req *connect.Request[v1.DecommissionNodeRequest]) (*connect.Response[v1.DecommissionNodeResponse], error) {
 	return c.decommissionNode.CallUnary(ctx, req)
+}
+
+// RebootNode calls cryptos.fleet.v1.FleetService.RebootNode.
+func (c *fleetServiceClient) RebootNode(ctx context.Context, req *connect.Request[v1.RebootNodeRequest]) (*connect.Response[v1.RebootNodeResponse], error) {
+	return c.rebootNode.CallUnary(ctx, req)
 }
 
 // RenameNode calls cryptos.fleet.v1.FleetService.RenameNode.
@@ -1237,6 +1260,15 @@ type FleetServiceHandler interface {
 	// must echo the node's current Root CA CN as confirmation. Admin-gated and
 	// audited (the audit names the node and that it was wiped, never any secret).
 	DecommissionNode(context.Context, *connect.Request[v1.DecommissionNodeRequest]) (*connect.Response[v1.DecommissionNodeResponse], error)
+	// RebootNode asks a managed node to perform an orderly reboot or power-off,
+	// the way a config change ApplyNodeConfig reported as requires_reboot (or
+	// any other staged change surfaced as NodeSummary.reboot_required) takes
+	// effect without an out-of-band hypervisor reset. It proxies the node's own
+	// Reboot RPC, which requires the same confirmation as ActivateImage: the
+	// caller must echo the node's current CA CN, checked by the node itself.
+	// Admin-gated (rebooting an issuing CA is an outage of everything that
+	// depends on it) and audited.
+	RebootNode(context.Context, *connect.Request[v1.RebootNodeRequest]) (*connect.Response[v1.RebootNodeResponse], error)
 	// RenameNode changes a node's display name. The node is addressed by its
 	// stable ID, which never changes, so URLs, audit entries and references
 	// recorded against the ID keep pointing at the node. Returns the updated
@@ -1547,6 +1579,12 @@ func NewFleetServiceHandler(svc FleetServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(fleetServiceMethods.ByName("DecommissionNode")),
 		connect.WithHandlerOptions(opts...),
 	)
+	fleetServiceRebootNodeHandler := connect.NewUnaryHandler(
+		FleetServiceRebootNodeProcedure,
+		svc.RebootNode,
+		connect.WithSchema(fleetServiceMethods.ByName("RebootNode")),
+		connect.WithHandlerOptions(opts...),
+	)
 	fleetServiceRenameNodeHandler := connect.NewUnaryHandler(
 		FleetServiceRenameNodeProcedure,
 		svc.RenameNode,
@@ -1675,6 +1713,8 @@ func NewFleetServiceHandler(svc FleetServiceHandler, opts ...connect.HandlerOpti
 			fleetServiceConfirmAdoptionFingerprintHandler.ServeHTTP(w, r)
 		case FleetServiceDecommissionNodeProcedure:
 			fleetServiceDecommissionNodeHandler.ServeHTTP(w, r)
+		case FleetServiceRebootNodeProcedure:
+			fleetServiceRebootNodeHandler.ServeHTTP(w, r)
 		case FleetServiceRenameNodeProcedure:
 			fleetServiceRenameNodeHandler.ServeHTTP(w, r)
 		case FleetServiceRemoveNodeProcedure:
@@ -1864,6 +1904,10 @@ func (UnimplementedFleetServiceHandler) ConfirmAdoptionFingerprint(context.Conte
 
 func (UnimplementedFleetServiceHandler) DecommissionNode(context.Context, *connect.Request[v1.DecommissionNodeRequest]) (*connect.Response[v1.DecommissionNodeResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cryptos.fleet.v1.FleetService.DecommissionNode is not implemented"))
+}
+
+func (UnimplementedFleetServiceHandler) RebootNode(context.Context, *connect.Request[v1.RebootNodeRequest]) (*connect.Response[v1.RebootNodeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cryptos.fleet.v1.FleetService.RebootNode is not implemented"))
 }
 
 func (UnimplementedFleetServiceHandler) RenameNode(context.Context, *connect.Request[v1.RenameNodeRequest]) (*connect.Response[v1.RenameNodeResponse], error) {
