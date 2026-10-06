@@ -23,8 +23,11 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"math/big"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -691,6 +694,33 @@ func TestListOperatorCAs_Registered(t *testing.T) {
 
 	_, err = f.svc.ListOperatorCAs(operatorCtx("v@example.org", authz.LevelViewer), connect.NewRequest(&fleetv1.ListOperatorCAsRequest{}))
 	requireConnectCode(t, err, connect.CodePermissionDenied)
+}
+
+// Follow-up from #157: an operator CA registered before a matching node
+// existed doesn't get caught by the registration-time check, so
+// ListOperatorCAs flags it once GetIdentity has linked that node.
+func TestListOperatorCAs_WarnsWhenACAMatchesANodeCA(t *testing.T) {
+	f := newRotationFixture(t, operatorca.PolicySoft)
+
+	caPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: f.ca.cert.Raw})
+	caPath := filepath.Join(t.TempDir(), "ca.pem")
+	if err := os.WriteFile(caPath, caPEM, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f.st.AddNode(store.Node{Name: "acme-issuing-01", Endpoint: "192.0.2.21:443", Role: "issuing", CACert: caPath})
+
+	resp, err := f.svc.ListOperatorCAs(operatorCtx("op@example.org", authz.LevelOperator), connect.NewRequest(&fleetv1.ListOperatorCAsRequest{}))
+	if err != nil {
+		t.Fatalf("ListOperatorCAs: %v", err)
+	}
+	items := resp.Msg.GetItems()
+	if len(items) != 1 {
+		t.Fatalf("items = %+v", items)
+	}
+	warnings := items[0].GetWarnings()
+	if len(warnings) != 1 || !strings.Contains(warnings[0], f.ca.cert.Subject.CommonName) {
+		t.Fatalf("warnings = %q, want one naming the node CA", warnings)
+	}
 }
 
 // A config-file operator CA is listed read-only, and every write answers

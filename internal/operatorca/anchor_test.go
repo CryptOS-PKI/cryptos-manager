@@ -126,6 +126,40 @@ func TestValidateAnchor_WarnsWhenIssuedByANodeCA(t *testing.T) {
 	}
 }
 
+// NodeCAWarning catches what ValidateAnchor cannot: a CA registered before a
+// matching node existed, which only becomes a node's CA once that node is
+// linked.
+func TestNodeCAWarning_MatchByCertificateOrKey(t *testing.T) {
+	node := newCA(t, caOpts{cn: "Example Workload Intermediate"})
+	reissued := newCA(t, caOpts{cn: "Example Workload Intermediate G2", key: node.key})
+	other := newCA(t, caOpts{cn: "Example Other CA"})
+
+	cases := map[string]struct {
+		cert    *x509.Certificate
+		nodeCAs []*x509.Certificate
+		want    string
+	}{
+		"same certificate":            {cert: node.cert, nodeCAs: []*x509.Certificate{node.cert}, want: "Example Workload Intermediate"},
+		"re-issued with the same key": {cert: reissued.cert, nodeCAs: []*x509.Certificate{node.cert}, want: "Example Workload Intermediate"},
+		"no match":                    {cert: other.cert, nodeCAs: []*x509.Certificate{node.cert}},
+		"no nodes at all":             {cert: other.cert},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := NodeCAWarning(c.cert, c.nodeCAs)
+			if c.want == "" {
+				if got != "" {
+					t.Fatalf("NodeCAWarning = %q, want none", got)
+				}
+				return
+			}
+			if !strings.Contains(got, c.want) {
+				t.Fatalf("NodeCAWarning = %q, want it to name %q", got, c.want)
+			}
+		})
+	}
+}
+
 func TestParseAnchorUpload(t *testing.T) {
 	ca := newCA(t, caOpts{})
 	other := newCA(t, caOpts{cn: "Example Other CA"})
