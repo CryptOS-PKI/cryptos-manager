@@ -642,6 +642,10 @@ func (r *routingConn) RemoteReset(ctx context.Context, confirmCN string) (*nodev
 	return r.identity.RemoteReset(ctx, confirmCN)
 }
 
+func (r *routingConn) Reboot(ctx context.Context, confirmCN string, powerOff bool) (*nodev1.RebootResponse, error) {
+	return r.identity.Reboot(ctx, confirmCN, powerOff)
+}
+
 func (r *routingConn) StartCeremony(ctx context.Context, kind nodev1.CeremonyKind, machineConfigYAML []byte) (nodeclient.CeremonyStream, error) {
 	return r.identity.StartCeremony(ctx, kind, machineConfigYAML)
 }

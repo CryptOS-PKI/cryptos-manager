@@ -87,6 +87,7 @@ var Catalog = []Spec{
 	{Name: "export_ca_key", RPC: "ExportCAKey", Policy: Excluded, Reason: "CA key material"},
 	{Name: "import_ca_key", RPC: "ImportCAKey", Policy: Excluded, Reason: "CA key material"},
 	{Name: "decommission_node", RPC: "DecommissionNode", Policy: Excluded, Reason: "wipes a node"},
+	{Name: "reboot_node", RPC: "RebootNode", Policy: Excluded, Reason: "an outage of everything the node signs for"},
 	{Name: "rename_node", RPC: "RenameNode", Policy: Excluded, Reason: "changes the name people and configs use for a node"},
 	{Name: "remove_node", RPC: "RemoveNode", Policy: Excluded, Reason: "drops a node from the inventory"},
 	{Name: "adopt_node", RPC: "AdoptNode", Policy: Excluded, Reason: "wipes and provisions a disk"},
