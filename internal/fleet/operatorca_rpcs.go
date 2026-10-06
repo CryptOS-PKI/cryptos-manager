@@ -334,6 +334,12 @@ func (s *Service) addRuntimeState(oc *fleetv1.OperatorCA, cert *x509.Certificate
 	if c := s.revocations.OCSP(); c != nil {
 		oc.OcspLastError = c.LastError(sha)
 	}
+	// A CA registered before a matching node existed isn't caught by the
+	// registration-time check (#157); flag it here instead, every time the
+	// CA is rendered, since a node can be linked at any point afterward.
+	if w := operatorca.NodeCAWarning(cert, s.nodeCAs()); w != "" {
+		oc.Warnings = append(oc.Warnings, w)
+	}
 }
 
 func describeCA(cert *x509.Certificate, warnings, acks []string, crlSource, crlLocation, ocspMode, ocspURL string) *fleetv1.OperatorCA {

@@ -165,6 +165,20 @@ func CheckNotNodeCA(anchors, nodeCAs []*x509.Certificate) error {
 	return nil
 }
 
+// NodeCAWarning reports a registered operator CA that now matches a CryptOS
+// node's CA, by certificate or key -- something ValidateAnchor and
+// CheckNotNodeCA only catch at registration time, before a matching node
+// existed or was linked. Empty when there's no match.
+func NodeCAWarning(cert *x509.Certificate, nodeCAs []*x509.Certificate) string {
+	node := matchingNodeCA(cert, nodeCAs)
+	if node == nil {
+		return ""
+	}
+	return fmt.Sprintf(
+		"this operator CA is the CryptOS node CA %s (same certificate or key); a CryptOS node can't be the operator CA",
+		node.Subject)
+}
+
 func matchingNodeCA(cert *x509.Certificate, nodeCAs []*x509.Certificate) *x509.Certificate {
 	for _, n := range nodeCAs {
 		if bytes.Equal(n.Raw, cert.Raw) || bytes.Equal(n.RawSubjectPublicKeyInfo, cert.RawSubjectPublicKeyInfo) {
