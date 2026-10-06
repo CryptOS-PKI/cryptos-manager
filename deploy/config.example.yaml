@@ -22,24 +22,35 @@ httpRedirectListen: "0.0.0.0:8080"
 # serves plaintext h2c.
 authBypass: false
 
-# Paths are inside the container, under the read-only mount.
-tlsCert: /etc/cryptos/fleet/tls/tls.crt
-tlsKey: /etc/cryptos/fleet/tls/tls.key
+# The server certificate. Left unset for day zero: the manager serves a
+# self-signed certificate, kept in Postgres, and logs its fingerprint. Set both
+# (and uncomment the tls mount in compose.yaml) once you have a real one.
+# tlsCert: /etc/cryptos/fleet/tls/tls.crt
+# tlsKey: /etc/cryptos/fleet/tls/tls.key
 
-# The client-auth trust anchor: your external operator CA. Any certificate it
-# issued may open a TLS session to the management plane. It can't be a CryptOS
-# node's CA; the manager refuses to start if it is. See docs/operator-ca.md.
-operatorCAPath: /etc/cryptos/fleet/operator-ca/operator-ca.pem
+# First run: with no operatorCAPath, the manager prints a single-use bootstrap
+# token and the token holder registers your external operator CA in the web UI
+# (docs/first-run.md). disabled keeps first run shut.
+# firstRun: auto
+
+# Or the operator CA from a file (uncomment the operator-ca mount in
+# compose.yaml). It is then the only operator CA source and first run doesn't
+# apply. It can't be a CryptOS node's CA; the manager refuses to start if it is.
+# See docs/operator-ca.md.
+# operatorCAPath: /etc/cryptos/fleet/operator-ca/operator-ca.pem
 
 # The password must match POSTGRES_PASSWORD in
 # /etc/cryptos/fleet/secrets/postgres.env. The host is the compose service name.
 database_url: "postgres://manager:CHANGEME@postgres:5432/manager"
 
-# Where your operator CA publishes its CRL, so revocations made at the CA are
-# enforced (docs/operator-ca.md). Revocations made in the Fleet Manager go on
-# its denylist in Postgres either way.
+# With operatorCAPath only: where your operator CA publishes its CRL, so
+# revocations made at the CA are enforced (docs/operator-ca.md). A path entry
+# reads a file from the operator-crl mount. A CA registered through first run
+# keeps its CRL source on its own record instead. Revocations made in the Fleet
+# Manager go on its denylist in Postgres either way.
 # operatorCRL:
 #   - url: "http://pki.example.org/fleetos-operator.crl"
+#   - path: /etc/cryptos/fleet/operator-crl/operator-ca.crl
 
 # Each node's admin credential drives that node's management API, so this host
 # holds CA-admin authority. Treat it as a tier-0 asset.
