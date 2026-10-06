@@ -42,6 +42,11 @@ The manager owns the 1000-1999 block; another service takes its own first digit.
 | 1300 | Certificates | the issuing node refused to sign the request |
 | 1301 | Certificates | the request needs human step-up approval (a CA profile or the root node) |
 | 1302 | Certificates | the node has no issued certificate with that serial |
+| 1303 | Certificates | no certificate request with that id exists |
+| 1304 | Certificates | the certificate request is no longer pending, so it cannot be decided or cancelled |
+| 1305 | Certificates | the CSR does not match the profile's subject, SANs or key type; the message names the field |
+| 1306 | Certificates | the profile is not marked requestable |
+| 1307 | Certificates | a certificate request's own requester cannot decide its approval |
 | 1400 | Operators | no operator CA is configured (operatorCAPath, or one registered at first run), so operator credentials cannot be listed or denied |
 | 1401 | Operators | no operator credential with that serial is recorded |
 | 1500 | Configuration | the node rejected the configuration as invalid |

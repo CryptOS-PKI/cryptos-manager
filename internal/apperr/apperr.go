@@ -91,6 +91,11 @@ const (
 	CodeIssuanceRefused       = 1300
 	CodeIssuanceNeedsApproval = 1301
 	CodeCertificateNotFound   = 1302
+	CodeRequestNotFound       = 1303
+	CodeRequestNotPending     = 1304
+	CodeCsrProfileMismatch    = 1305
+	CodeProfileNotRequestable = 1306
+	CodeRequestSelfApproval   = 1307
 
 	CodeOperatorCAUnconfigured = 1400
 	CodeOperatorNotFound       = 1401
@@ -149,6 +154,11 @@ var entries = []apperr.Entry{
 	{Code: CodeIssuanceRefused, Title: "Certificates", Cause: "the issuing node refused to sign the request"},
 	{Code: CodeIssuanceNeedsApproval, Title: "Certificates", Cause: "the request needs human step-up approval (a CA profile or the root node)"},
 	{Code: CodeCertificateNotFound, Title: "Certificates", Cause: "the node has no issued certificate with that serial"},
+	{Code: CodeRequestNotFound, Title: "Certificates", Cause: "no certificate request with that id exists"},
+	{Code: CodeRequestNotPending, Title: "Certificates", Cause: "the certificate request is no longer pending, so it cannot be decided or cancelled"},
+	{Code: CodeCsrProfileMismatch, Title: "Certificates", Cause: "the CSR does not match the profile's subject, SANs or key type; the message names the field"},
+	{Code: CodeProfileNotRequestable, Title: "Certificates", Cause: "the profile is not marked requestable"},
+	{Code: CodeRequestSelfApproval, Title: "Certificates", Cause: "a certificate request's own requester cannot decide its approval"},
 	{Code: CodeOperatorCAUnconfigured, Title: "Operators", Cause: "no operator CA is configured (operatorCAPath, or one registered at first run), so operator credentials cannot be listed or denied"},
 	{Code: CodeOperatorNotFound, Title: "Operators", Cause: "no operator credential with that serial is recorded"},
 	{Code: CodeConfigRejected, Title: "Configuration", Cause: "the node rejected the configuration as invalid"},
