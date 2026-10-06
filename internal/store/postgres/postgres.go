@@ -313,7 +313,7 @@ func (s *Store) RenameNode(id, newName string, at time.Time) (store.Node, error)
 // Profiles returns every certificate issuance profile.
 func (s *Store) Profiles() []store.Profile {
 	rows, err := s.pool.Query(bg(),
-		`SELECT name, spec FROM profiles ORDER BY name`)
+		`SELECT name, spec, requestable FROM profiles ORDER BY name`)
 	if err != nil {
 		panic(fmt.Sprintf("postgres: query profiles: %v", err))
 	}
@@ -322,7 +322,7 @@ func (s *Store) Profiles() []store.Profile {
 	out := make([]store.Profile, 0)
 	for rows.Next() {
 		var p store.Profile
-		if err := rows.Scan(&p.Name, &p.Spec); err != nil {
+		if err := rows.Scan(&p.Name, &p.Spec, &p.Requestable); err != nil {
 			panic(fmt.Sprintf("postgres: scan profile: %v", err))
 		}
 		out = append(out, p)
@@ -337,7 +337,7 @@ func (s *Store) Profiles() []store.Profile {
 func (s *Store) Profile(name string) (store.Profile, bool) {
 	var p store.Profile
 	err := s.pool.QueryRow(bg(),
-		`SELECT name, spec FROM profiles WHERE name = $1`, name).Scan(&p.Name, &p.Spec)
+		`SELECT name, spec, requestable FROM profiles WHERE name = $1`, name).Scan(&p.Name, &p.Spec, &p.Requestable)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return store.Profile{}, false
 	}
@@ -351,8 +351,8 @@ func (s *Store) Profile(name string) (store.Profile, bool) {
 // with the same name already exists (the primary-key conflict).
 func (s *Store) CreateProfile(p store.Profile) error {
 	tag, err := s.pool.Exec(bg(),
-		`INSERT INTO profiles (name, spec) VALUES ($1, $2)
-		 ON CONFLICT (name) DO NOTHING`, p.Name, p.Spec)
+		`INSERT INTO profiles (name, spec, requestable) VALUES ($1, $2, $3)
+		 ON CONFLICT (name) DO NOTHING`, p.Name, p.Spec, p.Requestable)
 	if err != nil {
 		return fmt.Errorf("postgres: insert profile %q: %w", p.Name, err)
 	}
@@ -362,11 +362,11 @@ func (s *Store) CreateProfile(p store.Profile) error {
 	return nil
 }
 
-// UpdateProfile replaces the spec of the profile named p.Name. It returns an
-// error if no profile has that name.
+// UpdateProfile replaces the spec and requestable flag of the profile named
+// p.Name. It returns an error if no profile has that name.
 func (s *Store) UpdateProfile(p store.Profile) error {
 	tag, err := s.pool.Exec(bg(),
-		`UPDATE profiles SET spec = $2 WHERE name = $1`, p.Name, p.Spec)
+		`UPDATE profiles SET spec = $2, requestable = $3 WHERE name = $1`, p.Name, p.Spec, p.Requestable)
 	if err != nil {
 		return fmt.Errorf("postgres: update profile %q: %w", p.Name, err)
 	}
@@ -374,6 +374,23 @@ func (s *Store) UpdateProfile(p store.Profile) error {
 		return fmt.Errorf("postgres: profile %q not found", p.Name)
 	}
 	return nil
+}
+
+// SetProfileRequestable sets the requestable flag of the profile with the
+// given name and returns it. It returns an error if no profile has that
+// name.
+func (s *Store) SetProfileRequestable(name string, requestable bool) (store.Profile, error) {
+	var p store.Profile
+	err := s.pool.QueryRow(bg(),
+		`UPDATE profiles SET requestable = $2 WHERE name = $1 RETURNING name, spec, requestable`,
+		name, requestable).Scan(&p.Name, &p.Spec, &p.Requestable)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return store.Profile{}, fmt.Errorf("postgres: profile %q not found", name)
+	}
+	if err != nil {
+		return store.Profile{}, fmt.Errorf("postgres: set profile %q requestable: %w", name, err)
+	}
+	return p, nil
 }
 
 // DeleteProfile removes the profile with the given name. It returns an error
@@ -676,8 +693,8 @@ func (s *Store) SeedIfEmpty(ctx context.Context, nodes []store.Node, profiles []
 	}
 	for _, p := range profiles {
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO profiles (name, spec) VALUES ($1, $2)`,
-			p.Name, p.Spec); err != nil {
+			`INSERT INTO profiles (name, spec, requestable) VALUES ($1, $2, $3)`,
+			p.Name, p.Spec, p.Requestable); err != nil {
 			return fmt.Errorf("postgres: seed profile %q: %w", p.Name, err)
 		}
 	}
@@ -991,7 +1008,7 @@ func (s *Store) TakeOAuthCode(hash string) (store.OAuthCode, bool) {
 
 const approvalCols = `id, tool, summary, request_digest, requested_by_cn, requested_by_serial, key_id,
   required_level, created_at, expires_at, status, decided_by_cn, decided_by_serial, decided_by_level,
-  decided_at, used_at`
+  decided_at, used_at, kind`
 
 func scanApproval(row pgx.Row) (store.Approval, error) {
 	var (
@@ -1000,7 +1017,7 @@ func scanApproval(row pgx.Row) (store.Approval, error) {
 	)
 	if err := row.Scan(&a.ID, &a.Tool, &a.Summary, &a.RequestDigest, &a.RequestedByCN, &a.RequestedBySerial,
 		&a.KeyID, &a.RequiredLevel, &a.CreatedAt, &a.ExpiresAt, &a.Status, &a.DecidedByCN, &a.DecidedBySerial,
-		&a.DecidedByLevel, &decided, &use); err != nil {
+		&a.DecidedByLevel, &decided, &use, &a.Kind); err != nil {
 		return store.Approval{}, err
 	}
 	a.CreatedAt = a.CreatedAt.UTC()
@@ -1014,10 +1031,10 @@ func scanApproval(row pgx.Row) (store.Approval, error) {
 func (s *Store) AddApproval(a store.Approval) {
 	if _, err := s.pool.Exec(bg(),
 		`INSERT INTO approvals (`+approvalCols+`)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
 		a.ID, a.Tool, a.Summary, a.RequestDigest, a.RequestedByCN, a.RequestedBySerial, a.KeyID, a.RequiredLevel,
 		a.CreatedAt, a.ExpiresAt, a.Status, a.DecidedByCN, a.DecidedBySerial, a.DecidedByLevel,
-		nullTime(a.DecidedAt), nullTime(a.UsedAt)); err != nil {
+		nullTime(a.DecidedAt), nullTime(a.UsedAt), a.Kind); err != nil {
 		panic(fmt.Sprintf("postgres: insert approval %q: %v", a.ID, err))
 	}
 }
@@ -1078,4 +1095,119 @@ func (s *Store) UseApproval(id string, at time.Time) (store.Approval, bool) {
 		`UPDATE approvals SET status = 'used', used_at = $2
 		 WHERE id = $1 AND status = 'approved' AND expires_at > $2 RETURNING `+approvalCols,
 		id, at)
+}
+
+const certRequestCols = `id, requester_cn, requester_serial, profile, csr_der, note, state, approval_id,
+  cert_der, failure_reason, created_at, expires_at, decided_at, issued_at`
+
+// scanCertificateRequest reads one certificate_requests row in the
+// certRequestCols column order.
+func scanCertificateRequest(r rowScanner) (store.CertificateRequest, error) {
+	var (
+		req                 store.CertificateRequest
+		decidedAt, issuedAt *time.Time
+	)
+	if err := r.Scan(&req.ID, &req.RequesterCN, &req.RequesterSerial, &req.Profile, &req.CSRDER, &req.Note,
+		&req.State, &req.ApprovalID, &req.CertDER, &req.FailureReason, &req.CreatedAt, &req.ExpiresAt,
+		&decidedAt, &issuedAt); err != nil {
+		return store.CertificateRequest{}, err
+	}
+	req.CreatedAt = req.CreatedAt.UTC()
+	req.ExpiresAt = req.ExpiresAt.UTC()
+	req.DecidedAt = timeOrZero(decidedAt)
+	req.IssuedAt = timeOrZero(issuedAt)
+	return req, nil
+}
+
+// certRequestWithDerivedExpiry reports r as store.CertRequestExpired when it
+// is still pending but now is at or past its ExpiresAt, without mutating the
+// stored row.
+func certRequestWithDerivedExpiry(r store.CertificateRequest, now time.Time) store.CertificateRequest {
+	if r.State == store.CertRequestPending && !now.Before(r.ExpiresAt) {
+		r.State = store.CertRequestExpired
+	}
+	return r
+}
+
+// AddCertificateRequest records a newly filed certificate request.
+func (s *Store) AddCertificateRequest(r store.CertificateRequest) {
+	if _, err := s.pool.Exec(bg(),
+		`INSERT INTO certificate_requests (`+certRequestCols+`)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+		r.ID, r.RequesterCN, r.RequesterSerial, r.Profile, r.CSRDER, r.Note, r.State, r.ApprovalID,
+		r.CertDER, r.FailureReason, r.CreatedAt, r.ExpiresAt, nullTime(r.DecidedAt), nullTime(r.IssuedAt)); err != nil {
+		panic(fmt.Sprintf("postgres: insert certificate request %q: %v", r.ID, err))
+	}
+}
+
+// CertificateRequest returns the request with the given ID, and whether it
+// was found.
+func (s *Store) CertificateRequest(id string, now time.Time) (store.CertificateRequest, bool) {
+	row := s.pool.QueryRow(bg(), `SELECT `+certRequestCols+` FROM certificate_requests WHERE id = $1`, id)
+	r, err := scanCertificateRequest(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return store.CertificateRequest{}, false
+	}
+	if err != nil {
+		panic(fmt.Sprintf("postgres: query certificate request %q: %v", id, err))
+	}
+	return certRequestWithDerivedExpiry(r, now), true
+}
+
+// CertificateRequests returns every certificate request, newest first.
+func (s *Store) CertificateRequests(now time.Time) []store.CertificateRequest {
+	rows, err := s.pool.Query(bg(), `SELECT `+certRequestCols+` FROM certificate_requests ORDER BY created_at DESC, id`)
+	if err != nil {
+		panic(fmt.Sprintf("postgres: query certificate requests: %v", err))
+	}
+	defer rows.Close()
+
+	out := make([]store.CertificateRequest, 0)
+	for rows.Next() {
+		r, err := scanCertificateRequest(rows)
+		if err != nil {
+			panic(fmt.Sprintf("postgres: scan certificate request: %v", err))
+		}
+		out = append(out, certRequestWithDerivedExpiry(r, now))
+	}
+	if err := rows.Err(); err != nil {
+		panic(fmt.Sprintf("postgres: iterate certificate requests: %v", err))
+	}
+	return out
+}
+
+// UpdateCertificateRequest reads the request with the given ID, applies
+// mutate to it in Go, and writes every column back, all in one transaction.
+// It returns an error if no request has that ID.
+func (s *Store) UpdateCertificateRequest(id string, mutate func(*store.CertificateRequest)) error {
+	ctx := bg()
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("postgres: begin certificate request update: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	row := tx.QueryRow(ctx, `SELECT `+certRequestCols+` FROM certificate_requests WHERE id = $1`, id)
+	r, err := scanCertificateRequest(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("postgres: certificate request %q not found", id)
+	}
+	if err != nil {
+		return fmt.Errorf("postgres: load certificate request %q: %w", id, err)
+	}
+
+	mutate(&r)
+
+	if _, err := tx.Exec(ctx,
+		`UPDATE certificate_requests SET requester_cn=$2, requester_serial=$3, profile=$4, csr_der=$5,
+		   note=$6, state=$7, approval_id=$8, cert_der=$9, failure_reason=$10, created_at=$11,
+		   expires_at=$12, decided_at=$13, issued_at=$14 WHERE id=$1`,
+		r.ID, r.RequesterCN, r.RequesterSerial, r.Profile, r.CSRDER, r.Note, r.State, r.ApprovalID,
+		r.CertDER, r.FailureReason, r.CreatedAt, r.ExpiresAt, nullTime(r.DecidedAt), nullTime(r.IssuedAt)); err != nil {
+		return fmt.Errorf("postgres: update certificate request %q: %w", id, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("postgres: commit certificate request update: %w", err)
+	}
+	return nil
 }

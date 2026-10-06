@@ -86,6 +86,9 @@ func IsNodeID(s string) bool {
 type Profile struct {
 	Name string
 	Spec []byte // marshaled cryptos.node.v1.CertificateProfile
+	// Requestable allows a signed-in user to request a certificate under
+	// this profile via CreateCertificateRequest. Off by default.
+	Requestable bool
 }
 
 // Adapter is an enrollment protocol adapter's configuration: which protocol
@@ -200,9 +203,19 @@ const (
 	ApprovalUsed     = "used"
 )
 
-// Approval is a step-up request raised by an MCP tool call that needs a
-// person's decision before it runs. It covers exactly one request (the tool
-// and the digest of its arguments), made by one key, and is used at most
+// Approval kinds. ApprovalKindStepUp (and the empty string, for rows written
+// before this field existed) is a step-up request raised by an MCP tool
+// call. ApprovalKindCertificateRequest gates a CreateCertificateRequest and
+// refuses the requester deciding their own.
+const (
+	ApprovalKindStepUp             = "step_up"
+	ApprovalKindCertificateRequest = "certificate_request"
+)
+
+// Approval is a step-up request raised by an MCP tool call, or a person's
+// certificate request, that needs a decision before it proceeds. It covers
+// exactly one request (the tool and the digest of its arguments, or a
+// certificate request ID), made by one key or requester, and is used at most
 // once before ExpiresAt. DecidedByLevel is the decider's level at decision
 // time, kept so the call can re-check it when the approval is used. A zero
 // time means the timestamp is unset.
@@ -223,6 +236,9 @@ type Approval struct {
 	DecidedByLevel    string
 	DecidedAt         time.Time
 	UsedAt            time.Time
+	// Kind is ApprovalKindStepUp or ApprovalKindCertificateRequest. Empty is
+	// treated as ApprovalKindStepUp.
+	Kind string
 }
 
 // Enrollment is a node's request to join the fleet under a parent CA,
@@ -326,6 +342,10 @@ type Store interface {
 	// DeleteProfile removes the profile with the given name. It errors if no
 	// profile has that name.
 	DeleteProfile(name string) error
+	// SetProfileRequestable sets whether a signed-in user may request a
+	// certificate under the named catalog profile and returns the updated
+	// profile. It errors if no profile has that name.
+	SetProfileRequestable(name string, requestable bool) (Profile, error)
 	// Adapters returns every enrollment protocol adapter.
 	Adapters() []Adapter
 	// SetAdapterEnabled sets the enabled state of the adapter with the given
@@ -406,6 +426,53 @@ type Store interface {
 	// used or expired. The check and the update are one step, so an approval
 	// runs at most one call.
 	UseApproval(id string, at time.Time) (Approval, bool)
+	// AddCertificateRequest records a newly filed certificate request.
+	AddCertificateRequest(r CertificateRequest)
+	// CertificateRequest returns the request with the given ID, reporting a
+	// pending request past its ExpiresAt as CertRequestExpired, and whether
+	// it was found.
+	CertificateRequest(id string, now time.Time) (CertificateRequest, bool)
+	// CertificateRequests returns every certificate request, newest first,
+	// reporting a pending request past its ExpiresAt as CertRequestExpired.
+	CertificateRequests(now time.Time) []CertificateRequest
+	// UpdateCertificateRequest applies mutate to the request with the given
+	// ID. It errors if no request has that ID.
+	UpdateCertificateRequest(id string, mutate func(*CertificateRequest)) error
+}
+
+// Certificate request states. A pending request is readable as
+// CertRequestExpired once ExpiresAt passes, without anything writing that
+// state; approved is reached when its approval is decided and transitions on
+// to issued or failed once the issuing node answers.
+const (
+	CertRequestPending   = "pending"
+	CertRequestApproved  = "approved"
+	CertRequestIssued    = "issued"
+	CertRequestDenied    = "denied"
+	CertRequestCancelled = "cancelled"
+	CertRequestExpired   = "expired"
+	CertRequestFailed    = "failed"
+)
+
+// CertificateRequest is a person's request for a certificate under a
+// requestable catalog profile (CreateCertificateRequest). ID is a UUID.
+// ApprovalID links it to the Approval that gates it. A zero time means the
+// timestamp is unset.
+type CertificateRequest struct {
+	ID              string
+	RequesterCN     string
+	RequesterSerial string
+	Profile         string
+	CSRDER          []byte
+	Note            string
+	State           string
+	ApprovalID      string
+	CertDER         []byte
+	FailureReason   string
+	CreatedAt       time.Time
+	ExpiresAt       time.Time
+	DecidedAt       time.Time
+	IssuedAt        time.Time
 }
 
 // HashEvent computes the chain hash for an audit event: the SHA-256, in hex, of

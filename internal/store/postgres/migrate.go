@@ -239,6 +239,31 @@ CREATE TABLE IF NOT EXISTS bootstrap_server_cert (
   created_at timestamptz NOT NULL DEFAULT now()
 );`
 
+// v8CertificateRequestsSQL adds a person's path to a certificate: profiles
+// gain a requestable flag (off by default, so nothing changes until an admin
+// opts a profile in), approvals gain a kind so a certificate-request approval
+// can be told apart from a step-up one, and certificate_requests holds each
+// request from filing through issuance or refusal.
+const v8CertificateRequestsSQL = `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS requestable boolean NOT NULL DEFAULT false;
+ALTER TABLE approvals ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'step_up';
+CREATE TABLE IF NOT EXISTS certificate_requests (
+  id uuid PRIMARY KEY,
+  requester_cn text NOT NULL,
+  requester_serial text NOT NULL,
+  profile text NOT NULL,
+  csr_der bytea NOT NULL,
+  note text NOT NULL DEFAULT '',
+  state text NOT NULL CHECK (state IN ('pending', 'approved', 'issued', 'denied', 'cancelled', 'expired', 'failed')),
+  approval_id text NOT NULL DEFAULT '',
+  cert_der bytea,
+  failure_reason text NOT NULL DEFAULT '',
+  created_at timestamptz NOT NULL,
+  expires_at timestamptz NOT NULL,
+  decided_at timestamptz,
+  issued_at timestamptz
+);
+CREATE INDEX IF NOT EXISTS certificate_requests_created_at ON certificate_requests (created_at DESC);`
+
 // backfillNodeIDs mints a UUIDv7 for every node that has no ID yet.
 func backfillNodeIDs(ctx context.Context, tx pgx.Tx) error {
 	rows, err := tx.Query(ctx, `SELECT name FROM nodes WHERE id IS NULL ORDER BY name`)
@@ -281,6 +306,7 @@ var migrations = []migration{
 	{version: "v5", sql: v5ApprovalsSQL},
 	{version: "v6", sql: v6NodeIDsSQL, apply: backfillNodeIDs},
 	{version: "v7", sql: v7OperatorTrustSQL},
+	{version: "v8", sql: v8CertificateRequestsSQL},
 }
 
 // migrate applies every not-yet-applied migration in order, each tracked in a

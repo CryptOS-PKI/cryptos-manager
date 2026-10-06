@@ -43,6 +43,7 @@ type Store struct {
 	oauthRequests map[string]store.OAuthRequest
 	oauthCodes    map[string]store.OAuthCode
 	approvals     map[string]store.Approval
+	certRequests  map[string]store.CertificateRequest
 
 	// trust holds what the in-memory store keeps for a config-file operator
 	// CA: CRLs per process and the revocation epoch.
@@ -81,6 +82,7 @@ func NewWithCatalog(nodes []store.Node, profiles []store.Profile, adapters []sto
 		oauthRequests: map[string]store.OAuthRequest{},
 		oauthCodes:    map[string]store.OAuthCode{},
 		approvals:     map[string]store.Approval{},
+		certRequests:  map[string]store.CertificateRequest{},
 	}
 }
 
@@ -300,6 +302,23 @@ func (s *Store) DeleteProfile(name string) error {
 	}
 
 	return fmt.Errorf("memory: profile %q not found", name)
+}
+
+// SetProfileRequestable sets the requestable flag of the profile with the
+// given name and returns it. It returns an error if no profile has that
+// name.
+func (s *Store) SetProfileRequestable(name string, requestable bool) (store.Profile, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for i := range s.profiles {
+		if s.profiles[i].Name == name {
+			s.profiles[i].Requestable = requestable
+			return s.profiles[i], nil
+		}
+	}
+
+	return store.Profile{}, fmt.Errorf("memory: profile %q not found", name)
 }
 
 // Adapters returns every enrollment protocol adapter.
@@ -663,4 +682,71 @@ func (s *Store) UseApproval(id string, at time.Time) (store.Approval, bool) {
 	s.approvals[id] = a
 
 	return a, true
+}
+
+// AddCertificateRequest records a newly filed certificate request.
+func (s *Store) AddCertificateRequest(r store.CertificateRequest) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.certRequests[r.ID] = r
+}
+
+// withDerivedExpiry reports r as store.CertRequestExpired when it is still
+// pending but now is at or past its ExpiresAt, without mutating the stored
+// row.
+func withDerivedExpiry(r store.CertificateRequest, now time.Time) store.CertificateRequest {
+	if r.State == store.CertRequestPending && !now.Before(r.ExpiresAt) {
+		r.State = store.CertRequestExpired
+	}
+	return r
+}
+
+// CertificateRequest returns the request with the given ID, and whether it
+// was found.
+func (s *Store) CertificateRequest(id string, now time.Time) (store.CertificateRequest, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	r, ok := s.certRequests[id]
+	if !ok {
+		return store.CertificateRequest{}, false
+	}
+
+	return withDerivedExpiry(r, now), true
+}
+
+// CertificateRequests returns every certificate request, newest first.
+func (s *Store) CertificateRequests(now time.Time) []store.CertificateRequest {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	out := make([]store.CertificateRequest, 0, len(s.certRequests))
+	for _, r := range s.certRequests {
+		out = append(out, withDerivedExpiry(r, now))
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].CreatedAt.Equal(out[j].CreatedAt) {
+			return out[i].CreatedAt.After(out[j].CreatedAt)
+		}
+		return out[i].ID < out[j].ID
+	})
+
+	return out
+}
+
+// UpdateCertificateRequest applies mutate to the request with the given ID.
+// It returns an error if no request has that ID.
+func (s *Store) UpdateCertificateRequest(id string, mutate func(*store.CertificateRequest)) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	r, ok := s.certRequests[id]
+	if !ok {
+		return fmt.Errorf("memory: certificate request %q not found", id)
+	}
+	mutate(&r)
+	s.certRequests[id] = r
+
+	return nil
 }
