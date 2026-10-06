@@ -63,6 +63,18 @@ service FleetService {
   // back via the node's ApplyConfig. Admin-gated and audited.
   rpc ApplyProfileToNode(ApplyProfileToNodeRequest) returns (ApplyProfileToNodeResponse);
 
+  // SetProfileRequestable records whether a signed-in user may request a
+  // certificate under the named catalog profile via
+  // CreateCertificateRequest, matched by profile name. Off by default, so
+  // nothing changes until an admin opts a profile in. Admin-gated and
+  // audited.
+  rpc SetProfileRequestable(SetProfileRequestableRequest) returns (SetProfileRequestableResponse);
+
+  // ListRequestableProfiles returns the catalog profiles marked requestable,
+  // for the "Request a certificate" picker. Readable at viewer level and
+  // above; a read, so it is not audited.
+  rpc ListRequestableProfiles(ListRequestableProfilesRequest) returns (ListRequestableProfilesResponse);
+
   // ListAdapters returns the manager's catalog of enrollment protocol
   // adapters.
   rpc ListAdapters(ListAdaptersRequest) returns (ListAdaptersResponse);
@@ -340,6 +352,28 @@ service FleetService {
   // approvals. The deciding operator's level must be at least the approval's
   // required_level. Audited.
   rpc DecideApproval(DecideApprovalRequest) returns (DecideApprovalResponse);
+
+  // CreateCertificateRequest files a request for a certificate under a
+  // requestable catalog profile, from a browser-generated (or pasted) CSR.
+  // The manager checks the CSR against the profile (subject, SANs, key
+  // type), stores the request pending, and opens an approval that an
+  // operator or admin other than the requester must decide. Viewer level and
+  // above. Audited.
+  rpc CreateCertificateRequest(CreateCertificateRequestRequest) returns (CreateCertificateRequestResponse);
+
+  // ListCertificateRequests returns certificate requests, newest first,
+  // optionally filtered by state. The requester sees only their own
+  // requests; an operator or admin sees every request.
+  rpc ListCertificateRequests(ListCertificateRequestsRequest) returns (ListCertificateRequestsResponse);
+
+  // GetCertificateRequestByID returns one certificate request's state, and
+  // its certificate once issued. Readable by the requester or by an
+  // operator and above; a read, so it is not audited.
+  rpc GetCertificateRequestByID(GetCertificateRequestByIDRequest) returns (GetCertificateRequestByIDResponse);
+
+  // CancelCertificateRequest ends a pending certificate request. The
+  // requester may cancel their own; an admin may cancel any. Audited.
+  rpc CancelCertificateRequest(CancelCertificateRequestRequest) returns (CancelCertificateRequestResponse);
 }
 
 message ListNodesRequest {}
@@ -422,6 +456,23 @@ message ApplyProfileToNodeRequest {
 message ApplyProfileToNodeResponse {
   uint64 generation = 1;
   bool requires_reboot = 2;
+}
+
+// SetProfileRequestableRequest names the catalog profile and the
+// requestable state to set on it.
+message SetProfileRequestableRequest {
+  string name = 1;
+  bool requestable = 2;
+}
+
+message SetProfileRequestableResponse {}
+
+message ListRequestableProfilesRequest {}
+
+// ListRequestableProfilesResponse carries the catalog profiles marked
+// requestable, exactly as stored (not merged with what nodes report).
+message ListRequestableProfilesResponse {
+  repeated cryptos.node.v1.CertificateProfile items = 1;
 }
 
 message ListAdaptersRequest {}
@@ -1385,4 +1436,82 @@ message Approval {
   string decided_by_serial = 13;
   // decided_at is when the approval was decided; empty until decided.
   string decided_at = 14;
+  // kind is "step_up" | "certificate_request". Empty is treated as
+  // "step_up", the only kind before this field existed. A
+  // "certificate_request" approval refuses the requester deciding their own.
+  string kind = 15;
+}
+
+// CertificateRequest is a person's request for a certificate under a
+// requestable catalog profile. Timestamps are RFC3339 strings; an unset
+// timestamp is empty.
+message CertificateRequest {
+  string id = 1;
+  string profile_name = 2;
+  // csr_pem is the submitted CSR, PEM encoded.
+  string csr_pem = 3;
+  string note = 4;
+  // requested_by_cn is the subject CN of the requester's operator
+  // certificate.
+  string requested_by_cn = 5;
+  string requested_by_serial = 6;
+  // state is "pending" | "approved" | "issued" | "denied" | "cancelled" |
+  // "expired" | "failed".
+  string state = 7;
+  // approval_id is the Approval deciding this request.
+  string approval_id = 8;
+  // certificate_pem is the issued certificate, PEM encoded; empty until
+  // state is "issued".
+  string certificate_pem = 9;
+  // failure_reason is the issuing node's refusal reason; empty unless state
+  // is "failed".
+  string failure_reason = 10;
+  string created_at = 11;
+  string expires_at = 12;
+  // decided_at is when the request's approval was decided; empty until
+  // decided.
+  string decided_at = 13;
+  // issued_at is when the certificate was issued; empty until issued.
+  string issued_at = 14;
+}
+
+// CreateCertificateRequestRequest names the requestable profile and carries
+// the CSR a browser (or cryptosctl) generated.
+message CreateCertificateRequestRequest {
+  string profile_name = 1;
+  bytes csr_der = 2;
+  string note = 3;
+}
+
+message CreateCertificateRequestResponse {
+  CertificateRequest request = 1;
+}
+
+// ListCertificateRequestsRequest filters the certificate request listing.
+message ListCertificateRequestsRequest {
+  // state keeps only requests in that state. Empty means all.
+  string state = 1;
+  // mine_only keeps only the caller's own requests. Forced true for a caller
+  // below operator level, who can never see another requester's requests.
+  bool mine_only = 2;
+}
+
+message ListCertificateRequestsResponse {
+  repeated CertificateRequest items = 1;
+}
+
+message GetCertificateRequestByIDRequest {
+  string id = 1;
+}
+
+message GetCertificateRequestByIDResponse {
+  CertificateRequest request = 1;
+}
+
+message CancelCertificateRequestRequest {
+  string id = 1;
+}
+
+message CancelCertificateRequestResponse {
+  CertificateRequest request = 1;
 }

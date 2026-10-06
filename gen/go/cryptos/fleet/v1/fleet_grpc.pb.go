@@ -27,6 +27,8 @@ const (
 	FleetService_UpdateProfile_FullMethodName                   = "/cryptos.fleet.v1.FleetService/UpdateProfile"
 	FleetService_DeleteProfile_FullMethodName                   = "/cryptos.fleet.v1.FleetService/DeleteProfile"
 	FleetService_ApplyProfileToNode_FullMethodName              = "/cryptos.fleet.v1.FleetService/ApplyProfileToNode"
+	FleetService_SetProfileRequestable_FullMethodName           = "/cryptos.fleet.v1.FleetService/SetProfileRequestable"
+	FleetService_ListRequestableProfiles_FullMethodName         = "/cryptos.fleet.v1.FleetService/ListRequestableProfiles"
 	FleetService_ListAdapters_FullMethodName                    = "/cryptos.fleet.v1.FleetService/ListAdapters"
 	FleetService_SetAdapterEnabled_FullMethodName               = "/cryptos.fleet.v1.FleetService/SetAdapterEnabled"
 	FleetService_SetNodeProtocol_FullMethodName                 = "/cryptos.fleet.v1.FleetService/SetNodeProtocol"
@@ -69,6 +71,10 @@ const (
 	FleetService_CreateMcpKey_FullMethodName                    = "/cryptos.fleet.v1.FleetService/CreateMcpKey"
 	FleetService_ListApprovals_FullMethodName                   = "/cryptos.fleet.v1.FleetService/ListApprovals"
 	FleetService_DecideApproval_FullMethodName                  = "/cryptos.fleet.v1.FleetService/DecideApproval"
+	FleetService_CreateCertificateRequest_FullMethodName        = "/cryptos.fleet.v1.FleetService/CreateCertificateRequest"
+	FleetService_ListCertificateRequests_FullMethodName         = "/cryptos.fleet.v1.FleetService/ListCertificateRequests"
+	FleetService_GetCertificateRequestByID_FullMethodName       = "/cryptos.fleet.v1.FleetService/GetCertificateRequestByID"
+	FleetService_CancelCertificateRequest_FullMethodName        = "/cryptos.fleet.v1.FleetService/CancelCertificateRequest"
 )
 
 // FleetServiceClient is the client API for FleetService service.
@@ -106,6 +112,16 @@ type FleetServiceClient interface {
 	// profile in pki.profiles[] (matched by name), and applies the whole config
 	// back via the node's ApplyConfig. Admin-gated and audited.
 	ApplyProfileToNode(ctx context.Context, in *ApplyProfileToNodeRequest, opts ...grpc.CallOption) (*ApplyProfileToNodeResponse, error)
+	// SetProfileRequestable records whether a signed-in user may request a
+	// certificate under the named catalog profile via
+	// CreateCertificateRequest, matched by profile name. Off by default, so
+	// nothing changes until an admin opts a profile in. Admin-gated and
+	// audited.
+	SetProfileRequestable(ctx context.Context, in *SetProfileRequestableRequest, opts ...grpc.CallOption) (*SetProfileRequestableResponse, error)
+	// ListRequestableProfiles returns the catalog profiles marked requestable,
+	// for the "Request a certificate" picker. Readable at viewer level and
+	// above; a read, so it is not audited.
+	ListRequestableProfiles(ctx context.Context, in *ListRequestableProfilesRequest, opts ...grpc.CallOption) (*ListRequestableProfilesResponse, error)
 	// ListAdapters returns the manager's catalog of enrollment protocol
 	// adapters.
 	ListAdapters(ctx context.Context, in *ListAdaptersRequest, opts ...grpc.CallOption) (*ListAdaptersResponse, error)
@@ -338,6 +354,24 @@ type FleetServiceClient interface {
 	// approvals. The deciding operator's level must be at least the approval's
 	// required_level. Audited.
 	DecideApproval(ctx context.Context, in *DecideApprovalRequest, opts ...grpc.CallOption) (*DecideApprovalResponse, error)
+	// CreateCertificateRequest files a request for a certificate under a
+	// requestable catalog profile, from a browser-generated (or pasted) CSR.
+	// The manager checks the CSR against the profile (subject, SANs, key
+	// type), stores the request pending, and opens an approval that an
+	// operator or admin other than the requester must decide. Viewer level and
+	// above. Audited.
+	CreateCertificateRequest(ctx context.Context, in *CreateCertificateRequestRequest, opts ...grpc.CallOption) (*CreateCertificateRequestResponse, error)
+	// ListCertificateRequests returns certificate requests, newest first,
+	// optionally filtered by state. The requester sees only their own
+	// requests; an operator or admin sees every request.
+	ListCertificateRequests(ctx context.Context, in *ListCertificateRequestsRequest, opts ...grpc.CallOption) (*ListCertificateRequestsResponse, error)
+	// GetCertificateRequestByID returns one certificate request's state, and
+	// its certificate once issued. Readable by the requester or by an
+	// operator and above; a read, so it is not audited.
+	GetCertificateRequestByID(ctx context.Context, in *GetCertificateRequestByIDRequest, opts ...grpc.CallOption) (*GetCertificateRequestByIDResponse, error)
+	// CancelCertificateRequest ends a pending certificate request. The
+	// requester may cancel their own; an admin may cancel any. Audited.
+	CancelCertificateRequest(ctx context.Context, in *CancelCertificateRequestRequest, opts ...grpc.CallOption) (*CancelCertificateRequestResponse, error)
 }
 
 type fleetServiceClient struct {
@@ -422,6 +456,26 @@ func (c *fleetServiceClient) ApplyProfileToNode(ctx context.Context, in *ApplyPr
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ApplyProfileToNodeResponse)
 	err := c.cc.Invoke(ctx, FleetService_ApplyProfileToNode_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *fleetServiceClient) SetProfileRequestable(ctx context.Context, in *SetProfileRequestableRequest, opts ...grpc.CallOption) (*SetProfileRequestableResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SetProfileRequestableResponse)
+	err := c.cc.Invoke(ctx, FleetService_SetProfileRequestable_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *fleetServiceClient) ListRequestableProfiles(ctx context.Context, in *ListRequestableProfilesRequest, opts ...grpc.CallOption) (*ListRequestableProfilesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListRequestableProfilesResponse)
+	err := c.cc.Invoke(ctx, FleetService_ListRequestableProfiles_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -857,6 +911,46 @@ func (c *fleetServiceClient) DecideApproval(ctx context.Context, in *DecideAppro
 	return out, nil
 }
 
+func (c *fleetServiceClient) CreateCertificateRequest(ctx context.Context, in *CreateCertificateRequestRequest, opts ...grpc.CallOption) (*CreateCertificateRequestResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateCertificateRequestResponse)
+	err := c.cc.Invoke(ctx, FleetService_CreateCertificateRequest_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *fleetServiceClient) ListCertificateRequests(ctx context.Context, in *ListCertificateRequestsRequest, opts ...grpc.CallOption) (*ListCertificateRequestsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListCertificateRequestsResponse)
+	err := c.cc.Invoke(ctx, FleetService_ListCertificateRequests_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *fleetServiceClient) GetCertificateRequestByID(ctx context.Context, in *GetCertificateRequestByIDRequest, opts ...grpc.CallOption) (*GetCertificateRequestByIDResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetCertificateRequestByIDResponse)
+	err := c.cc.Invoke(ctx, FleetService_GetCertificateRequestByID_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *fleetServiceClient) CancelCertificateRequest(ctx context.Context, in *CancelCertificateRequestRequest, opts ...grpc.CallOption) (*CancelCertificateRequestResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CancelCertificateRequestResponse)
+	err := c.cc.Invoke(ctx, FleetService_CancelCertificateRequest_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // FleetServiceServer is the server API for FleetService service.
 // All implementations should embed UnimplementedFleetServiceServer
 // for forward compatibility.
@@ -892,6 +986,16 @@ type FleetServiceServer interface {
 	// profile in pki.profiles[] (matched by name), and applies the whole config
 	// back via the node's ApplyConfig. Admin-gated and audited.
 	ApplyProfileToNode(context.Context, *ApplyProfileToNodeRequest) (*ApplyProfileToNodeResponse, error)
+	// SetProfileRequestable records whether a signed-in user may request a
+	// certificate under the named catalog profile via
+	// CreateCertificateRequest, matched by profile name. Off by default, so
+	// nothing changes until an admin opts a profile in. Admin-gated and
+	// audited.
+	SetProfileRequestable(context.Context, *SetProfileRequestableRequest) (*SetProfileRequestableResponse, error)
+	// ListRequestableProfiles returns the catalog profiles marked requestable,
+	// for the "Request a certificate" picker. Readable at viewer level and
+	// above; a read, so it is not audited.
+	ListRequestableProfiles(context.Context, *ListRequestableProfilesRequest) (*ListRequestableProfilesResponse, error)
 	// ListAdapters returns the manager's catalog of enrollment protocol
 	// adapters.
 	ListAdapters(context.Context, *ListAdaptersRequest) (*ListAdaptersResponse, error)
@@ -1124,6 +1228,24 @@ type FleetServiceServer interface {
 	// approvals. The deciding operator's level must be at least the approval's
 	// required_level. Audited.
 	DecideApproval(context.Context, *DecideApprovalRequest) (*DecideApprovalResponse, error)
+	// CreateCertificateRequest files a request for a certificate under a
+	// requestable catalog profile, from a browser-generated (or pasted) CSR.
+	// The manager checks the CSR against the profile (subject, SANs, key
+	// type), stores the request pending, and opens an approval that an
+	// operator or admin other than the requester must decide. Viewer level and
+	// above. Audited.
+	CreateCertificateRequest(context.Context, *CreateCertificateRequestRequest) (*CreateCertificateRequestResponse, error)
+	// ListCertificateRequests returns certificate requests, newest first,
+	// optionally filtered by state. The requester sees only their own
+	// requests; an operator or admin sees every request.
+	ListCertificateRequests(context.Context, *ListCertificateRequestsRequest) (*ListCertificateRequestsResponse, error)
+	// GetCertificateRequestByID returns one certificate request's state, and
+	// its certificate once issued. Readable by the requester or by an
+	// operator and above; a read, so it is not audited.
+	GetCertificateRequestByID(context.Context, *GetCertificateRequestByIDRequest) (*GetCertificateRequestByIDResponse, error)
+	// CancelCertificateRequest ends a pending certificate request. The
+	// requester may cancel their own; an admin may cancel any. Audited.
+	CancelCertificateRequest(context.Context, *CancelCertificateRequestRequest) (*CancelCertificateRequestResponse, error)
 }
 
 // UnimplementedFleetServiceServer should be embedded to have
@@ -1156,6 +1278,12 @@ func (UnimplementedFleetServiceServer) DeleteProfile(context.Context, *DeletePro
 }
 func (UnimplementedFleetServiceServer) ApplyProfileToNode(context.Context, *ApplyProfileToNodeRequest) (*ApplyProfileToNodeResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ApplyProfileToNode not implemented")
+}
+func (UnimplementedFleetServiceServer) SetProfileRequestable(context.Context, *SetProfileRequestableRequest) (*SetProfileRequestableResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetProfileRequestable not implemented")
+}
+func (UnimplementedFleetServiceServer) ListRequestableProfiles(context.Context, *ListRequestableProfilesRequest) (*ListRequestableProfilesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListRequestableProfiles not implemented")
 }
 func (UnimplementedFleetServiceServer) ListAdapters(context.Context, *ListAdaptersRequest) (*ListAdaptersResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListAdapters not implemented")
@@ -1282,6 +1410,18 @@ func (UnimplementedFleetServiceServer) ListApprovals(context.Context, *ListAppro
 }
 func (UnimplementedFleetServiceServer) DecideApproval(context.Context, *DecideApprovalRequest) (*DecideApprovalResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DecideApproval not implemented")
+}
+func (UnimplementedFleetServiceServer) CreateCertificateRequest(context.Context, *CreateCertificateRequestRequest) (*CreateCertificateRequestResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreateCertificateRequest not implemented")
+}
+func (UnimplementedFleetServiceServer) ListCertificateRequests(context.Context, *ListCertificateRequestsRequest) (*ListCertificateRequestsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListCertificateRequests not implemented")
+}
+func (UnimplementedFleetServiceServer) GetCertificateRequestByID(context.Context, *GetCertificateRequestByIDRequest) (*GetCertificateRequestByIDResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetCertificateRequestByID not implemented")
+}
+func (UnimplementedFleetServiceServer) CancelCertificateRequest(context.Context, *CancelCertificateRequestRequest) (*CancelCertificateRequestResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CancelCertificateRequest not implemented")
 }
 func (UnimplementedFleetServiceServer) testEmbeddedByValue() {}
 
@@ -1443,6 +1583,42 @@ func _FleetService_ApplyProfileToNode_Handler(srv interface{}, ctx context.Conte
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(FleetServiceServer).ApplyProfileToNode(ctx, req.(*ApplyProfileToNodeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FleetService_SetProfileRequestable_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetProfileRequestableRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FleetServiceServer).SetProfileRequestable(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FleetService_SetProfileRequestable_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FleetServiceServer).SetProfileRequestable(ctx, req.(*SetProfileRequestableRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FleetService_ListRequestableProfiles_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListRequestableProfilesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FleetServiceServer).ListRequestableProfiles(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FleetService_ListRequestableProfiles_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FleetServiceServer).ListRequestableProfiles(ctx, req.(*ListRequestableProfilesRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -2196,6 +2372,78 @@ func _FleetService_DecideApproval_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _FleetService_CreateCertificateRequest_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateCertificateRequestRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FleetServiceServer).CreateCertificateRequest(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FleetService_CreateCertificateRequest_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FleetServiceServer).CreateCertificateRequest(ctx, req.(*CreateCertificateRequestRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FleetService_ListCertificateRequests_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListCertificateRequestsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FleetServiceServer).ListCertificateRequests(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FleetService_ListCertificateRequests_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FleetServiceServer).ListCertificateRequests(ctx, req.(*ListCertificateRequestsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FleetService_GetCertificateRequestByID_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetCertificateRequestByIDRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FleetServiceServer).GetCertificateRequestByID(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FleetService_GetCertificateRequestByID_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FleetServiceServer).GetCertificateRequestByID(ctx, req.(*GetCertificateRequestByIDRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FleetService_CancelCertificateRequest_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CancelCertificateRequestRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FleetServiceServer).CancelCertificateRequest(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FleetService_CancelCertificateRequest_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FleetServiceServer).CancelCertificateRequest(ctx, req.(*CancelCertificateRequestRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // FleetService_ServiceDesc is the grpc.ServiceDesc for FleetService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -2234,6 +2482,14 @@ var FleetService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ApplyProfileToNode",
 			Handler:    _FleetService_ApplyProfileToNode_Handler,
+		},
+		{
+			MethodName: "SetProfileRequestable",
+			Handler:    _FleetService_SetProfileRequestable_Handler,
+		},
+		{
+			MethodName: "ListRequestableProfiles",
+			Handler:    _FleetService_ListRequestableProfiles_Handler,
 		},
 		{
 			MethodName: "ListAdapters",
@@ -2398,6 +2654,22 @@ var FleetService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DecideApproval",
 			Handler:    _FleetService_DecideApproval_Handler,
+		},
+		{
+			MethodName: "CreateCertificateRequest",
+			Handler:    _FleetService_CreateCertificateRequest_Handler,
+		},
+		{
+			MethodName: "ListCertificateRequests",
+			Handler:    _FleetService_ListCertificateRequests_Handler,
+		},
+		{
+			MethodName: "GetCertificateRequestByID",
+			Handler:    _FleetService_GetCertificateRequestByID_Handler,
+		},
+		{
+			MethodName: "CancelCertificateRequest",
+			Handler:    _FleetService_CancelCertificateRequest_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{
