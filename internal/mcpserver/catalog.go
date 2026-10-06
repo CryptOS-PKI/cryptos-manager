@@ -115,6 +115,12 @@ var Catalog = []Spec{
 	{Name: "mcp_key_revoke", RPC: "RevokeMcpKey", Policy: Excluded, Reason: "keys are never managed with a key"},
 	{Name: "approval_list", RPC: "ListApprovals", Policy: Excluded, Reason: "approvals are decided by people, outside the agent's reach"},
 	{Name: "approval_decide", RPC: "DecideApproval", Policy: Excluded, Reason: "an agent must never approve its own requests"},
+	{Name: "certificate_request_create", RPC: "CreateCertificateRequest", Policy: Excluded, Reason: "certificate requests are made by people, not agents"},
+	{Name: "certificate_request_list", RPC: "ListCertificateRequests", Policy: Excluded, Reason: "certificate requests are made by people, not agents"},
+	{Name: "certificate_request_get", RPC: "GetCertificateRequestByID", Policy: Excluded, Reason: "certificate requests are made by people, not agents"},
+	{Name: "certificate_request_cancel", RPC: "CancelCertificateRequest", Policy: Excluded, Reason: "certificate requests are made by people, not agents"},
+	{Name: "profile_set_requestable", RPC: "SetProfileRequestable", Policy: Excluded, Reason: "not yet exposed to agents"},
+	{Name: "profile_list_requestable", RPC: "ListRequestableProfiles", Policy: Excluded, Reason: "not yet exposed to agents"},
 }
 
 func spec(name string) Spec {
