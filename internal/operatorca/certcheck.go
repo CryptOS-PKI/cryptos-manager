@@ -138,7 +138,7 @@ func CheckOperatorCert(cert, anchor *x509.Certificate, c CertCheck) (CertResult,
 		return CertResult{}, rejectCert(fleetv1.ErrorReason_ERROR_REASON_SUBJECT_MISMATCH, "%v", err)
 	}
 
-	if !leafKeyAllowed(cert.PublicKey) {
+	if !LeafKeyAllowed(cert.PublicKey) {
 		return CertResult{}, rejectCert(fleetv1.ErrorReason_ERROR_REASON_KEY_TYPE,
 			"the certificate has a %s key; operator certificates need P-384 or RSA of 3072 bits or more", describeKey(cert))
 	}
@@ -201,7 +201,7 @@ func CheckCSR(der []byte) (CSRResult, error) {
 	if err != nil {
 		return CSRResult{}, rejectCSR(fleetv1.ErrorReason_ERROR_REASON_SUBJECT_MISMATCH, "%v", err)
 	}
-	if !leafKeyAllowed(csr.PublicKey) {
+	if !LeafKeyAllowed(csr.PublicKey) {
 		return CSRResult{}, rejectCSR(fleetv1.ErrorReason_ERROR_REASON_KEY_TYPE, "the CSR key must be P-384 or RSA of 3072 bits or more")
 	}
 	return CSRResult{CSR: csr, Email: email}, nil
@@ -227,7 +227,11 @@ func emailFromSubject(subject pkix.RDNSequence) (string, error) {
 	return strings.ToLower(cn), nil
 }
 
-func leafKeyAllowed(pub any) bool {
+// LeafKeyAllowed reports whether pub is a leaf key the node will sign: ECDSA
+// P-384, or RSA of at least minRSABits. It is exported so other callers that
+// check a CSR before it reaches a node (certificate requests) use the same
+// rule.
+func LeafKeyAllowed(pub any) bool {
 	switch k := pub.(type) {
 	case *ecdsa.PublicKey:
 		return k.Curve == elliptic.P384()

@@ -65,7 +65,7 @@ func TestApprovalShape(t *testing.T) {
 		"id": 1, "tool": 2, "summary": 3, "request_digest": 4,
 		"requested_by_cn": 5, "requested_by_serial": 6, "key_id": 7,
 		"required_level": 8, "created_at": 9, "expires_at": 10, "status": 11,
-		"decided_by_cn": 12, "decided_by_serial": 13, "decided_at": 14,
+		"decided_by_cn": 12, "decided_by_serial": 13, "decided_at": 14, "kind": 15,
 	}
 	assertFields(t, md, want)
 	if got := md.Fields().Len(); got != len(want) {

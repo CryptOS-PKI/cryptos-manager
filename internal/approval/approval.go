@@ -60,6 +60,11 @@ var (
 	ErrUsed          = errors.New("approval: the approval was already used")
 	ErrMismatch      = errors.New("approval: the approval was raised for a different tool, request or key")
 	ErrKeyLevel      = errors.New("approval: the key's level is below the tool's minimum")
+	// ErrSelfApproval is returned when a certificate request's own requester
+	// tries to decide its approval. It does not apply to a step-up approval,
+	// where the requester (the operator behind the MCP key) deciding their
+	// own request is the normal path.
+	ErrSelfApproval = errors.New("approval: a certificate request's own requester cannot decide its approval")
 )
 
 // Service raises, decides and uses approvals over a store.
@@ -98,9 +103,23 @@ func Status(a store.Approval, now time.Time) string {
 // by requester (an MCP key identity), that a person at required level or
 // above must decide. The ctx must carry the requester for the audit row.
 func (s *Service) Request(ctx context.Context, requester authz.Identity, tool, digest, summary string, required authz.Level) store.Approval {
+	return s.request(ctx, requester, store.ApprovalKindStepUp, tool, digest, summary, required)
+}
+
+// RequestCertificate raises a pending approval for requestID, a person's
+// certificate request: requester is the person who filed it, never an MCP
+// key. The approval is kind-tagged ApprovalKindCertificateRequest, so Decide
+// refuses the requester deciding their own.
+func (s *Service) RequestCertificate(ctx context.Context, requester authz.Identity, requestID, summary string, required authz.Level) store.Approval {
+	return s.request(ctx, requester, store.ApprovalKindCertificateRequest, "certificate_request", requestID, summary, required)
+}
+
+// request is the shared body of Request and RequestCertificate.
+func (s *Service) request(ctx context.Context, requester authz.Identity, kind, tool, digest, summary string, required authz.Level) store.Approval {
 	now := s.now()
 	a := store.Approval{
 		ID:                newID(),
+		Kind:              kind,
 		Tool:              tool,
 		Summary:           summary,
 		RequestDigest:     digest,
@@ -179,8 +198,9 @@ func (s *Service) ForKey(keyID string) []store.Approval {
 
 // Decide approves or denies a pending approval. The decider must have
 // arrived with an operator certificate and be at or above the approval's
-// required level. The requester may decide their own request in the
-// browser, because the agent holds only the key, which cannot decide.
+// required level. The requester may decide their own step-up request in the
+// browser, because the agent holds only the key, which cannot decide; a
+// certificate request's own requester can never decide it (ErrSelfApproval).
 func (s *Service) Decide(ctx context.Context, decider authz.Identity, id string, approve bool) (store.Approval, error) {
 	if decider.KeyID != "" {
 		return store.Approval{}, ErrNeedsCert
@@ -188,6 +208,9 @@ func (s *Service) Decide(ctx context.Context, decider authz.Identity, id string,
 	a, ok := s.Store.Approval(id)
 	if !ok {
 		return store.Approval{}, ErrNotFound
+	}
+	if a.Kind == store.ApprovalKindCertificateRequest && decider.CN != "" && decider.CN == a.RequestedByCN {
+		return store.Approval{}, ErrSelfApproval
 	}
 	now := s.now()
 	if st := Status(a, now); st != store.ApprovalPending {
@@ -317,6 +340,7 @@ func ToProto(a store.Approval) *fleetv1.Approval {
 		DecidedByCn:       a.DecidedByCN,
 		DecidedBySerial:   a.DecidedBySerial,
 		DecidedAt:         rfc3339OrEmpty(a.DecidedAt),
+		Kind:              a.Kind,
 	}
 }
 

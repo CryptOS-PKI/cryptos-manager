@@ -55,6 +55,12 @@ const (
 	// FleetServiceApplyProfileToNodeProcedure is the fully-qualified name of the FleetService's
 	// ApplyProfileToNode RPC.
 	FleetServiceApplyProfileToNodeProcedure = "/cryptos.fleet.v1.FleetService/ApplyProfileToNode"
+	// FleetServiceSetProfileRequestableProcedure is the fully-qualified name of the FleetService's
+	// SetProfileRequestable RPC.
+	FleetServiceSetProfileRequestableProcedure = "/cryptos.fleet.v1.FleetService/SetProfileRequestable"
+	// FleetServiceListRequestableProfilesProcedure is the fully-qualified name of the FleetService's
+	// ListRequestableProfiles RPC.
+	FleetServiceListRequestableProfilesProcedure = "/cryptos.fleet.v1.FleetService/ListRequestableProfiles"
 	// FleetServiceListAdaptersProcedure is the fully-qualified name of the FleetService's ListAdapters
 	// RPC.
 	FleetServiceListAdaptersProcedure = "/cryptos.fleet.v1.FleetService/ListAdapters"
@@ -173,6 +179,18 @@ const (
 	// FleetServiceDecideApprovalProcedure is the fully-qualified name of the FleetService's
 	// DecideApproval RPC.
 	FleetServiceDecideApprovalProcedure = "/cryptos.fleet.v1.FleetService/DecideApproval"
+	// FleetServiceCreateCertificateRequestProcedure is the fully-qualified name of the FleetService's
+	// CreateCertificateRequest RPC.
+	FleetServiceCreateCertificateRequestProcedure = "/cryptos.fleet.v1.FleetService/CreateCertificateRequest"
+	// FleetServiceListCertificateRequestsProcedure is the fully-qualified name of the FleetService's
+	// ListCertificateRequests RPC.
+	FleetServiceListCertificateRequestsProcedure = "/cryptos.fleet.v1.FleetService/ListCertificateRequests"
+	// FleetServiceGetCertificateRequestByIDProcedure is the fully-qualified name of the FleetService's
+	// GetCertificateRequestByID RPC.
+	FleetServiceGetCertificateRequestByIDProcedure = "/cryptos.fleet.v1.FleetService/GetCertificateRequestByID"
+	// FleetServiceCancelCertificateRequestProcedure is the fully-qualified name of the FleetService's
+	// CancelCertificateRequest RPC.
+	FleetServiceCancelCertificateRequestProcedure = "/cryptos.fleet.v1.FleetService/CancelCertificateRequest"
 )
 
 // FleetServiceClient is a client for the cryptos.fleet.v1.FleetService service.
@@ -203,6 +221,16 @@ type FleetServiceClient interface {
 	// profile in pki.profiles[] (matched by name), and applies the whole config
 	// back via the node's ApplyConfig. Admin-gated and audited.
 	ApplyProfileToNode(context.Context, *connect.Request[v1.ApplyProfileToNodeRequest]) (*connect.Response[v1.ApplyProfileToNodeResponse], error)
+	// SetProfileRequestable records whether a signed-in user may request a
+	// certificate under the named catalog profile via
+	// CreateCertificateRequest, matched by profile name. Off by default, so
+	// nothing changes until an admin opts a profile in. Admin-gated and
+	// audited.
+	SetProfileRequestable(context.Context, *connect.Request[v1.SetProfileRequestableRequest]) (*connect.Response[v1.SetProfileRequestableResponse], error)
+	// ListRequestableProfiles returns the catalog profiles marked requestable,
+	// for the "Request a certificate" picker. Readable at viewer level and
+	// above; a read, so it is not audited.
+	ListRequestableProfiles(context.Context, *connect.Request[v1.ListRequestableProfilesRequest]) (*connect.Response[v1.ListRequestableProfilesResponse], error)
 	// ListAdapters returns the manager's catalog of enrollment protocol
 	// adapters.
 	ListAdapters(context.Context, *connect.Request[v1.ListAdaptersRequest]) (*connect.Response[v1.ListAdaptersResponse], error)
@@ -435,6 +463,24 @@ type FleetServiceClient interface {
 	// approvals. The deciding operator's level must be at least the approval's
 	// required_level. Audited.
 	DecideApproval(context.Context, *connect.Request[v1.DecideApprovalRequest]) (*connect.Response[v1.DecideApprovalResponse], error)
+	// CreateCertificateRequest files a request for a certificate under a
+	// requestable catalog profile, from a browser-generated (or pasted) CSR.
+	// The manager checks the CSR against the profile (subject, SANs, key
+	// type), stores the request pending, and opens an approval that an
+	// operator or admin other than the requester must decide. Viewer level and
+	// above. Audited.
+	CreateCertificateRequest(context.Context, *connect.Request[v1.CreateCertificateRequestRequest]) (*connect.Response[v1.CreateCertificateRequestResponse], error)
+	// ListCertificateRequests returns certificate requests, newest first,
+	// optionally filtered by state. The requester sees only their own
+	// requests; an operator or admin sees every request.
+	ListCertificateRequests(context.Context, *connect.Request[v1.ListCertificateRequestsRequest]) (*connect.Response[v1.ListCertificateRequestsResponse], error)
+	// GetCertificateRequestByID returns one certificate request's state, and
+	// its certificate once issued. Readable by the requester or by an
+	// operator and above; a read, so it is not audited.
+	GetCertificateRequestByID(context.Context, *connect.Request[v1.GetCertificateRequestByIDRequest]) (*connect.Response[v1.GetCertificateRequestByIDResponse], error)
+	// CancelCertificateRequest ends a pending certificate request. The
+	// requester may cancel their own; an admin may cancel any. Audited.
+	CancelCertificateRequest(context.Context, *connect.Request[v1.CancelCertificateRequestRequest]) (*connect.Response[v1.CancelCertificateRequestResponse], error)
 }
 
 // NewFleetServiceClient constructs a client for the cryptos.fleet.v1.FleetService service. By
@@ -494,6 +540,18 @@ func NewFleetServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			httpClient,
 			baseURL+FleetServiceApplyProfileToNodeProcedure,
 			connect.WithSchema(fleetServiceMethods.ByName("ApplyProfileToNode")),
+			connect.WithClientOptions(opts...),
+		),
+		setProfileRequestable: connect.NewClient[v1.SetProfileRequestableRequest, v1.SetProfileRequestableResponse](
+			httpClient,
+			baseURL+FleetServiceSetProfileRequestableProcedure,
+			connect.WithSchema(fleetServiceMethods.ByName("SetProfileRequestable")),
+			connect.WithClientOptions(opts...),
+		),
+		listRequestableProfiles: connect.NewClient[v1.ListRequestableProfilesRequest, v1.ListRequestableProfilesResponse](
+			httpClient,
+			baseURL+FleetServiceListRequestableProfilesProcedure,
+			connect.WithSchema(fleetServiceMethods.ByName("ListRequestableProfiles")),
 			connect.WithClientOptions(opts...),
 		),
 		listAdapters: connect.NewClient[v1.ListAdaptersRequest, v1.ListAdaptersResponse](
@@ -748,6 +806,30 @@ func NewFleetServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(fleetServiceMethods.ByName("DecideApproval")),
 			connect.WithClientOptions(opts...),
 		),
+		createCertificateRequest: connect.NewClient[v1.CreateCertificateRequestRequest, v1.CreateCertificateRequestResponse](
+			httpClient,
+			baseURL+FleetServiceCreateCertificateRequestProcedure,
+			connect.WithSchema(fleetServiceMethods.ByName("CreateCertificateRequest")),
+			connect.WithClientOptions(opts...),
+		),
+		listCertificateRequests: connect.NewClient[v1.ListCertificateRequestsRequest, v1.ListCertificateRequestsResponse](
+			httpClient,
+			baseURL+FleetServiceListCertificateRequestsProcedure,
+			connect.WithSchema(fleetServiceMethods.ByName("ListCertificateRequests")),
+			connect.WithClientOptions(opts...),
+		),
+		getCertificateRequestByID: connect.NewClient[v1.GetCertificateRequestByIDRequest, v1.GetCertificateRequestByIDResponse](
+			httpClient,
+			baseURL+FleetServiceGetCertificateRequestByIDProcedure,
+			connect.WithSchema(fleetServiceMethods.ByName("GetCertificateRequestByID")),
+			connect.WithClientOptions(opts...),
+		),
+		cancelCertificateRequest: connect.NewClient[v1.CancelCertificateRequestRequest, v1.CancelCertificateRequestResponse](
+			httpClient,
+			baseURL+FleetServiceCancelCertificateRequestProcedure,
+			connect.WithSchema(fleetServiceMethods.ByName("CancelCertificateRequest")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -761,6 +843,8 @@ type fleetServiceClient struct {
 	updateProfile                   *connect.Client[v1.UpdateProfileRequest, v1.UpdateProfileResponse]
 	deleteProfile                   *connect.Client[v1.DeleteProfileRequest, v1.DeleteProfileResponse]
 	applyProfileToNode              *connect.Client[v1.ApplyProfileToNodeRequest, v1.ApplyProfileToNodeResponse]
+	setProfileRequestable           *connect.Client[v1.SetProfileRequestableRequest, v1.SetProfileRequestableResponse]
+	listRequestableProfiles         *connect.Client[v1.ListRequestableProfilesRequest, v1.ListRequestableProfilesResponse]
 	listAdapters                    *connect.Client[v1.ListAdaptersRequest, v1.ListAdaptersResponse]
 	setAdapterEnabled               *connect.Client[v1.SetAdapterEnabledRequest, v1.SetAdapterEnabledResponse]
 	setNodeProtocol                 *connect.Client[v1.SetNodeProtocolRequest, v1.SetNodeProtocolResponse]
@@ -803,6 +887,10 @@ type fleetServiceClient struct {
 	createMcpKey                    *connect.Client[v1.CreateMcpKeyRequest, v1.CreateMcpKeyResponse]
 	listApprovals                   *connect.Client[v1.ListApprovalsRequest, v1.ListApprovalsResponse]
 	decideApproval                  *connect.Client[v1.DecideApprovalRequest, v1.DecideApprovalResponse]
+	createCertificateRequest        *connect.Client[v1.CreateCertificateRequestRequest, v1.CreateCertificateRequestResponse]
+	listCertificateRequests         *connect.Client[v1.ListCertificateRequestsRequest, v1.ListCertificateRequestsResponse]
+	getCertificateRequestByID       *connect.Client[v1.GetCertificateRequestByIDRequest, v1.GetCertificateRequestByIDResponse]
+	cancelCertificateRequest        *connect.Client[v1.CancelCertificateRequestRequest, v1.CancelCertificateRequestResponse]
 }
 
 // ListNodes calls cryptos.fleet.v1.FleetService.ListNodes.
@@ -843,6 +931,16 @@ func (c *fleetServiceClient) DeleteProfile(ctx context.Context, req *connect.Req
 // ApplyProfileToNode calls cryptos.fleet.v1.FleetService.ApplyProfileToNode.
 func (c *fleetServiceClient) ApplyProfileToNode(ctx context.Context, req *connect.Request[v1.ApplyProfileToNodeRequest]) (*connect.Response[v1.ApplyProfileToNodeResponse], error) {
 	return c.applyProfileToNode.CallUnary(ctx, req)
+}
+
+// SetProfileRequestable calls cryptos.fleet.v1.FleetService.SetProfileRequestable.
+func (c *fleetServiceClient) SetProfileRequestable(ctx context.Context, req *connect.Request[v1.SetProfileRequestableRequest]) (*connect.Response[v1.SetProfileRequestableResponse], error) {
+	return c.setProfileRequestable.CallUnary(ctx, req)
+}
+
+// ListRequestableProfiles calls cryptos.fleet.v1.FleetService.ListRequestableProfiles.
+func (c *fleetServiceClient) ListRequestableProfiles(ctx context.Context, req *connect.Request[v1.ListRequestableProfilesRequest]) (*connect.Response[v1.ListRequestableProfilesResponse], error) {
+	return c.listRequestableProfiles.CallUnary(ctx, req)
 }
 
 // ListAdapters calls cryptos.fleet.v1.FleetService.ListAdapters.
@@ -1058,6 +1156,26 @@ func (c *fleetServiceClient) DecideApproval(ctx context.Context, req *connect.Re
 	return c.decideApproval.CallUnary(ctx, req)
 }
 
+// CreateCertificateRequest calls cryptos.fleet.v1.FleetService.CreateCertificateRequest.
+func (c *fleetServiceClient) CreateCertificateRequest(ctx context.Context, req *connect.Request[v1.CreateCertificateRequestRequest]) (*connect.Response[v1.CreateCertificateRequestResponse], error) {
+	return c.createCertificateRequest.CallUnary(ctx, req)
+}
+
+// ListCertificateRequests calls cryptos.fleet.v1.FleetService.ListCertificateRequests.
+func (c *fleetServiceClient) ListCertificateRequests(ctx context.Context, req *connect.Request[v1.ListCertificateRequestsRequest]) (*connect.Response[v1.ListCertificateRequestsResponse], error) {
+	return c.listCertificateRequests.CallUnary(ctx, req)
+}
+
+// GetCertificateRequestByID calls cryptos.fleet.v1.FleetService.GetCertificateRequestByID.
+func (c *fleetServiceClient) GetCertificateRequestByID(ctx context.Context, req *connect.Request[v1.GetCertificateRequestByIDRequest]) (*connect.Response[v1.GetCertificateRequestByIDResponse], error) {
+	return c.getCertificateRequestByID.CallUnary(ctx, req)
+}
+
+// CancelCertificateRequest calls cryptos.fleet.v1.FleetService.CancelCertificateRequest.
+func (c *fleetServiceClient) CancelCertificateRequest(ctx context.Context, req *connect.Request[v1.CancelCertificateRequestRequest]) (*connect.Response[v1.CancelCertificateRequestResponse], error) {
+	return c.cancelCertificateRequest.CallUnary(ctx, req)
+}
+
 // FleetServiceHandler is an implementation of the cryptos.fleet.v1.FleetService service.
 type FleetServiceHandler interface {
 	// ListNodes returns a summary for every node the manager knows about.
@@ -1086,6 +1204,16 @@ type FleetServiceHandler interface {
 	// profile in pki.profiles[] (matched by name), and applies the whole config
 	// back via the node's ApplyConfig. Admin-gated and audited.
 	ApplyProfileToNode(context.Context, *connect.Request[v1.ApplyProfileToNodeRequest]) (*connect.Response[v1.ApplyProfileToNodeResponse], error)
+	// SetProfileRequestable records whether a signed-in user may request a
+	// certificate under the named catalog profile via
+	// CreateCertificateRequest, matched by profile name. Off by default, so
+	// nothing changes until an admin opts a profile in. Admin-gated and
+	// audited.
+	SetProfileRequestable(context.Context, *connect.Request[v1.SetProfileRequestableRequest]) (*connect.Response[v1.SetProfileRequestableResponse], error)
+	// ListRequestableProfiles returns the catalog profiles marked requestable,
+	// for the "Request a certificate" picker. Readable at viewer level and
+	// above; a read, so it is not audited.
+	ListRequestableProfiles(context.Context, *connect.Request[v1.ListRequestableProfilesRequest]) (*connect.Response[v1.ListRequestableProfilesResponse], error)
 	// ListAdapters returns the manager's catalog of enrollment protocol
 	// adapters.
 	ListAdapters(context.Context, *connect.Request[v1.ListAdaptersRequest]) (*connect.Response[v1.ListAdaptersResponse], error)
@@ -1318,6 +1446,24 @@ type FleetServiceHandler interface {
 	// approvals. The deciding operator's level must be at least the approval's
 	// required_level. Audited.
 	DecideApproval(context.Context, *connect.Request[v1.DecideApprovalRequest]) (*connect.Response[v1.DecideApprovalResponse], error)
+	// CreateCertificateRequest files a request for a certificate under a
+	// requestable catalog profile, from a browser-generated (or pasted) CSR.
+	// The manager checks the CSR against the profile (subject, SANs, key
+	// type), stores the request pending, and opens an approval that an
+	// operator or admin other than the requester must decide. Viewer level and
+	// above. Audited.
+	CreateCertificateRequest(context.Context, *connect.Request[v1.CreateCertificateRequestRequest]) (*connect.Response[v1.CreateCertificateRequestResponse], error)
+	// ListCertificateRequests returns certificate requests, newest first,
+	// optionally filtered by state. The requester sees only their own
+	// requests; an operator or admin sees every request.
+	ListCertificateRequests(context.Context, *connect.Request[v1.ListCertificateRequestsRequest]) (*connect.Response[v1.ListCertificateRequestsResponse], error)
+	// GetCertificateRequestByID returns one certificate request's state, and
+	// its certificate once issued. Readable by the requester or by an
+	// operator and above; a read, so it is not audited.
+	GetCertificateRequestByID(context.Context, *connect.Request[v1.GetCertificateRequestByIDRequest]) (*connect.Response[v1.GetCertificateRequestByIDResponse], error)
+	// CancelCertificateRequest ends a pending certificate request. The
+	// requester may cancel their own; an admin may cancel any. Audited.
+	CancelCertificateRequest(context.Context, *connect.Request[v1.CancelCertificateRequestRequest]) (*connect.Response[v1.CancelCertificateRequestResponse], error)
 }
 
 // NewFleetServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -1373,6 +1519,18 @@ func NewFleetServiceHandler(svc FleetServiceHandler, opts ...connect.HandlerOpti
 		FleetServiceApplyProfileToNodeProcedure,
 		svc.ApplyProfileToNode,
 		connect.WithSchema(fleetServiceMethods.ByName("ApplyProfileToNode")),
+		connect.WithHandlerOptions(opts...),
+	)
+	fleetServiceSetProfileRequestableHandler := connect.NewUnaryHandler(
+		FleetServiceSetProfileRequestableProcedure,
+		svc.SetProfileRequestable,
+		connect.WithSchema(fleetServiceMethods.ByName("SetProfileRequestable")),
+		connect.WithHandlerOptions(opts...),
+	)
+	fleetServiceListRequestableProfilesHandler := connect.NewUnaryHandler(
+		FleetServiceListRequestableProfilesProcedure,
+		svc.ListRequestableProfiles,
+		connect.WithSchema(fleetServiceMethods.ByName("ListRequestableProfiles")),
 		connect.WithHandlerOptions(opts...),
 	)
 	fleetServiceListAdaptersHandler := connect.NewUnaryHandler(
@@ -1627,6 +1785,30 @@ func NewFleetServiceHandler(svc FleetServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(fleetServiceMethods.ByName("DecideApproval")),
 		connect.WithHandlerOptions(opts...),
 	)
+	fleetServiceCreateCertificateRequestHandler := connect.NewUnaryHandler(
+		FleetServiceCreateCertificateRequestProcedure,
+		svc.CreateCertificateRequest,
+		connect.WithSchema(fleetServiceMethods.ByName("CreateCertificateRequest")),
+		connect.WithHandlerOptions(opts...),
+	)
+	fleetServiceListCertificateRequestsHandler := connect.NewUnaryHandler(
+		FleetServiceListCertificateRequestsProcedure,
+		svc.ListCertificateRequests,
+		connect.WithSchema(fleetServiceMethods.ByName("ListCertificateRequests")),
+		connect.WithHandlerOptions(opts...),
+	)
+	fleetServiceGetCertificateRequestByIDHandler := connect.NewUnaryHandler(
+		FleetServiceGetCertificateRequestByIDProcedure,
+		svc.GetCertificateRequestByID,
+		connect.WithSchema(fleetServiceMethods.ByName("GetCertificateRequestByID")),
+		connect.WithHandlerOptions(opts...),
+	)
+	fleetServiceCancelCertificateRequestHandler := connect.NewUnaryHandler(
+		FleetServiceCancelCertificateRequestProcedure,
+		svc.CancelCertificateRequest,
+		connect.WithSchema(fleetServiceMethods.ByName("CancelCertificateRequest")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/cryptos.fleet.v1.FleetService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case FleetServiceListNodesProcedure:
@@ -1645,6 +1827,10 @@ func NewFleetServiceHandler(svc FleetServiceHandler, opts ...connect.HandlerOpti
 			fleetServiceDeleteProfileHandler.ServeHTTP(w, r)
 		case FleetServiceApplyProfileToNodeProcedure:
 			fleetServiceApplyProfileToNodeHandler.ServeHTTP(w, r)
+		case FleetServiceSetProfileRequestableProcedure:
+			fleetServiceSetProfileRequestableHandler.ServeHTTP(w, r)
+		case FleetServiceListRequestableProfilesProcedure:
+			fleetServiceListRequestableProfilesHandler.ServeHTTP(w, r)
 		case FleetServiceListAdaptersProcedure:
 			fleetServiceListAdaptersHandler.ServeHTTP(w, r)
 		case FleetServiceSetAdapterEnabledProcedure:
@@ -1729,6 +1915,14 @@ func NewFleetServiceHandler(svc FleetServiceHandler, opts ...connect.HandlerOpti
 			fleetServiceListApprovalsHandler.ServeHTTP(w, r)
 		case FleetServiceDecideApprovalProcedure:
 			fleetServiceDecideApprovalHandler.ServeHTTP(w, r)
+		case FleetServiceCreateCertificateRequestProcedure:
+			fleetServiceCreateCertificateRequestHandler.ServeHTTP(w, r)
+		case FleetServiceListCertificateRequestsProcedure:
+			fleetServiceListCertificateRequestsHandler.ServeHTTP(w, r)
+		case FleetServiceGetCertificateRequestByIDProcedure:
+			fleetServiceGetCertificateRequestByIDHandler.ServeHTTP(w, r)
+		case FleetServiceCancelCertificateRequestProcedure:
+			fleetServiceCancelCertificateRequestHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -1768,6 +1962,14 @@ func (UnimplementedFleetServiceHandler) DeleteProfile(context.Context, *connect.
 
 func (UnimplementedFleetServiceHandler) ApplyProfileToNode(context.Context, *connect.Request[v1.ApplyProfileToNodeRequest]) (*connect.Response[v1.ApplyProfileToNodeResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cryptos.fleet.v1.FleetService.ApplyProfileToNode is not implemented"))
+}
+
+func (UnimplementedFleetServiceHandler) SetProfileRequestable(context.Context, *connect.Request[v1.SetProfileRequestableRequest]) (*connect.Response[v1.SetProfileRequestableResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cryptos.fleet.v1.FleetService.SetProfileRequestable is not implemented"))
+}
+
+func (UnimplementedFleetServiceHandler) ListRequestableProfiles(context.Context, *connect.Request[v1.ListRequestableProfilesRequest]) (*connect.Response[v1.ListRequestableProfilesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cryptos.fleet.v1.FleetService.ListRequestableProfiles is not implemented"))
 }
 
 func (UnimplementedFleetServiceHandler) ListAdapters(context.Context, *connect.Request[v1.ListAdaptersRequest]) (*connect.Response[v1.ListAdaptersResponse], error) {
@@ -1936,4 +2138,20 @@ func (UnimplementedFleetServiceHandler) ListApprovals(context.Context, *connect.
 
 func (UnimplementedFleetServiceHandler) DecideApproval(context.Context, *connect.Request[v1.DecideApprovalRequest]) (*connect.Response[v1.DecideApprovalResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cryptos.fleet.v1.FleetService.DecideApproval is not implemented"))
+}
+
+func (UnimplementedFleetServiceHandler) CreateCertificateRequest(context.Context, *connect.Request[v1.CreateCertificateRequestRequest]) (*connect.Response[v1.CreateCertificateRequestResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cryptos.fleet.v1.FleetService.CreateCertificateRequest is not implemented"))
+}
+
+func (UnimplementedFleetServiceHandler) ListCertificateRequests(context.Context, *connect.Request[v1.ListCertificateRequestsRequest]) (*connect.Response[v1.ListCertificateRequestsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cryptos.fleet.v1.FleetService.ListCertificateRequests is not implemented"))
+}
+
+func (UnimplementedFleetServiceHandler) GetCertificateRequestByID(context.Context, *connect.Request[v1.GetCertificateRequestByIDRequest]) (*connect.Response[v1.GetCertificateRequestByIDResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cryptos.fleet.v1.FleetService.GetCertificateRequestByID is not implemented"))
+}
+
+func (UnimplementedFleetServiceHandler) CancelCertificateRequest(context.Context, *connect.Request[v1.CancelCertificateRequestRequest]) (*connect.Response[v1.CancelCertificateRequestResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cryptos.fleet.v1.FleetService.CancelCertificateRequest is not implemented"))
 }
