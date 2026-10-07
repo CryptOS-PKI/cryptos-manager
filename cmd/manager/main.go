@@ -231,7 +231,11 @@ func main() {
 		connect.WithInterceptors(apperr.Interceptor()),
 	)
 
-	web, err := webui.Handler()
+	devUIIssueCopy := os.Getenv("CRYPTOS_DEV_UI_ISSUE_COPY") == "true"
+	if devUIIssueCopy {
+		log.Printf("manager: CRYPTOS_DEV_UI_ISSUE_COPY is set, so the console's dev UI-issue button is enabled")
+	}
+	web, err := webui.Handler(webui.Options{DevUIIssueCopy: devUIIssueCopy})
 	if err != nil {
 		log.Fatalf("manager: webui: %v", err)
 	}

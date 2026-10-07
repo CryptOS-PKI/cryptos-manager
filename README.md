@@ -229,6 +229,8 @@ changes the config rolls the pod.
 
 The MCP endpoint is off in the chart too. `mcp.enabled` and `mcp.publicURL` turn it on; the chart refuses to render it with `authBypass`. See [`docs/mcp.md`](docs/mcp.md#with-the-helm-chart).
 
+Setting `CRYPTOS_DEV_UI_ISSUE_COPY=true` adds a `<meta name="cryptos-dev-ui-issue-copy" content="true">` tag to the served index page, which lets a development console build show its "Copy for UI issue" button. Off by default; a release console build has no such button regardless of this setting.
+
 ## 🔌 MCP endpoint
 
 The manager can serve a [Model Context Protocol](https://modelcontextprotocol.io) endpoint at `/mcp` for AI agents. It is off by default.
