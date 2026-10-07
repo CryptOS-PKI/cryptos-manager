@@ -1,6 +1,27 @@
-<!DOCTYPE html>
-<!-- Placeholder web bundle. The release image build overwrites internal/webui/dist with the real web output before `go build`. -->
-<html lang="en">
-  <head><meta charset="utf-8" /><title>CryptOS Fleet Manager</title></head>
-  <body>Web bundle not embedded in this build.</body>
+<!doctype html>
+<html class="dark" lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!--
+      connect-src allows localhost/127.0.0.1 (http + ws) so `live` mode can
+      fetch the local dev manager (VITE_FLEET_API) and vite HMR keeps working.
+      This is a local-dev allowance only -- production (`live-auth`, same
+      origin) should tighten connect-src back to 'self'.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; connect-src 'self' http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:*"
+    />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%9B%A1%EF%B8%8F%3C/text%3E%3C/svg%3E"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CryptOS</title>
+    <script type="module" crossorigin src="/assets/index-YsBMUars.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-CmN6nGXM.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
 </html>
