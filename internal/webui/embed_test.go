@@ -24,7 +24,7 @@ import (
 )
 
 func TestHandler_ServesIndex(t *testing.T) {
-	h, err := Handler()
+	h, err := Handler(Options{})
 	if err != nil {
 		t.Fatalf("Handler: %v", err)
 	}
@@ -36,10 +36,28 @@ func TestHandler_ServesIndex(t *testing.T) {
 }
 
 func TestHandler_SPAFallback(t *testing.T) {
-	h, _ := Handler()
+	h, _ := Handler(Options{})
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/fleet", nil)) // no such file
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "CryptOS Fleet Manager") {
 		t.Fatalf("GET /fleet (SPA) = %d, want index.html", rec.Code)
+	}
+}
+
+func TestHandlerInjectsDevUIIssueMetaOnlyWhenEnabled(t *testing.T) {
+	for _, tc := range []struct {
+		on   bool
+		want bool
+	}{{false, false}, {true, true}} {
+		h, err := Handler(Options{DevUIIssueCopy: tc.on})
+		if err != nil {
+			t.Fatal(err)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/fleet", nil))
+		got := strings.Contains(rec.Body.String(), `<meta name="cryptos-dev-ui-issue-copy" content="true">`)
+		if got != tc.want {
+			t.Fatalf("on=%v: meta present=%v, want %v", tc.on, got, tc.want)
+		}
 	}
 }

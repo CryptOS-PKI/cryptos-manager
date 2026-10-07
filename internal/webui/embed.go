@@ -17,6 +17,7 @@ limitations under the License.
 */
 
 import (
+	"bytes"
 	"embed"
 	"io/fs"
 	"net/http"
@@ -25,9 +26,19 @@ import (
 //go:embed all:dist
 var distFS embed.FS
 
+// Options tunes the web bundle handler.
+type Options struct {
+	// DevUIIssueCopy adds the meta tag that lets a development console build
+	// show its "Copy for UI issue" button. Release builds don't contain the
+	// button, so the tag does nothing there.
+	DevUIIssueCopy bool
+}
+
+const devUIIssueMeta = `<meta name="cryptos-dev-ui-issue-copy" content="true">`
+
 // Handler serves the embedded web bundle. Requests that don't map to a file
 // fall back to index.html so the client-side router can handle the route.
-func Handler() (http.Handler, error) {
+func Handler(opts Options) (http.Handler, error) {
 	sub, err := fs.Sub(distFS, "dist")
 	if err != nil {
 		return nil, err
@@ -36,6 +47,9 @@ func Handler() (http.Handler, error) {
 	index, err := fs.ReadFile(sub, "index.html")
 	if err != nil {
 		return nil, err
+	}
+	if opts.DevUIIssueCopy {
+		index = bytes.Replace(index, []byte("</head>"), []byte(devUIIssueMeta+"</head>"), 1)
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {
