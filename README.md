@@ -43,6 +43,10 @@ Or start from nothing: with Postgres and no `operatorCAPath`, the manager serves
 
 **Docker:** no image is published; build your own first (see "Building the image yourself" below), then run it:
 
+Releases are source only, so `ghcr.io/cryptos-pki/cryptos-manager` is not a published
+image — build and push your own (see [*Building the image yourself*](#building-the-image-yourself))
+and swap the tag below for it.
+
 ```sh
 docker run -p 443:8443 -p 80:8080 \
   --read-only --cap-drop ALL --security-opt no-new-privileges:true \
@@ -177,6 +181,9 @@ works but reports `dev` / `unknown`. Extra arguments go straight to `docker buil
 `MANAGER_IMAGE=manager:local`.
 
 **Helm:** no chart is published either; install straight from this checkout, with the image you built above:
+
+`oci://ghcr.io/cryptos-pki/charts/fleet-manager` is not a published chart either — package
+and push `chart/fleet-manager` to a registry you control, then install from there.
 
 ```sh
 helm install fleet chart/fleet-manager \

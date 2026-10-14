@@ -21,11 +21,11 @@ jobs:
   actionlint:
     name: 🧹 Actionlint
     if: github.event.pull_request.draft == false
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - name: 📥 Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       # The pinned release binary, checked against the SHA-256 the release
       # publishes, instead of compiling actionlint@latest with Go on every run.
       # Update ACTIONLINT_SHA256 together with ACTIONLINT_VERSION (from the
