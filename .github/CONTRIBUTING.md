@@ -17,8 +17,8 @@ This repository follows the Bugs5382 standard workflow.
 5. Give the PR a Conventional Commit title. The autolabeler sets the category label
    from the title; fill the PR template, reference the issue (`Closes #N`), and add a
    closing summary before merge.
-6. PRs merge by squash. On merge, release-drafter drafts the next notes and the changelog
-   updates on `main`; the maintainer publishes releases manually.
+6. PRs merge by squash. On merge, release-drafter drafts the next release notes; the
+   maintainer publishes releases manually.
 
 Keep one concern per PR, even small ones. When editing GitHub Actions workflows, a job id must be a
 plain identifier (a letter or `_`, then alphanumerics/`-`/`_`); put emoji and display text in the
