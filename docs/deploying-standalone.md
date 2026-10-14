@@ -8,10 +8,11 @@ doing it for real, several of which are not obvious from the other docs.
 Throughout, the placeholder organisation is **ACME** (`acme.example`). Replace
 it with your own.
 
-## 0. Before you start: there is no image to pull
+## 0. Before you start: this guide builds from source on purpose
 
-CryptOS ships source only: no container image or chart is ever published, on
-this release or any later one. Build from source:
+A release tag publishes the container image and chart (see *Releasing*), but this guide
+is for a host with no container runtime at all, so neither helps here. You build the Go
+binary from source instead: there is no separate binary release.
 
 ```sh
 git clone --depth 1 https://github.com/CryptOS-PKI/cryptos-manager.git
@@ -395,7 +396,7 @@ docker run -p 443:8443 -p 80:8080 \
   --read-only --cap-drop ALL --security-opt no-new-privileges:true \
   -v /etc/cryptos/fleet:/etc/cryptos/fleet:ro \
   -v fleet-node-creds:/var/lib/cryptos-manager/node-creds \
-  manager:local
+  ghcr.io/cryptos-pki/cryptos-manager:vX.Y.Z
 ```
 
 The `node-creds` volume holds the admin key minted for each adopted node and is the only

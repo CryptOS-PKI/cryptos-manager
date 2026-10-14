@@ -1,8 +1,9 @@
 image:
-  # No image is published. Build your own (see the README's "Building the
-  # image yourself"), push it to a registry your cluster can pull from, and
-  # set this to that path -- this placeholder is not a real registry.
-  repository: registry.invalid/cryptos-manager
+  # Defaults to the image a release tag publishes, at the chart's own
+  # appVersion (set .Chart.appVersion with --app-version when you package a
+  # dev build). Point this at your own registry if you built and pushed the
+  # image yourself instead.
+  repository: ghcr.io/cryptos-pki/cryptos-manager
   tag: ""            # defaults to .Chart.appVersion
   pullPolicy: IfNotPresent
 
