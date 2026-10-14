@@ -174,6 +174,23 @@ type fakeConn struct {
 	// applyConfigErr, when set, fails ApplyConfig only (a node refusing the
 	// config), so GetConfig still returns the baseline.
 	applyConfigErr error
+
+	// gotListAuditEvents records the filters ListAuditEvents was called with,
+	// so a test can assert the handler forwarded them to the node unchanged.
+	gotListAuditEvents *nodev1.ListAuditEventsRequest
+	// listAuditEventsResp, when set, is returned by ListAuditEvents instead of
+	// the zero-value response.
+	listAuditEventsResp *nodev1.ListAuditEventsResponse
+	// listAuditEventsErr, when set, is returned by ListAuditEvents instead of
+	// err.
+	listAuditEventsErr error
+
+	// verifyAuditChainResp, when set, is returned by VerifyAuditChain instead
+	// of the zero-value response.
+	verifyAuditChainResp *nodev1.VerifyAuditChainResponse
+	// verifyAuditChainErr, when set, is returned by VerifyAuditChain instead
+	// of err.
+	verifyAuditChainErr error
 }
 
 func (f *fakeConn) BeginKeyRotation(context.Context) (*nodev1.BeginKeyRotationResponse, error) {
@@ -444,6 +461,36 @@ func (f *fakeConn) StartCeremony(_ context.Context, _ nodev1.CeremonyKind, machi
 		return nil, f.ceremonyErr
 	}
 	return f.ceremonyStream, nil
+}
+
+func (f *fakeConn) ListAuditEvents(_ context.Context, pageSize int32, pageToken, fromTime, toTime, eventType, actor string) (*nodev1.ListAuditEventsResponse, error) {
+	f.record("ListAuditEvents")
+	f.gotListAuditEvents = &nodev1.ListAuditEventsRequest{
+		PageSize:  pageSize,
+		PageToken: pageToken,
+		FromTime:  fromTime,
+		ToTime:    toTime,
+		EventType: eventType,
+		Actor:     actor,
+	}
+	if f.listAuditEventsErr != nil {
+		return nil, f.listAuditEventsErr
+	}
+	if f.listAuditEventsResp != nil {
+		return f.listAuditEventsResp, nil
+	}
+	return &nodev1.ListAuditEventsResponse{}, nil
+}
+
+func (f *fakeConn) VerifyAuditChain(context.Context) (*nodev1.VerifyAuditChainResponse, error) {
+	f.record("VerifyAuditChain")
+	if f.verifyAuditChainErr != nil {
+		return nil, f.verifyAuditChainErr
+	}
+	if f.verifyAuditChainResp != nil {
+		return f.verifyAuditChainResp, nil
+	}
+	return &nodev1.VerifyAuditChainResponse{}, nil
 }
 
 // record appends name to the shared call log, if this fake was given one.

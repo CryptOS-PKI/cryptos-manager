@@ -650,6 +650,14 @@ func (r *routingConn) StartCeremony(ctx context.Context, kind nodev1.CeremonyKin
 	return r.identity.StartCeremony(ctx, kind, machineConfigYAML)
 }
 
+func (r *routingConn) ListAuditEvents(ctx context.Context, pageSize int32, pageToken, fromTime, toTime, eventType, actor string) (*nodev1.ListAuditEventsResponse, error) {
+	return r.ferry.ListAuditEvents(ctx, pageSize, pageToken, fromTime, toTime, eventType, actor)
+}
+
+func (r *routingConn) VerifyAuditChain(ctx context.Context) (*nodev1.VerifyAuditChainResponse, error) {
+	return r.ferry.VerifyAuditChain(ctx)
+}
+
 func (r *routingConn) Close() error {
 	_ = r.ferry.Close()
 	return r.identity.Close()

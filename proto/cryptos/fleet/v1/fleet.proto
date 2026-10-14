@@ -131,6 +131,17 @@ service FleetService {
   // if the node has no certificate with that serial.
   rpc GetCertificate(GetCertificateRequest) returns (GetCertificateResponse);
 
+  // ListNodeAuditEvents pages through a managed node's own hash-chained audit
+  // log (distinct from ListAudit, the manager's own action log). Readable at
+  // viewer level and above; a read, so it is not audited.
+  rpc ListNodeAuditEvents(ListNodeAuditEventsRequest) returns (ListNodeAuditEventsResponse);
+
+  // VerifyNodeAuditChain asks a managed node to verify its own stored audit
+  // log: a gap-free sequence, each entry's signature, and the hash chain
+  // between entries. A broken chain is a result, not an error. Readable at
+  // viewer level and above; a read, so it is not audited.
+  rpc VerifyNodeAuditChain(VerifyNodeAuditChainRequest) returns (VerifyNodeAuditChainResponse);
+
   // IssueLeaf signs a leaf certificate on the named issuing node from a
   // browser-generated PKCS#10 CSR under a named issuance profile. Only the
   // CSR crosses the wire; the leaf private key stays in the browser.
@@ -1514,4 +1525,100 @@ message CancelCertificateRequestRequest {
 
 message CancelCertificateRequestResponse {
   CertificateRequest request = 1;
+}
+
+// ListNodeAuditEventsRequest pages through a managed node's own audit log,
+// oldest entry first. Every filter is optional and they combine with AND,
+// mirroring the node's own ListAuditEvents.
+message ListNodeAuditEventsRequest {
+  // node_name is the managed node to read.
+  // Deprecated: use node_id. Still resolves the node's current name for one
+  // release.
+  string node_name = 1;
+  // node_id is the stable ID (NodeSummary.id) of the node. Preferred over
+  // node_name; when both are set they must name the same node, or the
+  // manager returns InvalidArgument.
+  string node_id = 2;
+  // page_size is the most entries to return. Zero means the node's default;
+  // the node caps larger values. Negative is InvalidArgument.
+  int32 page_size = 3;
+  // page_token is the next_page_token of a previous call made with the same
+  // filters; empty starts at the oldest matching entry.
+  string page_token = 4;
+  // from_time keeps entries whose timestamp is at or after this RFC3339
+  // time; empty is unbounded.
+  string from_time = 5;
+  // to_time keeps entries whose timestamp is before this RFC3339 time; empty
+  // is unbounded.
+  string to_time = 6;
+  // event_type keeps entries whose rpc method matches: either the full
+  // method or its method name alone, e.g. "RevokeCertificate". Empty matches
+  // every entry.
+  string event_type = 7;
+  // actor keeps entries whose actor subject contains this text (case
+  // sensitive). Empty matches every entry.
+  string actor = 8;
+}
+
+// NodeAuditEvent is one entry from a node's own hash-chained audit log, as
+// ListNodeAuditEvents returns it. Timestamps are RFC3339 strings, empty when
+// unset.
+message NodeAuditEvent {
+  // seq is the entry's monotonically increasing sequence number; a gap
+  // indicates tampering.
+  uint64 seq = 1;
+  string ts = 2;
+  // actor_subject is the subject DN of the caller's mTLS client certificate.
+  string actor_subject = 3;
+  // rpc_method is the fully-qualified gRPC method name the entry records,
+  // e.g. "/cryptos.node.v1.NodeService/SignCSR".
+  string rpc_method = 4;
+  // outcome is "OK" | "DENIED" | "ERROR" | "UNSPECIFIED".
+  string outcome = 5;
+  // details carries RPC-specific facts recorded alongside the entry; empty
+  // for most calls.
+  map<string, string> details = 6;
+  // entry_sha256_hex is the lowercase hex SHA-256 of the entry's stored
+  // encoding: the value the next entry's hash chain must equal.
+  string entry_sha256_hex = 7;
+  // target names what the call acted on, for example a certificate serial;
+  // empty when the entry names no target.
+  string target = 8;
+  // summary is a one-line, human-readable description of the entry.
+  string summary = 9;
+}
+
+message ListNodeAuditEventsResponse {
+  // entries are the matching entries on this page, in ascending seq order.
+  repeated NodeAuditEvent entries = 1;
+  // next_page_token fetches the next page; empty when this is the last page.
+  string next_page_token = 2;
+}
+
+message VerifyNodeAuditChainRequest {
+  // node_name is the managed node to verify.
+  // Deprecated: use node_id. Still resolves the node's current name for one
+  // release.
+  string node_name = 1;
+  // node_id is the stable ID (NodeSummary.id) of the node. Preferred over
+  // node_name; when both are set they must name the same node, or the
+  // manager returns InvalidArgument.
+  string node_id = 2;
+}
+
+// VerifyNodeAuditChainResponse reports the result of the node walking its
+// whole stored log: every entry's signature, a gap-free seq starting at 1,
+// and each entry's hash against the prior entry's. A broken chain is a
+// result, not an RPC error.
+message VerifyNodeAuditChainResponse {
+  // entry_count is the number of entries in the node's stored log.
+  uint64 entry_count = 1;
+  // intact is true when every entry verified.
+  bool intact = 2;
+  // first_broken_sequence is the seq at which verification first failed. 0
+  // when intact.
+  uint64 first_broken_sequence = 3;
+  // reason says why verification failed at first_broken_sequence; empty when
+  // intact.
+  string reason = 4;
 }

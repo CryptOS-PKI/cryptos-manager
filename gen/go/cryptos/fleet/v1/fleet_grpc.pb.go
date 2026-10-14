@@ -40,6 +40,8 @@ const (
 	FleetService_WhoAmI_FullMethodName                          = "/cryptos.fleet.v1.FleetService/WhoAmI"
 	FleetService_RevokeCertificate_FullMethodName               = "/cryptos.fleet.v1.FleetService/RevokeCertificate"
 	FleetService_GetCertificate_FullMethodName                  = "/cryptos.fleet.v1.FleetService/GetCertificate"
+	FleetService_ListNodeAuditEvents_FullMethodName             = "/cryptos.fleet.v1.FleetService/ListNodeAuditEvents"
+	FleetService_VerifyNodeAuditChain_FullMethodName            = "/cryptos.fleet.v1.FleetService/VerifyNodeAuditChain"
 	FleetService_IssueLeaf_FullMethodName                       = "/cryptos.fleet.v1.FleetService/IssueLeaf"
 	FleetService_RekeyNode_FullMethodName                       = "/cryptos.fleet.v1.FleetService/RekeyNode"
 	FleetService_GetNodeConfig_FullMethodName                   = "/cryptos.fleet.v1.FleetService/GetNodeConfig"
@@ -167,6 +169,15 @@ type FleetServiceClient interface {
 	// Readable at viewer level and above; a read, so it is not audited. NotFound
 	// if the node has no certificate with that serial.
 	GetCertificate(ctx context.Context, in *GetCertificateRequest, opts ...grpc.CallOption) (*GetCertificateResponse, error)
+	// ListNodeAuditEvents pages through a managed node's own hash-chained audit
+	// log (distinct from ListAudit, the manager's own action log). Readable at
+	// viewer level and above; a read, so it is not audited.
+	ListNodeAuditEvents(ctx context.Context, in *ListNodeAuditEventsRequest, opts ...grpc.CallOption) (*ListNodeAuditEventsResponse, error)
+	// VerifyNodeAuditChain asks a managed node to verify its own stored audit
+	// log: a gap-free sequence, each entry's signature, and the hash chain
+	// between entries. A broken chain is a result, not an error. Readable at
+	// viewer level and above; a read, so it is not audited.
+	VerifyNodeAuditChain(ctx context.Context, in *VerifyNodeAuditChainRequest, opts ...grpc.CallOption) (*VerifyNodeAuditChainResponse, error)
 	// IssueLeaf signs a leaf certificate on the named issuing node from a
 	// browser-generated PKCS#10 CSR under a named issuance profile. Only the
 	// CSR crosses the wire; the leaf private key stays in the browser.
@@ -586,6 +597,26 @@ func (c *fleetServiceClient) GetCertificate(ctx context.Context, in *GetCertific
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetCertificateResponse)
 	err := c.cc.Invoke(ctx, FleetService_GetCertificate_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *fleetServiceClient) ListNodeAuditEvents(ctx context.Context, in *ListNodeAuditEventsRequest, opts ...grpc.CallOption) (*ListNodeAuditEventsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListNodeAuditEventsResponse)
+	err := c.cc.Invoke(ctx, FleetService_ListNodeAuditEvents_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *fleetServiceClient) VerifyNodeAuditChain(ctx context.Context, in *VerifyNodeAuditChainRequest, opts ...grpc.CallOption) (*VerifyNodeAuditChainResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(VerifyNodeAuditChainResponse)
+	err := c.cc.Invoke(ctx, FleetService_VerifyNodeAuditChain_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1041,6 +1072,15 @@ type FleetServiceServer interface {
 	// Readable at viewer level and above; a read, so it is not audited. NotFound
 	// if the node has no certificate with that serial.
 	GetCertificate(context.Context, *GetCertificateRequest) (*GetCertificateResponse, error)
+	// ListNodeAuditEvents pages through a managed node's own hash-chained audit
+	// log (distinct from ListAudit, the manager's own action log). Readable at
+	// viewer level and above; a read, so it is not audited.
+	ListNodeAuditEvents(context.Context, *ListNodeAuditEventsRequest) (*ListNodeAuditEventsResponse, error)
+	// VerifyNodeAuditChain asks a managed node to verify its own stored audit
+	// log: a gap-free sequence, each entry's signature, and the hash chain
+	// between entries. A broken chain is a result, not an error. Readable at
+	// viewer level and above; a read, so it is not audited.
+	VerifyNodeAuditChain(context.Context, *VerifyNodeAuditChainRequest) (*VerifyNodeAuditChainResponse, error)
 	// IssueLeaf signs a leaf certificate on the named issuing node from a
 	// browser-generated PKCS#10 CSR under a named issuance profile. Only the
 	// CSR crosses the wire; the leaf private key stays in the browser.
@@ -1317,6 +1357,12 @@ func (UnimplementedFleetServiceServer) RevokeCertificate(context.Context, *Revok
 }
 func (UnimplementedFleetServiceServer) GetCertificate(context.Context, *GetCertificateRequest) (*GetCertificateResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetCertificate not implemented")
+}
+func (UnimplementedFleetServiceServer) ListNodeAuditEvents(context.Context, *ListNodeAuditEventsRequest) (*ListNodeAuditEventsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListNodeAuditEvents not implemented")
+}
+func (UnimplementedFleetServiceServer) VerifyNodeAuditChain(context.Context, *VerifyNodeAuditChainRequest) (*VerifyNodeAuditChainResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method VerifyNodeAuditChain not implemented")
 }
 func (UnimplementedFleetServiceServer) IssueLeaf(context.Context, *IssueLeafRequest) (*IssueLeafResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method IssueLeaf not implemented")
@@ -1817,6 +1863,42 @@ func _FleetService_GetCertificate_Handler(srv interface{}, ctx context.Context, 
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(FleetServiceServer).GetCertificate(ctx, req.(*GetCertificateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FleetService_ListNodeAuditEvents_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListNodeAuditEventsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FleetServiceServer).ListNodeAuditEvents(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FleetService_ListNodeAuditEvents_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FleetServiceServer).ListNodeAuditEvents(ctx, req.(*ListNodeAuditEventsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FleetService_VerifyNodeAuditChain_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(VerifyNodeAuditChainRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FleetServiceServer).VerifyNodeAuditChain(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FleetService_VerifyNodeAuditChain_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FleetServiceServer).VerifyNodeAuditChain(ctx, req.(*VerifyNodeAuditChainRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -2534,6 +2616,14 @@ var FleetService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetCertificate",
 			Handler:    _FleetService_GetCertificate_Handler,
+		},
+		{
+			MethodName: "ListNodeAuditEvents",
+			Handler:    _FleetService_ListNodeAuditEvents_Handler,
+		},
+		{
+			MethodName: "VerifyNodeAuditChain",
+			Handler:    _FleetService_VerifyNodeAuditChain_Handler,
 		},
 		{
 			MethodName: "IssueLeaf",
