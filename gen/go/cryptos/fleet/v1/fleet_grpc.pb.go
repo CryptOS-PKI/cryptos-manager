@@ -40,6 +40,7 @@ const (
 	FleetService_WhoAmI_FullMethodName                          = "/cryptos.fleet.v1.FleetService/WhoAmI"
 	FleetService_RevokeCertificate_FullMethodName               = "/cryptos.fleet.v1.FleetService/RevokeCertificate"
 	FleetService_GetCertificate_FullMethodName                  = "/cryptos.fleet.v1.FleetService/GetCertificate"
+	FleetService_ValidateCertificateChain_FullMethodName        = "/cryptos.fleet.v1.FleetService/ValidateCertificateChain"
 	FleetService_IssueLeaf_FullMethodName                       = "/cryptos.fleet.v1.FleetService/IssueLeaf"
 	FleetService_RekeyNode_FullMethodName                       = "/cryptos.fleet.v1.FleetService/RekeyNode"
 	FleetService_GetNodeConfig_FullMethodName                   = "/cryptos.fleet.v1.FleetService/GetNodeConfig"
@@ -167,6 +168,12 @@ type FleetServiceClient interface {
 	// Readable at viewer level and above; a read, so it is not audited. NotFound
 	// if the node has no certificate with that serial.
 	GetCertificate(ctx context.Context, in *GetCertificateRequest, opts ...grpc.CallOption) (*GetCertificateResponse, error)
+	// ValidateCertificateChain checks whether a submitted certificate chains to
+	// a managed node's CA, the check `cryptosctl identity validate` runs
+	// locally against a node's own chain. A certificate that does not chain is
+	// a result, not an RPC error. Operator-gated, since it parses
+	// operator-supplied certificate material; a read, so it is not audited.
+	ValidateCertificateChain(ctx context.Context, in *ValidateCertificateChainRequest, opts ...grpc.CallOption) (*ValidateCertificateChainResponse, error)
 	// IssueLeaf signs a leaf certificate on the named issuing node from a
 	// browser-generated PKCS#10 CSR under a named issuance profile. Only the
 	// CSR crosses the wire; the leaf private key stays in the browser.
@@ -586,6 +593,16 @@ func (c *fleetServiceClient) GetCertificate(ctx context.Context, in *GetCertific
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetCertificateResponse)
 	err := c.cc.Invoke(ctx, FleetService_GetCertificate_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *fleetServiceClient) ValidateCertificateChain(ctx context.Context, in *ValidateCertificateChainRequest, opts ...grpc.CallOption) (*ValidateCertificateChainResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ValidateCertificateChainResponse)
+	err := c.cc.Invoke(ctx, FleetService_ValidateCertificateChain_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1041,6 +1058,12 @@ type FleetServiceServer interface {
 	// Readable at viewer level and above; a read, so it is not audited. NotFound
 	// if the node has no certificate with that serial.
 	GetCertificate(context.Context, *GetCertificateRequest) (*GetCertificateResponse, error)
+	// ValidateCertificateChain checks whether a submitted certificate chains to
+	// a managed node's CA, the check `cryptosctl identity validate` runs
+	// locally against a node's own chain. A certificate that does not chain is
+	// a result, not an RPC error. Operator-gated, since it parses
+	// operator-supplied certificate material; a read, so it is not audited.
+	ValidateCertificateChain(context.Context, *ValidateCertificateChainRequest) (*ValidateCertificateChainResponse, error)
 	// IssueLeaf signs a leaf certificate on the named issuing node from a
 	// browser-generated PKCS#10 CSR under a named issuance profile. Only the
 	// CSR crosses the wire; the leaf private key stays in the browser.
@@ -1317,6 +1340,9 @@ func (UnimplementedFleetServiceServer) RevokeCertificate(context.Context, *Revok
 }
 func (UnimplementedFleetServiceServer) GetCertificate(context.Context, *GetCertificateRequest) (*GetCertificateResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetCertificate not implemented")
+}
+func (UnimplementedFleetServiceServer) ValidateCertificateChain(context.Context, *ValidateCertificateChainRequest) (*ValidateCertificateChainResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ValidateCertificateChain not implemented")
 }
 func (UnimplementedFleetServiceServer) IssueLeaf(context.Context, *IssueLeafRequest) (*IssueLeafResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method IssueLeaf not implemented")
@@ -1817,6 +1843,24 @@ func _FleetService_GetCertificate_Handler(srv interface{}, ctx context.Context, 
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(FleetServiceServer).GetCertificate(ctx, req.(*GetCertificateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FleetService_ValidateCertificateChain_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ValidateCertificateChainRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FleetServiceServer).ValidateCertificateChain(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FleetService_ValidateCertificateChain_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FleetServiceServer).ValidateCertificateChain(ctx, req.(*ValidateCertificateChainRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -2534,6 +2578,10 @@ var FleetService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetCertificate",
 			Handler:    _FleetService_GetCertificate_Handler,
+		},
+		{
+			MethodName: "ValidateCertificateChain",
+			Handler:    _FleetService_ValidateCertificateChain_Handler,
 		},
 		{
 			MethodName: "IssueLeaf",

@@ -131,6 +131,13 @@ service FleetService {
   // if the node has no certificate with that serial.
   rpc GetCertificate(GetCertificateRequest) returns (GetCertificateResponse);
 
+  // ValidateCertificateChain checks whether a submitted certificate chains to
+  // a managed node's CA, the check `cryptosctl identity validate` runs
+  // locally against a node's own chain. A certificate that does not chain is
+  // a result, not an RPC error. Operator-gated, since it parses
+  // operator-supplied certificate material; a read, so it is not audited.
+  rpc ValidateCertificateChain(ValidateCertificateChainRequest) returns (ValidateCertificateChainResponse);
+
   // IssueLeaf signs a leaf certificate on the named issuing node from a
   // browser-generated PKCS#10 CSR under a named issuance profile. Only the
   // CSR crosses the wire; the leaf private key stays in the browser.
@@ -1514,4 +1521,39 @@ message CancelCertificateRequestRequest {
 
 message CancelCertificateRequestResponse {
   CertificateRequest request = 1;
+}
+
+// ValidateCertificateChainRequest carries a certificate to check against a
+// managed node's CA.
+message ValidateCertificateChainRequest {
+  // node_name is the managed node whose CA to validate against.
+  // Deprecated: use node_id. Still resolves the node's current name for one
+  // release.
+  string node_name = 1;
+  // node_id is the stable ID (NodeSummary.id) of the node. Preferred over
+  // node_name; when both are set they must name the same node, or the
+  // manager returns InvalidArgument.
+  string node_id = 2;
+  // certificate_pem is the certificate to validate, PEM encoded. Additional
+  // PEM CERTIFICATE blocks after the first are taken as intermediates that
+  // help the chain reach the node's CA; they need not be supplied when the
+  // node's own chain already carries them.
+  string certificate_pem = 3;
+}
+
+// ValidateCertificateChainResponse reports whether certificate_pem chains to
+// the node's CA. A certificate that does not chain is a result, not an RPC
+// error.
+message ValidateCertificateChainResponse {
+  // valid is true when the certificate chains to the node's CA.
+  bool valid = 1;
+  // reason explains why the certificate does not validate; empty when valid.
+  string reason = 2;
+  // subject is the submitted certificate's subject.
+  string subject = 3;
+  // issuer is the submitted certificate's issuer.
+  string issuer = 4;
+  // node_ca_subject is the subject of the node's own CA certificate (its
+  // GetIdentity leaf), the anchor the certificate was checked against.
+  string node_ca_subject = 5;
 }
