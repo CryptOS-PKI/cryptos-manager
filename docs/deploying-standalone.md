@@ -8,13 +8,13 @@ doing it for real, several of which are not obvious from the other docs.
 Throughout, the placeholder organisation is **ACME** (`acme.example`). Replace
 it with your own.
 
-## 0. Before you start: there may be no image to pull
+## 0. Before you start: there is no image to pull
 
-The README's `docker run ghcr.io/cryptos-pki/cryptos-manager:vX.Y.Z` and
-`helm install ... oci://ghcr.io/cryptos-pki/charts/fleet-manager` both require a
-**published release**. Releases are cut by hand (see *Releasing*), and the image
-and chart are built by the tag. Until the first tag exists, neither path
-resolves and you must build from source:
+Releases are source only. The README's `docker run ghcr.io/cryptos-pki/cryptos-manager:vX.Y.Z`
+and `helm install ... oci://ghcr.io/cryptos-pki/charts/fleet-manager` both name images
+nobody publishes: a tag only proves the image builds and passes its health check (see
+*Releasing*), it pushes nothing. Neither path ever resolves on its own, so you build from
+source and push the result to a registry you control:
 
 ```sh
 git clone --depth 1 https://github.com/CryptOS-PKI/cryptos-manager.git

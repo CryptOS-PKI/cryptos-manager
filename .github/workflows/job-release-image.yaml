@@ -1,5 +1,10 @@
 name: "🚀 Release image"
 
+# Releases are source only: a v* tag proves the manager image builds from the
+# pinned web ref and passes the read-only health check. Nothing is pushed —
+# no registry login, no image or chart publish, no `latest`. Adopters build
+# and push their own image (see README.md#-deploying).
+
 on:
   push:
     tags:
@@ -7,15 +12,17 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 jobs:
   image:
-    name: "Build and push the manager image"
+    name: "Build the manager image and prove it boots"
     runs-on: ubuntu-latest
     # The image build compiles the web UI and the Go binary; the gha layer
     # cache keeps repeat builds well under this.
     timeout-minutes: 45
+    env:
+      IMAGE: manager:release-check
+      NET: fleet-release-check
     steps:
       # A tagged image has to be rebuildable from the tag. Falling back to
       # web's main would embed whatever web happened to be at build time, so
@@ -58,59 +65,82 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Image metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/cryptos-pki/cryptos-manager
-          tags: |
-            type=semver,pattern={{version}}
-            type=raw,value=latest
-
-      - name: Build and push
+      - name: Build (not pushed)
         uses: docker/build-push-action@v6
         env:
           SOURCE_DATE_EPOCH: ${{ steps.build.outputs.epoch }}
         with:
           context: .
           file: manager/Dockerfile
-          push: true
+          push: false
+          load: true
+          tags: ${{ env.IMAGE }}
           build-args: |
-            VERSION=${{ steps.meta.outputs.version }}
+            VERSION=${{ github.ref_name }}
             COMMIT=${{ github.sha }}
             BUILD_DATE=${{ steps.build.outputs.date }}
             WEB_REF=${{ steps.build.outputs.web_sha }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  chart:
-    name: "Package and push the Helm chart"
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Helm
-        uses: azure/setup-helm@v4
-
-      - name: Log in to GHCR
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
-
-      - name: Package and push
+      - name: Image runs as nonroot with a health check
         run: |
-          version="${GITHUB_REF_NAME#v}"
-          helm package chart/fleet-manager --version "$version" --app-version "$version"
-          helm push "fleet-manager-${version}.tgz" oci://ghcr.io/cryptos-pki/charts
+          set -euo pipefail
+          user="$(docker image inspect -f '{{.Config.User}}' "$IMAGE")"
+          echo "user=$user"
+          [ "$user" = "65532:65532" ]
+          docker image inspect -f '{{json .Config.Healthcheck}}' "$IMAGE" | tee /dev/stderr | grep -q -- '-healthcheck'
+
+      - name: Start Postgres
+        run: |
+          set -euo pipefail
+          docker network create "$NET"
+          docker run -d --name pg --network "$NET" \
+            -e POSTGRES_DB=manager -e POSTGRES_USER=manager -e POSTGRES_PASSWORD=release \
+            postgres:18-alpine
+          for _ in $(seq 1 30); do
+            docker exec pg pg_isready -U manager -d manager && exit 0
+            sleep 2
+          done
+          exit 1
+
+      # No tlsCert/tlsKey or operator CA: the manager serves its self-signed
+      # bootstrap certificate, which is enough to exercise the TLS listener the
+      # health probe talks to.
+      - name: Run the image read-only
+        run: |
+          set -euo pipefail
+          cfg="$RUNNER_TEMP/fleet"
+          mkdir -p "$cfg"
+          cat > "$cfg/config.yaml" <<'EOF'
+          listen: "0.0.0.0:8443"
+          httpRedirectListen: ""
+          database_url: "postgres://manager:release@pg:5432/manager?sslmode=disable"
+          nodes: []
+          EOF
+          sudo chown -R 65532:65532 "$cfg"
+          docker run -d --name manager --network "$NET" \
+            --read-only --cap-drop ALL --security-opt no-new-privileges:true \
+            --health-interval 2s --health-start-period 5s \
+            -p 8443:8443 \
+            -v "$cfg/config.yaml:/etc/cryptos/fleet/config.yaml:ro" \
+            -v node-creds:/var/lib/cryptos-manager/node-creds \
+            "$IMAGE"
+
+      - name: Becomes healthy
+        run: |
+          set -euo pipefail
+          for _ in $(seq 1 60); do
+            state="$(docker inspect -f '{{.State.Health.Status}}' manager)"
+            echo "health=$state"
+            [ "$state" = healthy ] && break
+            [ "$(docker inspect -f '{{.State.Running}}' manager)" = true ] || break
+            sleep 2
+          done
+          [ "$state" = healthy ]
+          curl -sSk https://127.0.0.1:8443/healthz | tee /dev/stderr | grep -q '"status":"ok"'
+          curl -sSk https://127.0.0.1:8443/version | tee /dev/stderr | grep -q "\"version\":\"${GITHUB_REF_NAME}\""
+
+      - name: Manager log
+        if: ${{ always() }}
+        run: docker logs manager || true

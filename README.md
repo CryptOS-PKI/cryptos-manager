@@ -43,6 +43,10 @@ Or start from nothing: with Postgres and no `operatorCAPath`, the manager serves
 
 **Docker:**
 
+Releases are source only, so `ghcr.io/cryptos-pki/cryptos-manager` is not a published
+image — build and push your own (see [*Building the image yourself*](#building-the-image-yourself))
+and swap the tag below for it.
+
 ```sh
 docker run -p 443:8443 -p 80:8080 \
   --read-only --cap-drop ALL --security-opt no-new-privileges:true \
@@ -151,8 +155,8 @@ worth knowing before you adapt it:
 
 ### Building the image yourself
 
-There is no published image before the first release tag, so until then this is the
-supported path — and it stays useful afterwards for a patched build.
+Releases are source only — no image or chart is published — so this is the supported
+path, not just a stopgap before a first release.
 
 > [!IMPORTANT]
 > **The build context is the workspace root, not this repo.** The `Dockerfile` copies from
@@ -177,6 +181,9 @@ works but reports `dev` / `unknown`. Extra arguments go straight to `docker buil
 `MANAGER_IMAGE=manager:local`.
 
 **Helm (OCI):**
+
+`oci://ghcr.io/cryptos-pki/charts/fleet-manager` is not a published chart either — package
+and push `chart/fleet-manager` to a registry you control, then install from there.
 
 ```sh
 helm install fleet oci://ghcr.io/cryptos-pki/charts/fleet-manager --version X.Y.Z \
@@ -301,7 +308,7 @@ After a stacked pull request is retargeted onto `main`, CI starts on its next pu
 
 ## 📦 Releasing
 
-Nothing tags automatically. On push to `main`, release-drafter categorises the merged conventional-commit PRs into the draft release notes. The maintainer then publishes the GitHub Release by hand, which creates the `vX.Y.Z` tag. That tag triggers `job-release-image.yaml`, which builds and pushes the container image (`ghcr.io/cryptos-pki/manager`) via BuildKit and packages+pushes the Helm chart (`oci://ghcr.io/cryptos-pki/charts/fleet-manager`). The node ISO ships from [`cryptos`](https://github.com/CryptOS-PKI/cryptos). The image and chart assume no particular deploy environment — adopters bring their own registry, trust material, and orchestrator. (The repo's own release/governance tooling — release-drafter, golic — is the maintainer's; adopters don't need it.)
+Nothing tags automatically. On push to `main`, release-drafter categorises the merged conventional-commit PRs into the draft release notes. The maintainer then publishes the GitHub Release by hand, which creates the `vX.Y.Z` tag. Releases are source only: that tag triggers `job-release-image.yaml`, which builds the container image from the pinned web ref with BuildKit and runs it read-only against the health check, but pushes nothing — no registry login, no image or chart, no `latest`. The node ISO ships from [`cryptos`](https://github.com/CryptOS-PKI/cryptos). Adopters build and push their own image and chart from the tagged source (see [*Building the image yourself*](#building-the-image-yourself)). (The repo's own release/governance tooling — release-drafter, golic — is the maintainer's; adopters don't need it.)
 
 The release image is meant to be rebuildable from its tag. Every base image in the
 `Dockerfile` is pinned by digest, the build date is the tagged commit's time rather than
