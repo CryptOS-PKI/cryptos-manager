@@ -8,13 +8,11 @@ doing it for real, several of which are not obvious from the other docs.
 Throughout, the placeholder organisation is **ACME** (`acme.example`). Replace
 it with your own.
 
-## 0. Before you start: there is no image to pull
+## 0. Before you start: this guide builds from source on purpose
 
-Releases are source only. The README's `docker run ghcr.io/cryptos-pki/cryptos-manager:vX.Y.Z`
-and `helm install ... oci://ghcr.io/cryptos-pki/charts/fleet-manager` both name images
-nobody publishes: a tag only proves the image builds and passes its health check (see
-*Releasing*), it pushes nothing. Neither path ever resolves on its own, so you build from
-source and push the result to a registry you control:
+A release tag publishes the container image and chart (see *Releasing*), but this guide
+is for a host with no container runtime at all, so neither helps here. You build the Go
+binary from source instead: there is no separate binary release.
 
 ```sh
 git clone --depth 1 https://github.com/CryptOS-PKI/cryptos-manager.git

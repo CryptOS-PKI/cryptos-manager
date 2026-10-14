@@ -60,6 +60,8 @@ jobs:
           file: manager/Dockerfile
           push: false
           load: true
+          provenance: false
+          sbom: false
           tags: ${{ env.IMAGE }}
           build-args: |
             VERSION=ci
