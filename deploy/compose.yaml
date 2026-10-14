@@ -77,11 +77,11 @@ services:
       retries: 30
 
   manager:
-    # Pin a released tag in production; latest is here so the example runs
-    # before you have chosen a version. To run an image you built yourself,
-    # build it with deploy/build-image.sh (so /version reports it) and set
-    # MANAGER_IMAGE to its tag.
-    image: ${MANAGER_IMAGE:-ghcr.io/cryptos-pki/cryptos-manager:${MANAGER_VERSION:-latest}}
+    # No image is published; build your own with deploy/build-image.sh (so
+    # /version reports its identity) and set MANAGER_IMAGE to the tag it
+    # produced. There is no usable default, so compose refuses to start
+    # without one rather than reach for a registry path that was never ours.
+    image: ${MANAGER_IMAGE:?set MANAGER_IMAGE to the image you built with deploy/build-image.sh}
     restart: unless-stopped
     # Nothing in the image is written at runtime except the node-creds volume
     # below, so the root filesystem is read-only and a stray write fails

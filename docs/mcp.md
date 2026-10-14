@@ -77,8 +77,12 @@ The in-repo chart (`chart/fleet-manager`) renders the same keys from its values:
 | `mcp.enabled` | `false` | `mcp.enabled` |
 | `mcp.publicURL` | `""` | `mcp.public_url` |
 
+No chart or image is published; install straight from this checkout, with an image you
+built yourself (see the README's "Building the image yourself"):
+
 ```sh
-helm install fleet oci://ghcr.io/cryptos-pki/charts/fleet-manager --version X.Y.Z \
+helm install fleet chart/fleet-manager \
+  --set image.repository=<your-registry>/cryptos-manager --set image.tag=local \
   --set tls.certSecret=<server-tls-secret> \
   --set operatorCA.configMap=<operator-ca-configmap> \
   --set mcp.enabled=true \
