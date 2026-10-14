@@ -174,6 +174,13 @@ type fakeConn struct {
 	// applyConfigErr, when set, fails ApplyConfig only (a node refusing the
 	// config), so GetConfig still returns the baseline.
 	applyConfigErr error
+
+	// listTsaCertificatesResp, when set, is returned by ListTsaCertificates
+	// instead of the zero-value response.
+	listTsaCertificatesResp *nodev1.ListTsaCertificatesResponse
+	// listTsaCertificatesErr, when set, is returned by ListTsaCertificates
+	// instead of err.
+	listTsaCertificatesErr error
 }
 
 func (f *fakeConn) BeginKeyRotation(context.Context) (*nodev1.BeginKeyRotationResponse, error) {
@@ -444,6 +451,17 @@ func (f *fakeConn) StartCeremony(_ context.Context, _ nodev1.CeremonyKind, machi
 		return nil, f.ceremonyErr
 	}
 	return f.ceremonyStream, nil
+}
+
+func (f *fakeConn) ListTsaCertificates(context.Context) (*nodev1.ListTsaCertificatesResponse, error) {
+	f.record("ListTsaCertificates")
+	if f.listTsaCertificatesErr != nil {
+		return nil, f.listTsaCertificatesErr
+	}
+	if f.listTsaCertificatesResp != nil {
+		return f.listTsaCertificatesResp, nil
+	}
+	return &nodev1.ListTsaCertificatesResponse{}, nil
 }
 
 // record appends name to the shared call log, if this fake was given one.
