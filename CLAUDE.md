@@ -63,8 +63,9 @@ minutes per PR:
   on push to `main`: the squash merge
   lands the tree the PR run already checked. Only Release Drafter (on push to `main`) and Label Sync
   (when `.github/labels.yml` changes) run on `main`. The release image build
-  (`job-release-image.yaml`) runs on `v*` tags only; releases are source only, so it proves the
-  image builds and passes the health check and pushes nothing.
+  (`job-release-image.yaml`) runs on `v*` tags only; it proves the image with the health check,
+  then publishes the image and the Helm chart to GHCR (`latest` only on a stable tag, never an
+  rc), with no provenance, SBOM or other attestation attached.
 - **Edits.** PR Checks and the Label Checker rerun on a title or body edit. The other PR
   workflows ignore edits: after a stacked PR is retargeted onto `main`, CI starts on its next push
   or when the PR is toggled to draft and back to ready.
