@@ -200,6 +200,23 @@ type fakeConn struct {
 	// instead of err.
 	listTsaCertificatesErr error
 
+	// gotListEnrollmentsProfile records the profile filter
+	// ListScepEnrollments was called with.
+	gotListEnrollmentsProfile string
+	listEnrollmentsResp       *nodev1.ListScepEnrollmentsResponse
+	listEnrollmentsErr        error
+	// gotApproveEnrollmentID records the id ApproveScepEnrollment was called
+	// with.
+	gotApproveEnrollmentID string
+	approveEnrollmentResp  *nodev1.ApproveScepEnrollmentResponse
+	approveEnrollmentErr   error
+	// gotRejectEnrollmentID and gotRejectEnrollmentReason record what
+	// RejectScepEnrollment was called with.
+	gotRejectEnrollmentID     string
+	gotRejectEnrollmentReason string
+	rejectEnrollmentResp      *nodev1.RejectScepEnrollmentResponse
+	rejectEnrollmentErr       error
+
 	// gotMintProfile, gotMintTTL and gotMintBoundNames record what
 	// MintScepChallenge was called with.
 	gotMintProfile     string
@@ -562,6 +579,43 @@ func (f *fakeConn) ListTsaCertificates(context.Context) (*nodev1.ListTsaCertific
 		return f.listTsaCertificatesResp, nil
 	}
 	return &nodev1.ListTsaCertificatesResponse{}, nil
+}
+
+func (f *fakeConn) ListScepEnrollments(_ context.Context, profile string) (*nodev1.ListScepEnrollmentsResponse, error) {
+	f.record("ListScepEnrollments")
+	f.gotListEnrollmentsProfile = profile
+	if f.listEnrollmentsErr != nil {
+		return nil, f.listEnrollmentsErr
+	}
+	if f.listEnrollmentsResp != nil {
+		return f.listEnrollmentsResp, nil
+	}
+	return &nodev1.ListScepEnrollmentsResponse{}, nil
+}
+
+func (f *fakeConn) ApproveScepEnrollment(_ context.Context, id string) (*nodev1.ApproveScepEnrollmentResponse, error) {
+	f.record("ApproveScepEnrollment")
+	f.gotApproveEnrollmentID = id
+	if f.approveEnrollmentErr != nil {
+		return nil, f.approveEnrollmentErr
+	}
+	if f.approveEnrollmentResp != nil {
+		return f.approveEnrollmentResp, nil
+	}
+	return &nodev1.ApproveScepEnrollmentResponse{}, nil
+}
+
+func (f *fakeConn) RejectScepEnrollment(_ context.Context, id, reason string) (*nodev1.RejectScepEnrollmentResponse, error) {
+	f.record("RejectScepEnrollment")
+	f.gotRejectEnrollmentID = id
+	f.gotRejectEnrollmentReason = reason
+	if f.rejectEnrollmentErr != nil {
+		return nil, f.rejectEnrollmentErr
+	}
+	if f.rejectEnrollmentResp != nil {
+		return f.rejectEnrollmentResp, nil
+	}
+	return &nodev1.RejectScepEnrollmentResponse{}, nil
 }
 
 func (f *fakeConn) MintScepChallenge(_ context.Context, profile string, ttlSeconds uint32, boundNames []string) (*nodev1.MintScepChallengeResponse, error) {

@@ -663,6 +663,18 @@ func (r *routingConn) ListTsaCertificates(ctx context.Context) (*nodev1.ListTsaC
 	return r.ferry.ListTsaCertificates(ctx)
 }
 
+func (r *routingConn) ListScepEnrollments(ctx context.Context, profile string) (*nodev1.ListScepEnrollmentsResponse, error) {
+	return r.ferry.ListScepEnrollments(ctx, profile)
+}
+
+func (r *routingConn) ApproveScepEnrollment(ctx context.Context, id string) (*nodev1.ApproveScepEnrollmentResponse, error) {
+	return r.ferry.ApproveScepEnrollment(ctx, id)
+}
+
+func (r *routingConn) RejectScepEnrollment(ctx context.Context, id, reason string) (*nodev1.RejectScepEnrollmentResponse, error) {
+	return r.ferry.RejectScepEnrollment(ctx, id, reason)
+}
+
 func (r *routingConn) MintScepChallenge(ctx context.Context, profile string, ttlSeconds uint32, boundNames []string) (*nodev1.MintScepChallengeResponse, error) {
 	return r.ferry.MintScepChallenge(ctx, profile, ttlSeconds, boundNames)
 }

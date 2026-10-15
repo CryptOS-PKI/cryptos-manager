@@ -432,6 +432,12 @@ service FleetService {
   rpc ListNodeScepChallenges(ListNodeScepChallengesRequest) returns (ListNodeScepChallengesResponse);
 
   rpc RevokeNodeScepChallenge(RevokeNodeScepChallengeRequest) returns (RevokeNodeScepChallengeResponse);
+
+  rpc ListNodeScepEnrollments(ListNodeScepEnrollmentsRequest) returns (ListNodeScepEnrollmentsResponse);
+
+  rpc ApproveNodeScepEnrollment(ApproveNodeScepEnrollmentRequest) returns (ApproveNodeScepEnrollmentResponse);
+
+  rpc RejectNodeScepEnrollment(RejectNodeScepEnrollmentRequest) returns (RejectNodeScepEnrollmentResponse);
 }
 
 message ListNodesRequest {}
@@ -1893,4 +1899,69 @@ message RevokeNodeScepChallengeRequest {
 message RevokeNodeScepChallengeResponse {
   // challenge is the withdrawn challenge as it was before revocation.
   NodeScepChallenge challenge = 1;
+}
+
+// NodeScepEnrollment is an initial SCEP enrolment on a managed node, held for
+// an operator decision. The challenge that authorized it was consumed on
+// arrival and is not carried.
+message NodeScepEnrollment {
+  // id identifies the enrolment for approval or rejection.
+  string id = 1;
+  // transaction_id is the client's SCEP transactionID (RFC 8894 section
+  // 3.2.1.1).
+  string transaction_id = 2;
+  // profile is the node's Scep.profiles entry it will issue from.
+  string profile = 3;
+  // subject_dn is the subject the request asks for, as an RFC 4514 string.
+  string subject_dn = 4;
+  repeated string dns_names = 5;
+  repeated string ip_addresses = 6;
+  // key_alg is the requested subject key, for example "RSA-2048" or
+  // "ECDSA-P384".
+  string key_alg = 7;
+  // csr_pem is the PKCS#10 request the client signed, PEM-encoded, for an
+  // operator who wants to inspect it before deciding.
+  string csr_pem = 8;
+  // challenge_id is the id of the challenge that authorized the request.
+  string challenge_id = 9;
+  string received_at = 10;
+}
+
+message ListNodeScepEnrollmentsRequest {
+  string node_name = 1;
+  string node_id = 2;
+  // profile, when set, keeps only enrolments for that profile.
+  string profile = 3;
+}
+
+message ListNodeScepEnrollmentsResponse {
+  repeated NodeScepEnrollment enrollments = 1;
+}
+
+message ApproveNodeScepEnrollmentRequest {
+  string node_name = 1;
+  string node_id = 2;
+  string id = 3;
+}
+
+message ApproveNodeScepEnrollmentResponse {
+  // enrollment is the approved enrolment, now out of the queue.
+  NodeScepEnrollment enrollment = 1;
+  // serial_hex is the serial of the issued certificate, which
+  // ListCertificates and RevokeCertificate know it by.
+  string serial_hex = 2;
+}
+
+message RejectNodeScepEnrollmentRequest {
+  string node_name = 1;
+  string node_id = 2;
+  string id = 3;
+  // reason is recorded in the node's own audit log. It is not sent to the
+  // device, which RFC 8894 answers only with a failInfo code.
+  string reason = 4;
+}
+
+message RejectNodeScepEnrollmentResponse {
+  // enrollment is the rejected enrolment, now out of the queue.
+  NodeScepEnrollment enrollment = 1;
 }

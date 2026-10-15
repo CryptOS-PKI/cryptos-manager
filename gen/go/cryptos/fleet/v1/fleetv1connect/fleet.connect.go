@@ -224,6 +224,15 @@ const (
 	// FleetServiceRevokeNodeScepChallengeProcedure is the fully-qualified name of the FleetService's
 	// RevokeNodeScepChallenge RPC.
 	FleetServiceRevokeNodeScepChallengeProcedure = "/cryptos.fleet.v1.FleetService/RevokeNodeScepChallenge"
+	// FleetServiceListNodeScepEnrollmentsProcedure is the fully-qualified name of the FleetService's
+	// ListNodeScepEnrollments RPC.
+	FleetServiceListNodeScepEnrollmentsProcedure = "/cryptos.fleet.v1.FleetService/ListNodeScepEnrollments"
+	// FleetServiceApproveNodeScepEnrollmentProcedure is the fully-qualified name of the FleetService's
+	// ApproveNodeScepEnrollment RPC.
+	FleetServiceApproveNodeScepEnrollmentProcedure = "/cryptos.fleet.v1.FleetService/ApproveNodeScepEnrollment"
+	// FleetServiceRejectNodeScepEnrollmentProcedure is the fully-qualified name of the FleetService's
+	// RejectNodeScepEnrollment RPC.
+	FleetServiceRejectNodeScepEnrollmentProcedure = "/cryptos.fleet.v1.FleetService/RejectNodeScepEnrollment"
 )
 
 // FleetServiceClient is a client for the cryptos.fleet.v1.FleetService service.
@@ -561,6 +570,9 @@ type FleetServiceClient interface {
 	MintNodeScepChallenge(context.Context, *connect.Request[v1.MintNodeScepChallengeRequest]) (*connect.Response[v1.MintNodeScepChallengeResponse], error)
 	ListNodeScepChallenges(context.Context, *connect.Request[v1.ListNodeScepChallengesRequest]) (*connect.Response[v1.ListNodeScepChallengesResponse], error)
 	RevokeNodeScepChallenge(context.Context, *connect.Request[v1.RevokeNodeScepChallengeRequest]) (*connect.Response[v1.RevokeNodeScepChallengeResponse], error)
+	ListNodeScepEnrollments(context.Context, *connect.Request[v1.ListNodeScepEnrollmentsRequest]) (*connect.Response[v1.ListNodeScepEnrollmentsResponse], error)
+	ApproveNodeScepEnrollment(context.Context, *connect.Request[v1.ApproveNodeScepEnrollmentRequest]) (*connect.Response[v1.ApproveNodeScepEnrollmentResponse], error)
+	RejectNodeScepEnrollment(context.Context, *connect.Request[v1.RejectNodeScepEnrollmentRequest]) (*connect.Response[v1.RejectNodeScepEnrollmentResponse], error)
 }
 
 // NewFleetServiceClient constructs a client for the cryptos.fleet.v1.FleetService service. By
@@ -976,6 +988,24 @@ func NewFleetServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(fleetServiceMethods.ByName("RevokeNodeScepChallenge")),
 			connect.WithClientOptions(opts...),
 		),
+		listNodeScepEnrollments: connect.NewClient[v1.ListNodeScepEnrollmentsRequest, v1.ListNodeScepEnrollmentsResponse](
+			httpClient,
+			baseURL+FleetServiceListNodeScepEnrollmentsProcedure,
+			connect.WithSchema(fleetServiceMethods.ByName("ListNodeScepEnrollments")),
+			connect.WithClientOptions(opts...),
+		),
+		approveNodeScepEnrollment: connect.NewClient[v1.ApproveNodeScepEnrollmentRequest, v1.ApproveNodeScepEnrollmentResponse](
+			httpClient,
+			baseURL+FleetServiceApproveNodeScepEnrollmentProcedure,
+			connect.WithSchema(fleetServiceMethods.ByName("ApproveNodeScepEnrollment")),
+			connect.WithClientOptions(opts...),
+		),
+		rejectNodeScepEnrollment: connect.NewClient[v1.RejectNodeScepEnrollmentRequest, v1.RejectNodeScepEnrollmentResponse](
+			httpClient,
+			baseURL+FleetServiceRejectNodeScepEnrollmentProcedure,
+			connect.WithSchema(fleetServiceMethods.ByName("RejectNodeScepEnrollment")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -1048,6 +1078,9 @@ type fleetServiceClient struct {
 	mintNodeScepChallenge           *connect.Client[v1.MintNodeScepChallengeRequest, v1.MintNodeScepChallengeResponse]
 	listNodeScepChallenges          *connect.Client[v1.ListNodeScepChallengesRequest, v1.ListNodeScepChallengesResponse]
 	revokeNodeScepChallenge         *connect.Client[v1.RevokeNodeScepChallengeRequest, v1.RevokeNodeScepChallengeResponse]
+	listNodeScepEnrollments         *connect.Client[v1.ListNodeScepEnrollmentsRequest, v1.ListNodeScepEnrollmentsResponse]
+	approveNodeScepEnrollment       *connect.Client[v1.ApproveNodeScepEnrollmentRequest, v1.ApproveNodeScepEnrollmentResponse]
+	rejectNodeScepEnrollment        *connect.Client[v1.RejectNodeScepEnrollmentRequest, v1.RejectNodeScepEnrollmentResponse]
 }
 
 // ListNodes calls cryptos.fleet.v1.FleetService.ListNodes.
@@ -1388,6 +1421,21 @@ func (c *fleetServiceClient) RevokeNodeScepChallenge(ctx context.Context, req *c
 	return c.revokeNodeScepChallenge.CallUnary(ctx, req)
 }
 
+// ListNodeScepEnrollments calls cryptos.fleet.v1.FleetService.ListNodeScepEnrollments.
+func (c *fleetServiceClient) ListNodeScepEnrollments(ctx context.Context, req *connect.Request[v1.ListNodeScepEnrollmentsRequest]) (*connect.Response[v1.ListNodeScepEnrollmentsResponse], error) {
+	return c.listNodeScepEnrollments.CallUnary(ctx, req)
+}
+
+// ApproveNodeScepEnrollment calls cryptos.fleet.v1.FleetService.ApproveNodeScepEnrollment.
+func (c *fleetServiceClient) ApproveNodeScepEnrollment(ctx context.Context, req *connect.Request[v1.ApproveNodeScepEnrollmentRequest]) (*connect.Response[v1.ApproveNodeScepEnrollmentResponse], error) {
+	return c.approveNodeScepEnrollment.CallUnary(ctx, req)
+}
+
+// RejectNodeScepEnrollment calls cryptos.fleet.v1.FleetService.RejectNodeScepEnrollment.
+func (c *fleetServiceClient) RejectNodeScepEnrollment(ctx context.Context, req *connect.Request[v1.RejectNodeScepEnrollmentRequest]) (*connect.Response[v1.RejectNodeScepEnrollmentResponse], error) {
+	return c.rejectNodeScepEnrollment.CallUnary(ctx, req)
+}
+
 // FleetServiceHandler is an implementation of the cryptos.fleet.v1.FleetService service.
 type FleetServiceHandler interface {
 	// ListNodes returns a summary for every node the manager knows about.
@@ -1723,6 +1771,9 @@ type FleetServiceHandler interface {
 	MintNodeScepChallenge(context.Context, *connect.Request[v1.MintNodeScepChallengeRequest]) (*connect.Response[v1.MintNodeScepChallengeResponse], error)
 	ListNodeScepChallenges(context.Context, *connect.Request[v1.ListNodeScepChallengesRequest]) (*connect.Response[v1.ListNodeScepChallengesResponse], error)
 	RevokeNodeScepChallenge(context.Context, *connect.Request[v1.RevokeNodeScepChallengeRequest]) (*connect.Response[v1.RevokeNodeScepChallengeResponse], error)
+	ListNodeScepEnrollments(context.Context, *connect.Request[v1.ListNodeScepEnrollmentsRequest]) (*connect.Response[v1.ListNodeScepEnrollmentsResponse], error)
+	ApproveNodeScepEnrollment(context.Context, *connect.Request[v1.ApproveNodeScepEnrollmentRequest]) (*connect.Response[v1.ApproveNodeScepEnrollmentResponse], error)
+	RejectNodeScepEnrollment(context.Context, *connect.Request[v1.RejectNodeScepEnrollmentRequest]) (*connect.Response[v1.RejectNodeScepEnrollmentResponse], error)
 }
 
 // NewFleetServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -2134,6 +2185,24 @@ func NewFleetServiceHandler(svc FleetServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(fleetServiceMethods.ByName("RevokeNodeScepChallenge")),
 		connect.WithHandlerOptions(opts...),
 	)
+	fleetServiceListNodeScepEnrollmentsHandler := connect.NewUnaryHandler(
+		FleetServiceListNodeScepEnrollmentsProcedure,
+		svc.ListNodeScepEnrollments,
+		connect.WithSchema(fleetServiceMethods.ByName("ListNodeScepEnrollments")),
+		connect.WithHandlerOptions(opts...),
+	)
+	fleetServiceApproveNodeScepEnrollmentHandler := connect.NewUnaryHandler(
+		FleetServiceApproveNodeScepEnrollmentProcedure,
+		svc.ApproveNodeScepEnrollment,
+		connect.WithSchema(fleetServiceMethods.ByName("ApproveNodeScepEnrollment")),
+		connect.WithHandlerOptions(opts...),
+	)
+	fleetServiceRejectNodeScepEnrollmentHandler := connect.NewUnaryHandler(
+		FleetServiceRejectNodeScepEnrollmentProcedure,
+		svc.RejectNodeScepEnrollment,
+		connect.WithSchema(fleetServiceMethods.ByName("RejectNodeScepEnrollment")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/cryptos.fleet.v1.FleetService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case FleetServiceListNodesProcedure:
@@ -2270,6 +2339,12 @@ func NewFleetServiceHandler(svc FleetServiceHandler, opts ...connect.HandlerOpti
 			fleetServiceListNodeScepChallengesHandler.ServeHTTP(w, r)
 		case FleetServiceRevokeNodeScepChallengeProcedure:
 			fleetServiceRevokeNodeScepChallengeHandler.ServeHTTP(w, r)
+		case FleetServiceListNodeScepEnrollmentsProcedure:
+			fleetServiceListNodeScepEnrollmentsHandler.ServeHTTP(w, r)
+		case FleetServiceApproveNodeScepEnrollmentProcedure:
+			fleetServiceApproveNodeScepEnrollmentHandler.ServeHTTP(w, r)
+		case FleetServiceRejectNodeScepEnrollmentProcedure:
+			fleetServiceRejectNodeScepEnrollmentHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -2545,4 +2620,16 @@ func (UnimplementedFleetServiceHandler) ListNodeScepChallenges(context.Context, 
 
 func (UnimplementedFleetServiceHandler) RevokeNodeScepChallenge(context.Context, *connect.Request[v1.RevokeNodeScepChallengeRequest]) (*connect.Response[v1.RevokeNodeScepChallengeResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cryptos.fleet.v1.FleetService.RevokeNodeScepChallenge is not implemented"))
+}
+
+func (UnimplementedFleetServiceHandler) ListNodeScepEnrollments(context.Context, *connect.Request[v1.ListNodeScepEnrollmentsRequest]) (*connect.Response[v1.ListNodeScepEnrollmentsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cryptos.fleet.v1.FleetService.ListNodeScepEnrollments is not implemented"))
+}
+
+func (UnimplementedFleetServiceHandler) ApproveNodeScepEnrollment(context.Context, *connect.Request[v1.ApproveNodeScepEnrollmentRequest]) (*connect.Response[v1.ApproveNodeScepEnrollmentResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cryptos.fleet.v1.FleetService.ApproveNodeScepEnrollment is not implemented"))
+}
+
+func (UnimplementedFleetServiceHandler) RejectNodeScepEnrollment(context.Context, *connect.Request[v1.RejectNodeScepEnrollmentRequest]) (*connect.Response[v1.RejectNodeScepEnrollmentResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cryptos.fleet.v1.FleetService.RejectNodeScepEnrollment is not implemented"))
 }

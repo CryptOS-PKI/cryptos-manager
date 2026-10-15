@@ -86,6 +86,9 @@ const (
 	FleetService_MintNodeScepChallenge_FullMethodName           = "/cryptos.fleet.v1.FleetService/MintNodeScepChallenge"
 	FleetService_ListNodeScepChallenges_FullMethodName          = "/cryptos.fleet.v1.FleetService/ListNodeScepChallenges"
 	FleetService_RevokeNodeScepChallenge_FullMethodName         = "/cryptos.fleet.v1.FleetService/RevokeNodeScepChallenge"
+	FleetService_ListNodeScepEnrollments_FullMethodName         = "/cryptos.fleet.v1.FleetService/ListNodeScepEnrollments"
+	FleetService_ApproveNodeScepEnrollment_FullMethodName       = "/cryptos.fleet.v1.FleetService/ApproveNodeScepEnrollment"
+	FleetService_RejectNodeScepEnrollment_FullMethodName        = "/cryptos.fleet.v1.FleetService/RejectNodeScepEnrollment"
 )
 
 // FleetServiceClient is the client API for FleetService service.
@@ -430,6 +433,9 @@ type FleetServiceClient interface {
 	MintNodeScepChallenge(ctx context.Context, in *MintNodeScepChallengeRequest, opts ...grpc.CallOption) (*MintNodeScepChallengeResponse, error)
 	ListNodeScepChallenges(ctx context.Context, in *ListNodeScepChallengesRequest, opts ...grpc.CallOption) (*ListNodeScepChallengesResponse, error)
 	RevokeNodeScepChallenge(ctx context.Context, in *RevokeNodeScepChallengeRequest, opts ...grpc.CallOption) (*RevokeNodeScepChallengeResponse, error)
+	ListNodeScepEnrollments(ctx context.Context, in *ListNodeScepEnrollmentsRequest, opts ...grpc.CallOption) (*ListNodeScepEnrollmentsResponse, error)
+	ApproveNodeScepEnrollment(ctx context.Context, in *ApproveNodeScepEnrollmentRequest, opts ...grpc.CallOption) (*ApproveNodeScepEnrollmentResponse, error)
+	RejectNodeScepEnrollment(ctx context.Context, in *RejectNodeScepEnrollmentRequest, opts ...grpc.CallOption) (*RejectNodeScepEnrollmentResponse, error)
 }
 
 type fleetServiceClient struct {
@@ -1119,6 +1125,36 @@ func (c *fleetServiceClient) RevokeNodeScepChallenge(ctx context.Context, in *Re
 	return out, nil
 }
 
+func (c *fleetServiceClient) ListNodeScepEnrollments(ctx context.Context, in *ListNodeScepEnrollmentsRequest, opts ...grpc.CallOption) (*ListNodeScepEnrollmentsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListNodeScepEnrollmentsResponse)
+	err := c.cc.Invoke(ctx, FleetService_ListNodeScepEnrollments_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *fleetServiceClient) ApproveNodeScepEnrollment(ctx context.Context, in *ApproveNodeScepEnrollmentRequest, opts ...grpc.CallOption) (*ApproveNodeScepEnrollmentResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ApproveNodeScepEnrollmentResponse)
+	err := c.cc.Invoke(ctx, FleetService_ApproveNodeScepEnrollment_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *fleetServiceClient) RejectNodeScepEnrollment(ctx context.Context, in *RejectNodeScepEnrollmentRequest, opts ...grpc.CallOption) (*RejectNodeScepEnrollmentResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RejectNodeScepEnrollmentResponse)
+	err := c.cc.Invoke(ctx, FleetService_RejectNodeScepEnrollment_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // FleetServiceServer is the server API for FleetService service.
 // All implementations should embed UnimplementedFleetServiceServer
 // for forward compatibility.
@@ -1461,6 +1497,9 @@ type FleetServiceServer interface {
 	MintNodeScepChallenge(context.Context, *MintNodeScepChallengeRequest) (*MintNodeScepChallengeResponse, error)
 	ListNodeScepChallenges(context.Context, *ListNodeScepChallengesRequest) (*ListNodeScepChallengesResponse, error)
 	RevokeNodeScepChallenge(context.Context, *RevokeNodeScepChallengeRequest) (*RevokeNodeScepChallengeResponse, error)
+	ListNodeScepEnrollments(context.Context, *ListNodeScepEnrollmentsRequest) (*ListNodeScepEnrollmentsResponse, error)
+	ApproveNodeScepEnrollment(context.Context, *ApproveNodeScepEnrollmentRequest) (*ApproveNodeScepEnrollmentResponse, error)
+	RejectNodeScepEnrollment(context.Context, *RejectNodeScepEnrollmentRequest) (*RejectNodeScepEnrollmentResponse, error)
 }
 
 // UnimplementedFleetServiceServer should be embedded to have
@@ -1670,6 +1709,15 @@ func (UnimplementedFleetServiceServer) ListNodeScepChallenges(context.Context, *
 }
 func (UnimplementedFleetServiceServer) RevokeNodeScepChallenge(context.Context, *RevokeNodeScepChallengeRequest) (*RevokeNodeScepChallengeResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RevokeNodeScepChallenge not implemented")
+}
+func (UnimplementedFleetServiceServer) ListNodeScepEnrollments(context.Context, *ListNodeScepEnrollmentsRequest) (*ListNodeScepEnrollmentsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListNodeScepEnrollments not implemented")
+}
+func (UnimplementedFleetServiceServer) ApproveNodeScepEnrollment(context.Context, *ApproveNodeScepEnrollmentRequest) (*ApproveNodeScepEnrollmentResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ApproveNodeScepEnrollment not implemented")
+}
+func (UnimplementedFleetServiceServer) RejectNodeScepEnrollment(context.Context, *RejectNodeScepEnrollmentRequest) (*RejectNodeScepEnrollmentResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RejectNodeScepEnrollment not implemented")
 }
 func (UnimplementedFleetServiceServer) testEmbeddedByValue() {}
 
@@ -2890,6 +2938,60 @@ func _FleetService_RevokeNodeScepChallenge_Handler(srv interface{}, ctx context.
 	return interceptor(ctx, in, info, handler)
 }
 
+func _FleetService_ListNodeScepEnrollments_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListNodeScepEnrollmentsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FleetServiceServer).ListNodeScepEnrollments(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FleetService_ListNodeScepEnrollments_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FleetServiceServer).ListNodeScepEnrollments(ctx, req.(*ListNodeScepEnrollmentsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FleetService_ApproveNodeScepEnrollment_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ApproveNodeScepEnrollmentRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FleetServiceServer).ApproveNodeScepEnrollment(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FleetService_ApproveNodeScepEnrollment_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FleetServiceServer).ApproveNodeScepEnrollment(ctx, req.(*ApproveNodeScepEnrollmentRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FleetService_RejectNodeScepEnrollment_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RejectNodeScepEnrollmentRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FleetServiceServer).RejectNodeScepEnrollment(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FleetService_RejectNodeScepEnrollment_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FleetServiceServer).RejectNodeScepEnrollment(ctx, req.(*RejectNodeScepEnrollmentRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // FleetService_ServiceDesc is the grpc.ServiceDesc for FleetService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -3160,6 +3262,18 @@ var FleetService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "RevokeNodeScepChallenge",
 			Handler:    _FleetService_RevokeNodeScepChallenge_Handler,
+		},
+		{
+			MethodName: "ListNodeScepEnrollments",
+			Handler:    _FleetService_ListNodeScepEnrollments_Handler,
+		},
+		{
+			MethodName: "ApproveNodeScepEnrollment",
+			Handler:    _FleetService_ApproveNodeScepEnrollment_Handler,
+		},
+		{
+			MethodName: "RejectNodeScepEnrollment",
+			Handler:    _FleetService_RejectNodeScepEnrollment_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{
