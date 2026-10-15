@@ -1,6 +1,6 @@
 # 🪪 Operator CA: trust and revocation
 
-Operators sign in to the Fleet Manager with a client certificate. The CA that
+Operators sign in to the FleetOS Manager with a client certificate. The CA that
 signs those certificates, the **operator CA**, is always **external**: an
 offline OpenSSL CA, or an enterprise or offline CA that can issue the operator
 profile. It is **never a CryptOS node**. The manager learns only the CA's
@@ -47,7 +47,7 @@ refused on its next request, even over an open connection.
 A certificate is refused if any source lists it. Serials are unique per CA only,
 so every source is keyed by the CA as well as the serial.
 
-- **The denylist** is the Fleet Manager's own list, in Postgres, always on.
+- **The denylist** is the FleetOS Manager's own list, in Postgres, always on.
   `RevokeOperatorCredential` writes to it. The replica that writes enforces the
   entry at once and every other replica within about 5 seconds. It needs
   Postgres; without it, revoking returns
@@ -64,7 +64,7 @@ so every source is keyed by the CA as well as the serial.
   `good` answer never overrides the denylist or the CRL.
 
 > [!WARNING]
-> The denylist stops a credential at the Fleet Manager only. Other systems that
+> The denylist stops a credential at the FleetOS Manager only. Other systems that
 > trust the same CA don't see it. Revoke at your CA as well and publish a new CRL.
 
 A CRL must be a complete, direct CRL for end-entity certificates, signed by the
@@ -330,7 +330,7 @@ chart refuses to render `operatorCANode`, both with a message pointing here.
 > restart.
 
 Operator credential rows recorded before the change are kept and listed with
-the kind `legacy_node`. Issuing an operator credential through the Fleet Manager
+the kind `legacy_node`. Issuing an operator credential through the FleetOS Manager
 is gone; the external CA signs them. See
 [operator-credentials.md](operator-credentials.md) for requesting, recording
 and denying them.
