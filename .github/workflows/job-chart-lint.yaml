@@ -1,0 +1,68 @@
+name: Chart Lint
+# helm lint plus a handful of helm template scenarios that must render, so a
+# broken chart.fleet-manager fails at PR time instead of at the next release.
+#
+# Pull requests only, and not while the PR is a draft; the PR run covers what
+# merges, so nothing reruns on push to main.
+on:
+  pull_request:
+    branches: [main]
+    paths: ["chart/fleet-manager/**"]
+    types: [opened, synchronize, reopened, ready_for_review]
+# One run per PR per workflow: a new push cancels the older PR run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  chart:
+    name: ⎈ Chart lint + template
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Setup Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310  # v5.0.1
+
+      - name: helm lint (defaults, Postgres configured)
+        run: helm lint chart/fleet-manager --set database.existingSecret=pg-dsn
+
+      - name: helm lint (serviceAccount.create)
+        run: helm lint chart/fleet-manager --set database.existingSecret=pg-dsn --set serviceAccount.create=true
+
+      - name: helm lint (ingress.enabled)
+        run: |
+          helm lint chart/fleet-manager --set database.existingSecret=pg-dsn --set ingress.enabled=true \
+            --set ingress.className=nginx \
+            --set 'ingress.hosts[0].host=fleetos.example.org' \
+            --set 'ingress.hosts[0].paths[0].path=/' \
+            --set 'ingress.hosts[0].paths[0].pathType=Prefix'
+
+      - name: helm template omits the ServiceAccount and Ingress by default
+        run: |
+          out="$(helm template test chart/fleet-manager --set database.existingSecret=pg-dsn)"
+          echo "$out" | grep -q 'kind: ServiceAccount' && { echo "ServiceAccount rendered with serviceAccount.create: false" >&2; exit 1; }
+          echo "$out" | grep -q 'kind: Ingress' && { echo "Ingress rendered with ingress.enabled: false" >&2; exit 1; }
+          echo "$out" | grep -q 'serviceAccountName: default' || { echo "pod does not explicitly run under the default ServiceAccount" >&2; exit 1; }
+
+      - name: helm template renders a dedicated ServiceAccount with automount off
+        run: |
+          out="$(helm template test chart/fleet-manager --set database.existingSecret=pg-dsn --set serviceAccount.create=true)"
+          echo "$out" | grep -q 'kind: ServiceAccount'
+          echo "$out" | grep -q 'automountServiceAccountToken: false'
+          echo "$out" | grep -q 'serviceAccountName: fleet-manager'
+
+      - name: helm template renders the Ingress with the configured host and class
+        run: |
+          out="$(helm template test chart/fleet-manager --set database.existingSecret=pg-dsn --set ingress.enabled=true \
+            --set ingress.className=nginx \
+            --set 'ingress.hosts[0].host=fleetos.example.org' \
+            --set 'ingress.hosts[0].paths[0].path=/' \
+            --set 'ingress.hosts[0].paths[0].pathType=Prefix')"
+          echo "$out" | grep -q 'kind: Ingress'
+          echo "$out" | grep -q 'ingressClassName: nginx'
+          echo "$out" | grep -q 'host: "fleetos.example.org"'
