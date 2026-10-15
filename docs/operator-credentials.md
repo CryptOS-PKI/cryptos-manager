@@ -1,6 +1,6 @@
 # 🎫 Operator credentials after day zero
 
-The Fleet Manager never signs an operator credential. Your external operator CA
+The FleetOS Manager never signs an operator credential. Your external operator CA
 (see [operator-ca.md](operator-ca.md)) signs every one of them, out of band. The
 manager's part is to prepare the request, check what the CA signed, record it,
 and refuse it later if you deny it.
@@ -161,7 +161,7 @@ tried again on the certificate's next request.
 ## ⛔ 4. Deny a credential
 
 `RevokeOperatorCredential{serial_hex, issuer_sha256, reason_code, note}` is
-admin-only. It puts the serial on the Fleet Manager's denylist under the operator
+admin-only. It puts the serial on the FleetOS Manager's denylist under the operator
 CA, and the certificate is refused from its next request: at once on the
 replica that wrote it, and within about 5 seconds on the others.
 
@@ -175,7 +175,7 @@ replica that wrote it, and within about 5 seconds on the others.
 The denial is audited as `operator-revoked`. It never contacts a node.
 
 > [!WARNING]
-> Denying a credential in the Fleet Manager does **not** revoke it at your
+> Denying a credential in the FleetOS Manager does **not** revoke it at your
 > operator CA. Other systems that trust the same CA still accept it. Revoke it at
 > the CA as well, and publish a new CRL:
 >
@@ -193,7 +193,7 @@ knows, with:
 | --- | --- |
 | `kind` | `first_admin`, `requested`, `recorded`, `observed`, or `legacy_node` (issued by a node before external operator CAs; read-only, it can't sign in) |
 | `issuer_sha256` | The operator CA that signed it; empty for `legacy_node` |
-| `denylisted` | On the Fleet Manager's denylist |
+| `denylisted` | On the FleetOS Manager's denylist |
 | `crl_revoked` | Listed in the operator CA's CRL |
 | `revoked` | Refused by any source |
 | `first_seen_at`, `last_seen_at` | When it was first and last seen signing in |
