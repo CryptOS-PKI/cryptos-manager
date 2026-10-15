@@ -1,14 +1,16 @@
-# Deploying the Fleet Manager standalone (systemd, no Kubernetes)
+# Deploying FleetOS Manager standalone (systemd, no Kubernetes)
 
-The README documents Kubernetes and `docker compose`. This covers a third case
-that turns out to be the common one for a small fleet: **a single Linux host,
-systemd, local Postgres, no container runtime**. It also records the traps found
-doing it for real, several of which are not obvious from the other docs.
+FleetOS Manager runs three ways: Kubernetes (the Helm chart), a container on Docker or
+containerd with PostgreSQL alongside it on the same host, or **standalone on a single
+Linux host with systemd and a Postgres you provide, no container runtime at all** — the
+case this guide covers. See the README's *Ways to run* section for the other two. This
+guide also records the traps found doing it for real, several of which are not obvious
+from the other docs.
 
 Throughout, the placeholder organisation is **ACME** (`acme.example`). Replace
 it with your own.
 
-## 0. Before you start: this guide builds from source on purpose
+## Before you start: this guide builds from source on purpose
 
 A release tag publishes the container image and chart (see *Releasing*), but this guide
 is for a host with no container runtime at all, so neither helps here. You build the Go
@@ -16,15 +18,18 @@ binary from source instead: there is no separate binary release.
 
 ```sh
 git clone --depth 1 https://github.com/CryptOS-PKI/cryptos-manager.git
-cd manager
+cd cryptos-manager
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
   go build -trimpath -ldflags="-s -w" -o cryptos-fleet-manager ./cmd/manager
 ```
 
 The `web` bundle is embedded via `go:embed`, so this single static binary is the
 whole application — no separate frontend build, no Node toolchain on the target
-host. Build on a workstation and copy the binary; the target needs nothing but
-glibc-free Linux and Postgres.
+host. Build on a workstation and copy the binary: it is a static `CGO_ENABLED=0`
+binary, so it runs on any Linux host, no glibc needed. It still needs a reachable
+PostgreSQL you provide — unless you run it in the explicit memory mode instead
+(cryptos-manager#194): a single replica only, with operator records and the
+manager's audit log lost on restart.
 
 ## 1. `--trust` is NOT your fleet CA chain
 
@@ -185,7 +190,7 @@ the start with the key's name instead of being ignored.
 
 `operator_ca_node` is no longer supported: a CryptOS node can't be the operator
 CA, and the manager refuses to start with it. Revocation for the operator CA
-from §3 is the Fleet Manager's denylist plus the CA's CRL (`operatorCRL`). See
+from §3 is the FleetOS Manager's denylist plus the CA's CRL (`operatorCRL`). See
 [operator-ca.md](operator-ca.md) for the keys and for migrating off
 `operator_ca_node`.
 
@@ -247,7 +252,7 @@ credentials after.
 ### ⚠ The manager host holds a CA-admin client key
 
 `adminKeyPath` is the private key of a credential that can drive your CA nodes'
-management API. Putting the Fleet Manager on a host means **that host now holds
+management API. Putting the FleetOS Manager on a host means **that host now holds
 CA-admin authority**. This is inherent to the design — the FM is the thing that
 operates the fleet — but treat the FM host as a tier-0 asset accordingly:
 `0600 root`, full-disk encryption, and the same access controls as the CA nodes
@@ -263,7 +268,7 @@ ports:
 
 ```ini
 [Unit]
-Description=CryptOS Fleet Manager
+Description=FleetOS Manager
 After=network-online.target postgresql.service
 Wants=network-online.target
 Requires=postgresql.service
@@ -414,7 +419,7 @@ Revocation material must be served over **`http://`, not `https://`**. A CDP or 
 is fetched by a client in the middle of *building* the trust path, so serving it over TLS
 that depends on that same chain is a bootstrap loop. RFC 5280 expects plain HTTP.
 
-**The CryptOS nodes already do this, and the Fleet Manager plays no part in it.** Each
+**The CryptOS nodes already do this, and the FleetOS Manager plays no part in it.** Each
 node serves `/crl` and `/ocsp` from its own anonymous plaintext listener on
 `pki.revocation_http_port`, which defaults to **80** on the node. A relying party checking
 a certificate talks to the node that issued it. Point `pki.revocation_base_url` at that
