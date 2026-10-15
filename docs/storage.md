@@ -96,6 +96,10 @@ it is given.
 CREATE DATABASE manager;
 CREATE USER manager WITH PASSWORD 'change-me';
 GRANT ALL PRIVILEGES ON DATABASE manager TO manager;
+-- PostgreSQL 15+ no longer grants CREATE on the public schema to everyone by
+-- default; the migrator needs it to create the manager's tables.
+\connect manager
+GRANT ALL ON SCHEMA public TO manager;
 ```
 
 ```yaml
