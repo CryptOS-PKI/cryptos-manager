@@ -135,6 +135,16 @@ tasks:
       LOG_FORMAT: console
     cmds:
       - go run ./cmd/manager -config config.yaml
+  e2e:esxi:
+    desc: >-
+      Run the scripted live write-path exercise (test/e2e/esxi) against real CryptOS nodes a lab
+      gate run (or the cryptos-lab tooling) already installed. Source an env file first (see
+      docs/e2e-esxi.md for the required settings and a throwaway Postgres container); this task
+      builds the manager binary and points the script at it. Lab only; never prod nodes or FleetOS.
+      No CI wiring yet.
+    cmds:
+      - go build -o {{.TOOLS_BIN}}/manager-e2e ./cmd/manager
+      - E2E_MANAGER_BIN={{.TOOLS_BIN}}/manager-e2e go run ./test/e2e/esxi
   license:
     desc: Verify every source file carries the Apache 2.0 license header and LICENSE is the verbatim Apache 2.0 text (CI; never writes).
     cmds:
