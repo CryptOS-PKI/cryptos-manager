@@ -31,17 +31,17 @@ import (
 
 func TestHealthHandler_OKWithoutAStoreCheck(t *testing.T) {
 	rec := httptest.NewRecorder()
-	healthHandler(nil).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, healthPath, nil))
+	healthHandler(storeHealth{}).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, healthPath, nil))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
-	var got map[string]string
+	var got map[string]any
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("body %q is not JSON: %v", rec.Body.String(), err)
 	}
 	if got["status"] != "ok" {
-		t.Errorf("status field = %q, want ok", got["status"])
+		t.Errorf("status field = %v, want ok", got["status"])
 	}
 	if cc := rec.Header().Get("Cache-Control"); cc != "no-store" {
 		t.Errorf("Cache-Control = %q, want no-store", cc)
@@ -51,8 +51,10 @@ func TestHealthHandler_OKWithoutAStoreCheck(t *testing.T) {
 func TestHealthHandler_OKWhenTheStoreAnswers(t *testing.T) {
 	called := false
 	rec := httptest.NewRecorder()
-	healthHandler(func(context.Context) error { called = true; return nil }).
-		ServeHTTP(rec, httptest.NewRequest(http.MethodGet, healthPath, nil))
+	healthHandler(storeHealth{
+		Mode:  storageModePostgres,
+		Check: func(context.Context) error { called = true; return nil },
+	}).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, healthPath, nil))
 
 	if !called {
 		t.Fatal("store check was not called")
@@ -62,13 +64,54 @@ func TestHealthHandler_OKWhenTheStoreAnswers(t *testing.T) {
 	}
 }
 
+// With a version function, a healthy Postgres store's version reaches the
+// body; a nil Version is simply omitted, which TestHealthHandler_OKWhenTheStoreAnswers
+// already covers.
+func TestHealthHandler_ReportsPostgresVersion(t *testing.T) {
+	rec := httptest.NewRecorder()
+	healthHandler(storeHealth{
+		Mode:    storageModePostgres,
+		Check:   func(context.Context) error { return nil },
+		Version: func(context.Context) (string, error) { return "18.1", nil },
+	}).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, healthPath, nil))
+
+	var got healthStatus
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("body %q is not JSON: %v", rec.Body.String(), err)
+	}
+	if got.Storage.Mode != storageModePostgres || got.Storage.State != storageStateOK || got.Storage.Version != "18.1" {
+		t.Errorf("storage = %+v, want postgres/ok/18.1", got.Storage)
+	}
+}
+
+// Storage mode memory is reported degraded, not checked and not failed: it
+// cannot be unreachable, but a restart loses whatever it held.
+func TestHealthHandler_MemoryModeIsDegradedNotFailed(t *testing.T) {
+	rec := httptest.NewRecorder()
+	healthHandler(storeHealth{Mode: config.StorageModeMemory}).
+		ServeHTTP(rec, httptest.NewRequest(http.MethodGet, healthPath, nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (degraded still serves)", rec.Code)
+	}
+	var got healthStatus
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("body %q is not JSON: %v", rec.Body.String(), err)
+	}
+	if got.Status != storageStateDegraded || got.Storage.Mode != config.StorageModeMemory || got.Storage.State != storageStateDegraded {
+		t.Errorf("body = %+v, want status/storage degraded with mode memory", got)
+	}
+}
+
 // A database that cannot be reached is the failure worth reporting, and the
 // endpoint is anonymous, so the driver's error (which names the host) stays in
 // the log rather than the response.
 func TestHealthHandler_503WhenTheStoreIsUnreachable(t *testing.T) {
 	rec := httptest.NewRecorder()
-	healthHandler(func(context.Context) error { return errors.New("dial tcp db.internal:5432: connection refused") }).
-		ServeHTTP(rec, httptest.NewRequest(http.MethodGet, healthPath, nil))
+	healthHandler(storeHealth{
+		Mode:  storageModePostgres,
+		Check: func(context.Context) error { return errors.New("dial tcp db.internal:5432: connection refused") },
+	}).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, healthPath, nil))
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want 503", rec.Code)
@@ -83,7 +126,7 @@ func TestHealthHandler_503WhenTheStoreIsUnreachable(t *testing.T) {
 
 func TestHealthHandler_Head(t *testing.T) {
 	rec := httptest.NewRecorder()
-	healthHandler(nil).ServeHTTP(rec, httptest.NewRequest(http.MethodHead, healthPath, nil))
+	healthHandler(storeHealth{}).ServeHTTP(rec, httptest.NewRequest(http.MethodHead, healthPath, nil))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
@@ -95,7 +138,7 @@ func TestHealthHandler_Head(t *testing.T) {
 
 func TestHealthHandler_RejectsWrites(t *testing.T) {
 	rec := httptest.NewRecorder()
-	healthHandler(nil).ServeHTTP(rec, httptest.NewRequest(http.MethodPost, healthPath, nil))
+	healthHandler(storeHealth{}).ServeHTTP(rec, httptest.NewRequest(http.MethodPost, healthPath, nil))
 
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("status = %d, want 405", rec.Code)
@@ -112,7 +155,7 @@ func TestRootHandler_HealthIsAnonymousAndNotTheSPA(t *testing.T) {
 		stubHandler(http.StatusOK, "spa"),
 		authz.ClientCertMiddleware,
 		nil,
-		healthMount(func(context.Context) error { return errors.New("down") }),
+		healthMount(storeHealth{Mode: storageModePostgres, Check: func(context.Context) error { return errors.New("down") }}),
 	)
 
 	rec := httptest.NewRecorder()
@@ -158,13 +201,16 @@ func TestHealthProbeURL_BadListen(t *testing.T) {
 // the public hostname rather than 127.0.0.1, so it has to succeed against a
 // certificate it cannot verify.
 func TestProbeHealth(t *testing.T) {
-	ok := httptest.NewTLSServer(healthHandler(nil))
+	ok := httptest.NewTLSServer(healthHandler(storeHealth{}))
 	defer ok.Close()
 	if err := probeHealth(ok.URL + healthPath); err != nil {
 		t.Errorf("healthy server: %v", err)
 	}
 
-	down := httptest.NewTLSServer(healthHandler(func(context.Context) error { return errors.New("down") }))
+	down := httptest.NewTLSServer(healthHandler(storeHealth{
+		Mode:  storageModePostgres,
+		Check: func(context.Context) error { return errors.New("down") },
+	}))
 	defer down.Close()
 	if err := probeHealth(down.URL + healthPath); err == nil {
 		t.Error("unhealthy server: want an error")

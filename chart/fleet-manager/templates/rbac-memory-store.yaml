@@ -1,0 +1,33 @@
+{{- if eq .Values.storage.mode "memory" }}
+# storage.mode: memory's single-replica guard claims a coordination.k8s.io/v1
+# Lease in this namespace (internal/singlereplica). The pod runs under the
+# namespace's default ServiceAccount (this chart creates no dedicated one),
+# which otherwise has no permission to touch Leases.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "fleet-manager.name" . }}-memory-store
+  labels: {{- include "fleet-manager.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    resourceNames: [{{ printf "%s-memory-store" (include "fleet-manager.name" .) | quote }}]
+    verbs: ["get", "update", "delete"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "fleet-manager.name" . }}-memory-store
+  labels: {{- include "fleet-manager.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "fleet-manager.name" . }}-memory-store
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: {{ .Release.Namespace }}
+{{- end }}

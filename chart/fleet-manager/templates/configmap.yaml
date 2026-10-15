@@ -36,8 +36,15 @@ data:
     {{- if .Values.authBypass }}
     {{- fail "mcp.enabled requires authBypass: false" }}
     {{- end }}
+    {{- if eq .Values.storage.mode "memory" }}
+    {{- fail "mcp.enabled requires database.existingSecret: MCP keys are checked live against Postgres, which storage.mode: memory does not have" }}
+    {{- end }}
     mcp:
       enabled: true
       public_url: {{ required "mcp.publicURL is required when mcp.enabled is true" .Values.mcp.publicURL | quote }}
+    {{- end }}
+    {{- if eq .Values.storage.mode "memory" }}
+    storage:
+      mode: memory
     {{- end }}
     nodes: {{ include "fleet-manager.nodes" . }}

@@ -45,6 +45,15 @@ var adoptCredsBaseDir = func() string {
 	return "/var/lib/cryptos-manager/node-creds"
 }()
 
+// NodeCredsDir returns the directory above: the one writable volume the
+// manager is guaranteed to have (compose and the chart both mount it; see
+// deploy/compose.yaml and chart/fleet-manager/values.yaml nodeCreds). Other
+// packages that need a writable, persistent-enough-for-one-process path for
+// an unrelated purpose -- the storage.mode: memory single-replica flock
+// (internal/singlereplica, #194) -- share it rather than mounting a second
+// volume just for themselves.
+func NodeCredsDir() string { return adoptCredsBaseDir }
+
 // mintedAdmin is a freshly generated bootstrap admin client identity: the
 // self-signed client certificate the node will trust (embedded in the config's
 // bootstrap.admin_cert_pem) and the private key the manager keeps to dial the

@@ -7,8 +7,17 @@ metadata:
 {{- if and (gt (int .Values.replicaCount) 1) (not $rwx) }}
 {{- fail "replicaCount > 1 needs nodeCreds.accessModes to include ReadWriteMany: every pod must hold every adopted node's admin key" }}
 {{- end }}
-{{- if not .Values.authBypass }}
-{{- $_ := required "database.existingSecret is required when authBypass is false (without it the manager runs its in-memory demo store)" .Values.database.existingSecret }}
+{{- if not (has .Values.storage.mode (list "" "memory")) }}
+{{- fail (printf "storage.mode must be empty or \"memory\", not %q" .Values.storage.mode) }}
+{{- end }}
+{{- if and .Values.database.existingSecret (eq .Values.storage.mode "memory") }}
+{{- fail "database.existingSecret and storage.mode: memory are mutually exclusive: choose one durable store" }}
+{{- end }}
+{{- if and (not .Values.database.existingSecret) (ne .Values.storage.mode "memory") }}
+{{- fail "either database.existingSecret or storage.mode: memory must be set: the chart no longer falls back to an undeclared in-memory store (see docs/storage.md)" }}
+{{- end }}
+{{- if and (eq .Values.storage.mode "memory") (gt (int .Values.replicaCount) 1) }}
+{{- fail "storage.mode: memory supports replicaCount: 1 only: the fleet nodes are the durable record, and two replicas would each hold a different view of them" }}
 {{- end }}
 spec:
   replicas: {{ .Values.replicaCount }}
@@ -57,6 +66,15 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.database.existingSecret | quote }}
                   key: {{ .Values.database.secretKey | quote }}
+          {{- else if eq .Values.storage.mode "memory" }}
+          env:
+            # Names the single-replica guard's Lease. Every resource in this
+            # chart shares the fixed name fleet-manager.name (one release per
+            # namespace; see the Deployment's own metadata.name above), so
+            # this needs no further scoping. See internal/singlereplica and
+            # docs/storage.md.
+            - name: MANAGER_REPLICA_LOCK_NAME
+              value: {{ printf "%s-memory-store" (include "fleet-manager.name" .) | quote }}
           {{- end }}
           # The manager waits up to 90s for Postgres before it listens.
           startupProbe:

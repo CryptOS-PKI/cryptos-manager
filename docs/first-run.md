@@ -1,13 +1,13 @@
 # 🚀 First run
 
-A Fleet Manager started with no operator CA can be stood up from nothing. It
+A FleetOS Manager started with no operator CA can be stood up from nothing. It
 prints a single-use **bootstrap token** in its log. Whoever holds the token
 registers the external operator CA's certificate and checks the first admin
 certificate that CA signed. The manager signs nothing: the session only teaches
 it which CA to trust. First run closes for good the first time an admin
 certificate signs in.
 
-The user guide, with every step, is on the docs site under **Fleet Manager >
+The user guide, with every step, is on the docs site under **FleetOS Manager >
 First run**. This page is the reference for how the manager behaves.
 
 ## ✅ When first run is open
@@ -17,9 +17,13 @@ First run is open only when all of these hold:
 - `operatorCAPath` is unset (with it set, first run reports `NOT_APPLICABLE`);
 - `authBypass` is false;
 - `firstRun` is `auto` (the default), not `disabled`;
-- `database_url` is set (without Postgres, first run reports `UNAVAILABLE` with
+- `database_url` is set (without Postgres -- including `storage.mode: memory`,
+  see [`docs/storage.md`](storage.md) -- first run reports `UNAVAILABLE` with
   `DATABASE_REQUIRED`);
 - first run hasn't closed yet.
+
+A memory-mode install has no first run: set `operatorCAPath` instead, so the
+manager trusts an operator CA from day one.
 
 ## 🎟️ The token
 

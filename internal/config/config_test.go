@@ -150,7 +150,7 @@ nodes:
 // disabled -- as the only way to start a fresh host. The manager now generates a
 // self-signed bootstrap certificate and accepts no operator until one is minted.
 func TestValidate_TLSMaterialOptionalWhenNotBypass(t *testing.T) {
-	c := Config{Listen: "0.0.0.0:8443", AuthBypass: false}
+	c := Config{Listen: "0.0.0.0:8443", AuthBypass: false, Storage: StorageConfig{Mode: StorageModeMemory}}
 	if err := c.validate(); err != nil {
 		t.Fatalf("validate() = %v, want nil for a day-zero config", err)
 	}
@@ -161,6 +161,7 @@ func TestValidate_TLSMaterialOptionalWhenNotBypass(t *testing.T) {
 		TLSCert:        "/srv/tls.crt",
 		TLSKey:         "/srv/tls.key",
 		OperatorCAPath: "/srv/operator-ca.pem",
+		Storage:        StorageConfig{Mode: StorageModeMemory},
 	}
 	if err := c.validate(); err != nil {
 		t.Fatalf("validate() = %v, want nil with TLS material present", err)
@@ -186,7 +187,7 @@ func TestValidate_TLSPairMustBeSetTogether(t *testing.T) {
 }
 
 func TestValidate_TLSOptionalWhenBypass(t *testing.T) {
-	c := Config{Listen: "127.0.0.1:8080", AuthBypass: true}
+	c := Config{Listen: "127.0.0.1:8080", AuthBypass: true, Storage: StorageConfig{Mode: StorageModeMemory}}
 	if err := c.validate(); err != nil {
 		t.Fatalf("validate() = %v, want nil (bypass needs no TLS)", err)
 	}
@@ -203,6 +204,8 @@ func TestLoad_HTTPRedirectFields(t *testing.T) {
 authBypass: true
 httpRedirectListen: "0.0.0.0:8080"
 httpsPublicPort: "443"
+storage:
+  mode: memory
 nodes:
   - name: n1
     endpoint: n1.example:4443
@@ -234,6 +237,8 @@ func TestLoad_HTTPRedirectOptional(t *testing.T) {
 	path := filepath.Join(dir, "config.yaml")
 	body := `listen: "0.0.0.0:8443"
 authBypass: true
+storage:
+  mode: memory
 nodes:
   - name: n1
     endpoint: n1.example:4443
@@ -427,6 +432,8 @@ func TestLoad_NodeWithoutCACertPath(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	body := `
 listen: "127.0.0.1:8080"
+storage:
+  mode: memory
 nodes:
   - name: pki-root
     endpoint: "192.0.2.10:443"
@@ -450,6 +457,8 @@ func TestLoad_InsecureSkipNodeVerify(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	body := `
 listen: "127.0.0.1:8080"
+storage:
+  mode: memory
 nodes:
   - name: lab-node
     endpoint: "192.0.2.20:443"
@@ -473,5 +482,89 @@ nodes:
 	if !cfg.Nodes[0].InsecureSkipNodeVerify || cfg.Nodes[1].InsecureSkipNodeVerify {
 		t.Errorf("insecureSkipNodeVerify = %t, %t, want true for lab-node only",
 			cfg.Nodes[0].InsecureSkipNodeVerify, cfg.Nodes[1].InsecureSkipNodeVerify)
+	}
+}
+
+// TestLoad_RefusesWithNeitherDatabaseNorMemory covers the #194 fix: a config
+// that names no durable store used to fall back to a silent, unannounced
+// in-memory store. It now refuses to load, naming the two ways to configure a
+// store.
+func TestLoad_RefusesWithNeitherDatabaseNorMemory(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	body := `
+listen: "127.0.0.1:8080"
+authBypass: true
+`
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("Load() error = nil, want a refusal naming the missing store")
+	}
+	if !strings.Contains(err.Error(), "database_url") || !strings.Contains(err.Error(), "storage.mode") {
+		t.Errorf("Load() error = %v, want it to name both database_url and storage.mode", err)
+	}
+}
+
+// TestLoad_StorageModeMemory is the explicit opt-in home-lab path: no
+// database_url, storage.mode: memory, and Load succeeds.
+func TestLoad_StorageModeMemory(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	body := `
+listen: "127.0.0.1:8080"
+authBypass: true
+storage:
+  mode: memory
+`
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Storage.Mode != StorageModeMemory {
+		t.Errorf("Storage.Mode = %q, want %q", cfg.Storage.Mode, StorageModeMemory)
+	}
+}
+
+// TestLoad_StorageModeAndDatabaseURLAreExclusive refuses a config that names
+// both a durable Postgres DSN and the explicit memory mode: a deployment
+// cannot honestly be both durable and not.
+func TestLoad_StorageModeAndDatabaseURLAreExclusive(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	body := `
+listen: "127.0.0.1:8080"
+authBypass: true
+database_url: "postgres://manager@db:5432/manager"
+storage:
+  mode: memory
+`
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	_, err := Load(path)
+	if err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Fatalf("Load() error = %v, want a mutually-exclusive refusal", err)
+	}
+}
+
+// TestLoad_StorageModeInvalid refuses any storage.mode value other than the
+// known ones, rather than silently falling through to Postgres.
+func TestLoad_StorageModeInvalid(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	body := `
+listen: "127.0.0.1:8080"
+authBypass: true
+storage:
+  mode: demo
+`
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	_, err := Load(path)
+	if err == nil || !strings.Contains(err.Error(), "storage.mode") {
+		t.Fatalf("Load() error = %v, want a refusal naming storage.mode", err)
 	}
 }

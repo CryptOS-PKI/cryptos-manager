@@ -3,8 +3,10 @@ name: Image CI
 # runtime contract the deployment docs promise: it runs as uid 65532 on a
 # read-only root filesystem with every capability dropped, writes only to the
 # node-creds volume, and reports health from its own /healthz, including a 503
-# when its database goes away. Nothing is pushed; publishing happens only on a
-# v* tag (job-release-image.yaml).
+# when its database goes away. Also checks that deploy/compose.yaml still
+# renders (docker compose config), so the compose topology in the README and
+# docs/deploying-standalone.md doesn't silently break. Nothing is pushed;
+# publishing happens only on a v* tag (job-release-image.yaml).
 #
 # Pull requests only, and not while the PR is a draft. Unlike the other PR
 # workflows this one is path-filtered, because the image build compiles the
@@ -42,6 +44,14 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           path: manager
+
+      - name: 🧩 compose file renders (docker compose config)
+        working-directory: manager
+        run: |
+          set -euo pipefail
+          tmp="$(mktemp -d)"
+          printf 'POSTGRES_PASSWORD=ci\n' > "$tmp/postgres.env"
+          POSTGRES_ENV_FILE="$tmp/postgres.env" docker compose -f deploy/compose.yaml config >/dev/null
 
       - name: 📥 Checkout web
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1

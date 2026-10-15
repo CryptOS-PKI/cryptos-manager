@@ -1,6 +1,6 @@
 # cryptos-manager 🛰️
 
-> 🎛️ The Fleet Manager backend for [CryptOS-PKI](https://github.com/CryptOS-PKI). Optional control plane that talks to many CryptOS CA nodes over mTLS gRPC and serves the [`cryptos-web`](https://github.com/CryptOS-PKI/cryptos-web) frontend at the same TLS listener.
+> 🎛️ The FleetOS Manager backend for [CryptOS-PKI](https://github.com/CryptOS-PKI). Optional control plane that talks to many CryptOS CA nodes over mTLS gRPC and serves the [`cryptos-web`](https://github.com/CryptOS-PKI/cryptos-web) frontend at the same TLS listener.
 
 > [!WARNING]
 > 🚧 **Pre-1.0: any release can change fundamentally.** CryptOS is pre-1.0. Until v1.0.0, any release may change configuration, APIs, on-disk and state formats, trust setup, and upgrade paths, sometimes with no migration path. If you run it in production, you accept that risk. Read [each release's upgrade notes](https://github.com/CryptOS-PKI/cryptos-manager/releases) before you upgrade.
@@ -33,6 +33,16 @@ Once linked, the node's embedded operator surface becomes read-only and FM owns 
 - 📦 **Serves the [`cryptos-web`](https://github.com/CryptOS-PKI/cryptos-web) console bundle** (pinned version, embedded via `embed.FS`) on the same listener as the FM gRPC API.
 - ☸️ **Designed to run on Kubernetes** (Deployment + Service + Ingress, Helm chart shipped alongside the container image). Single-node Docker / `docker compose` is supported for small deployments; K8s is the primary target.
 
+## 🛣️ Ways to run
+
+FleetOS Manager deploys three ways:
+
+- **Kubernetes** — the [Helm chart](#helm-oci), published on every release tag to `oci://ghcr.io/cryptos-pki/charts/fleet-manager`.
+- **A container** (Docker or a Docker-compatible runtime) on a bare-metal host, with [PostgreSQL alongside it](#single-host-with-docker-compose) on the same host for easy upgrades.
+- **Standalone on a VM** — a systemd unit with a Postgres you provide, no container runtime at all. See [`docs/deploying-standalone.md`](docs/deploying-standalone.md).
+
+PostgreSQL is always yours to provide: FleetOS Manager only makes the connection (`database_url`); it does not ship or manage a database itself. The CA runs only on the [CryptOS node](https://github.com/CryptOS-PKI/cryptos-node) — the manager never issues certificates.
+
 ## 🚀 Deploying
 
 The manager ships as a **single self-contained image**: the Go binary with the `web` bundle embedded (`go:embed`), serving the SPA and the Connect API on **one** listener. In a real deployment that listener does mTLS client-cert auth (`authBypass: false`), so operators authenticate with a browser-installed client certificate — see [`docs/operator-ca.md`](docs/operator-ca.md) for the external operator CA that signs them and how revocation works. New operator credentials are requested in the manager, signed at the CA and recorded back: see [`docs/operator-credentials.md`](docs/operator-credentials.md).
@@ -41,7 +51,7 @@ Bring your own trust material: a **server TLS cert** (`tlsCert`/`tlsKey`, any pu
 
 Or start from nothing: with Postgres and no `operatorCAPath`, the manager serves a self-signed certificate and prints a single-use bootstrap token in its log. The token holder registers the operator CA's certificate and checks the first admin certificate it signed; first run then closes for good, unless every admin credential is lost and the offline `-reset-first-run` break-glass reopens it. See [`docs/first-run.md`](docs/first-run.md).
 
-**Docker:**
+### Docker
 
 A release tag publishes `ghcr.io/cryptos-pki/cryptos-manager:vX.Y.Z` (and `:latest` for
 a stable tag — not an rc). Pull it directly, or build your own (see
@@ -120,7 +130,7 @@ denied`, which reads like a TLS problem rather than a permissions one.
 
 ### Single host with `docker compose`
 
-For a small fleet, the manager plus its own Postgres on one host is a supported topology
+For a small fleet, the manager and a Postgres on one host is a supported topology
 rather than an improvisation. [`deploy/compose.yaml`](deploy/compose.yaml) is the worked
 example and [`deploy/config.example.yaml`](deploy/config.example.yaml) the config that
 goes with it:
@@ -128,6 +138,12 @@ goes with it:
 ```sh
 docker compose -f deploy/compose.yaml up -d
 ```
+
+FleetOS Manager does not supply or manage a database — it only makes the connection
+(`database_url`). The `postgres` service in the compose file is a worked example of a
+Postgres you run and own on the same host, for easy single-box upgrades; point
+`database_url` at a Postgres you run elsewhere instead and drop that service if you'd
+rather not run it here.
 
 It publishes 80 and 443, waits for Postgres to be healthy before starting the manager,
 and keeps its database in a named volume. It starts for day zero with only `config.yaml`
@@ -153,6 +169,23 @@ worth knowing before you adapt it:
   does not re-evaluate the condition, so the manager can come back before its database.
   It waits for Postgres itself rather than relying on the restart policy, so this is
   survivable either way; the condition and the policy are both kept as belt and braces.
+
+**Upgrading:** pull the new tag and bring the stack back up — the named `pgdata` and
+`node-creds` volumes are untouched, so the database and adopted nodes survive:
+
+```sh
+MANAGER_VERSION=vX.Y.Z docker compose -f deploy/compose.yaml up -d
+```
+
+**containerd:** the compose file relies on `depends_on`'s `service_healthy` condition to
+order the first start, which `nerdctl compose` does not implement — it logs a warning and
+skips that ordering (the manager still waits for Postgres itself at startup, so the stack
+still comes up correctly, just without that extra guarantee). Rather than document
+`nerdctl compose` as a drop-in equivalent, run it with Docker or another fully
+Docker-compatible runtime.
+
+`task compose:check` validates that the compose file still renders (`docker compose config`)
+without needing the real host paths.
 
 ### Building the image yourself
 
@@ -182,7 +215,7 @@ works but reports `dev` / `unknown`. Extra arguments go straight to `docker buil
 `task image` runs the same script. To run the result with the compose file, set
 `MANAGER_IMAGE=manager:local`.
 
-**Helm (OCI):**
+### Helm (OCI)
 
 A release tag also publishes the chart, versioned to match (the tag without its leading
 `v`):
@@ -267,21 +300,24 @@ Setup, the tool list and key management are in [`docs/mcp.md`](docs/mcp.md).
 
 ## 🗄️ State backend
 
-The manager keeps its state either in memory or in Postgres, chosen by the `database_url` config key:
+The manager keeps its state either in Postgres or in memory, and refuses to start with neither configured — naming both ways to fix it, rather than silently falling back to memory the way earlier builds did.
 
-- **Unset (default).** An in-memory store seeded from the built-in catalog. Nothing persists across a restart. This is the offline-dev and test default.
-- **Set to a Postgres DSN.** The manager applies its schema (a small idempotent migrator runs on every startup), seeds the catalog into an empty database on first run, and persists enrollments and the hash-chained audit log. Restarts keep pending enrollments and the audit trail; the seed is a no-op once any table has rows, so live data is never clobbered. That makes `nodes[]` in `config.yaml` bootstrap-only: once the database holds the inventory, a node renamed in the web UI keeps its new name across restarts, and editing the file no longer changes it. Every node has a stable ID, a UUIDv7 assigned when it joins, that never changes; the name is an editable label. An admin removes a node that is gone with `RemoveNode`, which drops it from the inventory without contacting it and keeps its audit history.
+- **`database_url` (the default).** The manager applies its schema (a small idempotent migrator runs on every startup), seeds the catalog into an empty database on first run, and persists enrollments and the hash-chained audit log. Restarts keep pending enrollments and the audit trail; the seed is a no-op once any table has rows, so live data is never clobbered. That makes `nodes[]` in `config.yaml` bootstrap-only: once the database holds the inventory, a node renamed in the web UI keeps its new name across restarts, and editing the file no longer changes it. Every node has a stable ID, a UUIDv7 assigned when it joins, that never changes; the name is an editable label. An admin removes a node that is gone with `RemoveNode`, which drops it from the inventory without contacting it and keeps its audit history.
+- **`storage.mode: memory`.** For a home lab or single-box install: nothing persists, the manager runs single-replica only (enforced by the chart and by the manager itself), and it rebuilds its view from the configured nodes on restart.
 
 ```yaml
 # config.yaml
 database_url: "postgres://manager:secret@db:5432/manager"
+# or
+storage:
+  mode: memory
 ```
 
 A non-empty `MANAGER_DATABASE_URL` environment variable overrides `database_url`, so the
 DSN and its password can come from a secret store instead of the file. The manager logs
 `database_url taken from MANAGER_DATABASE_URL` when it does.
 
-The persistence layer is hand-rolled: raw SQL over [`pgx`](https://github.com/jackc/pgx), a hand-written schema, and a tiny version-tracked migrator — no ORM.
+The persistence layer is hand-rolled: raw SQL over [`pgx`](https://github.com/jackc/pgx), a hand-written schema, and a tiny version-tracked migrator — no ORM. See [`docs/storage.md`](docs/storage.md) for when to use which mode, how the single-replica guard works, the health/banner fields, and the PostgreSQL setup and supported versions.
 
 For a bare-host deployment without a container runtime — systemd unit, the
 `/etc/ssl/private` trap, an OpenSSL operator CA for a fleet with no spare node, and how to
