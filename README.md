@@ -300,21 +300,24 @@ Setup, the tool list and key management are in [`docs/mcp.md`](docs/mcp.md).
 
 ## 🗄️ State backend
 
-The manager keeps its state either in memory or in Postgres, chosen by the `database_url` config key:
+The manager keeps its state either in Postgres or in memory, and refuses to start with neither configured — naming both ways to fix it, rather than silently falling back to memory the way earlier builds did.
 
-- **Unset (default).** An in-memory store seeded from the built-in catalog. Nothing persists across a restart. This is the offline-dev and test default.
-- **Set to a Postgres DSN.** The manager applies its schema (a small idempotent migrator runs on every startup), seeds the catalog into an empty database on first run, and persists enrollments and the hash-chained audit log. Restarts keep pending enrollments and the audit trail; the seed is a no-op once any table has rows, so live data is never clobbered. That makes `nodes[]` in `config.yaml` bootstrap-only: once the database holds the inventory, a node renamed in the web UI keeps its new name across restarts, and editing the file no longer changes it. Every node has a stable ID, a UUIDv7 assigned when it joins, that never changes; the name is an editable label. An admin removes a node that is gone with `RemoveNode`, which drops it from the inventory without contacting it and keeps its audit history.
+- **`database_url` (the default).** The manager applies its schema (a small idempotent migrator runs on every startup), seeds the catalog into an empty database on first run, and persists enrollments and the hash-chained audit log. Restarts keep pending enrollments and the audit trail; the seed is a no-op once any table has rows, so live data is never clobbered. That makes `nodes[]` in `config.yaml` bootstrap-only: once the database holds the inventory, a node renamed in the web UI keeps its new name across restarts, and editing the file no longer changes it. Every node has a stable ID, a UUIDv7 assigned when it joins, that never changes; the name is an editable label. An admin removes a node that is gone with `RemoveNode`, which drops it from the inventory without contacting it and keeps its audit history.
+- **`storage.mode: memory`.** For a home lab or single-box install: nothing persists, the manager runs single-replica only (enforced by the chart and by the manager itself), and it rebuilds its view from the configured nodes on restart.
 
 ```yaml
 # config.yaml
 database_url: "postgres://manager:secret@db:5432/manager"
+# or
+storage:
+  mode: memory
 ```
 
 A non-empty `MANAGER_DATABASE_URL` environment variable overrides `database_url`, so the
 DSN and its password can come from a secret store instead of the file. The manager logs
 `database_url taken from MANAGER_DATABASE_URL` when it does.
 
-The persistence layer is hand-rolled: raw SQL over [`pgx`](https://github.com/jackc/pgx), a hand-written schema, and a tiny version-tracked migrator — no ORM.
+The persistence layer is hand-rolled: raw SQL over [`pgx`](https://github.com/jackc/pgx), a hand-written schema, and a tiny version-tracked migrator — no ORM. See [`docs/storage.md`](docs/storage.md) for when to use which mode, how the single-replica guard works, the health/banner fields, and the PostgreSQL setup and supported versions.
 
 For a bare-host deployment without a container runtime — systemd unit, the
 `/etc/ssl/private` trap, an OpenSSL operator CA for a fleet with no spare node, and how to

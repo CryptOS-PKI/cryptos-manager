@@ -25,6 +25,7 @@ import (
 	"crypto/tls"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"strings"
 	"unicode"
 
@@ -449,6 +450,72 @@ func (c *Client) ListScepChallenges(ctx context.Context) (*nodev1.ListScepChalle
 // RevokeScepChallenge withdraws the dialed node's SCEP challenge by id.
 func (c *Client) RevokeScepChallenge(ctx context.Context, id string) (*nodev1.RevokeScepChallengeResponse, error) {
 	return c.node.RevokeScepChallenge(ctx, &nodev1.RevokeScepChallengeRequest{Id: id})
+}
+
+// GetImageStatus reports what CryptOS image the dialed node is running, what
+// it will boot next, and what it could roll back to.
+func (c *Client) GetImageStatus(ctx context.Context) (*nodev1.GetImageStatusResponse, error) {
+	return c.node.GetImageStatus(ctx, &nodev1.GetImageStatusRequest{})
+}
+
+// StageImage streams an image from r to the dialed node, preceded by the
+// begin header the node verifies the transfer against. r is read to the end
+// and sent in fixed-size chunks; the node refuses the transfer
+// (FailedPrecondition) when another upgrade is already in progress, and
+// refuses the assembled image (its own signature/size/digest checks) once
+// the last chunk arrives.
+func (c *Client) StageImage(ctx context.Context, signature []byte, sizeBytes uint64, sha256Hex string, r io.Reader) (*nodev1.StageImageResponse, error) {
+	stream, err := c.node.StageImage(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := stream.Send(&nodev1.StageImageRequest{
+		Payload: &nodev1.StageImageRequest_Begin{Begin: &nodev1.StageImageBegin{
+			Signature: signature,
+			SizeBytes: sizeBytes,
+			Sha256:    sha256Hex,
+		}},
+	}); err != nil {
+		return nil, err
+	}
+
+	buf := make([]byte, stageImageChunkSize)
+	for {
+		n, readErr := r.Read(buf)
+		if n > 0 {
+			chunk := make([]byte, n)
+			copy(chunk, buf[:n])
+			if sendErr := stream.Send(&nodev1.StageImageRequest{
+				Payload: &nodev1.StageImageRequest_Chunk{Chunk: chunk},
+			}); sendErr != nil {
+				return nil, sendErr
+			}
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			return nil, fmt.Errorf("nodeclient: read image: %w", readErr)
+		}
+	}
+	return stream.CloseAndRecv()
+}
+
+// stageImageChunkSize is the size of each StageImageRequest chunk sent to the
+// node.
+const stageImageChunkSize = 1 << 20
+
+// ActivateImage reboots the dialed node so a staged image starts running.
+// confirmCN must equal the node's current CA CN or the node refuses
+// (PermissionDenied), the same confirmation Reboot requires.
+func (c *Client) ActivateImage(ctx context.Context, confirmCN string) (*nodev1.ActivateImageResponse, error) {
+	return c.node.ActivateImage(ctx, &nodev1.ActivateImageRequest{ConfirmCaCn: confirmCN})
+}
+
+// RollbackImage puts the dialed node's retained previous image back on the
+// boot path.
+func (c *Client) RollbackImage(ctx context.Context) (*nodev1.RollbackImageResponse, error) {
+	return c.node.RollbackImage(ctx, &nodev1.RollbackImageRequest{})
 }
 
 // Close releases the underlying gRPC connection.

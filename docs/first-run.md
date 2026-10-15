@@ -17,9 +17,13 @@ First run is open only when all of these hold:
 - `operatorCAPath` is unset (with it set, first run reports `NOT_APPLICABLE`);
 - `authBypass` is false;
 - `firstRun` is `auto` (the default), not `disabled`;
-- `database_url` is set (without Postgres, first run reports `UNAVAILABLE` with
+- `database_url` is set (without Postgres -- including `storage.mode: memory`,
+  see [`docs/storage.md`](storage.md) -- first run reports `UNAVAILABLE` with
   `DATABASE_REQUIRED`);
 - first run hasn't closed yet.
+
+A memory-mode install has no first run: set `operatorCAPath` instead, so the
+manager trusts an operator CA from day one.
 
 ## 🎟️ The token
 

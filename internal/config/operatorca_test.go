@@ -26,8 +26,15 @@ listen: ":8443"
 operatorCAPath: /etc/fleet/operator-ca.pem
 `
 
+// fileSourceMemory is fileSource plus the explicit memory storage mode, for
+// the tests below that expect Load to succeed with no database_url. It is a
+// separate constant, rather than folded into fileSource, because some tests
+// append their own database_url to fileSource and the two are mutually
+// exclusive.
+const fileSourceMemory = fileSource + "storage:\n  mode: memory\n"
+
 func TestLoad_OperatorCADefaults(t *testing.T) {
-	cfg, err := loadYAML(t, fileSource)
+	cfg, err := loadYAML(t, fileSourceMemory)
 	if err != nil {
 		t.Fatalf("Load() = %v", err)
 	}
@@ -43,7 +50,7 @@ func TestLoad_OperatorCADefaults(t *testing.T) {
 }
 
 func TestLoad_FirstRun(t *testing.T) {
-	cfg, err := loadYAML(t, "listen: \":8443\"\nfirstRun: disabled\n")
+	cfg, err := loadYAML(t, "listen: \":8443\"\nstorage:\n  mode: memory\nfirstRun: disabled\n")
 	if err != nil || cfg.FirstRun != FirstRunDisabled {
 		t.Fatalf("Load() = %+v, %v; want firstRun disabled", cfg.FirstRun, err)
 	}
@@ -53,7 +60,7 @@ func TestLoad_FirstRun(t *testing.T) {
 }
 
 func TestLoad_OperatorCRL(t *testing.T) {
-	cfg, err := loadYAML(t, fileSource+`operatorCRL:
+	cfg, err := loadYAML(t, fileSourceMemory+`operatorCRL:
   - url: http://pki.example.org/op.crl
   - path: /etc/fleet/op.crl
 `)
@@ -79,7 +86,7 @@ func TestLoad_OperatorCRL(t *testing.T) {
 }
 
 func TestLoad_OperatorRevocationPolicy(t *testing.T) {
-	cfg, err := loadYAML(t, fileSource+"operatorRevocationPolicy: hard\n")
+	cfg, err := loadYAML(t, fileSourceMemory+"operatorRevocationPolicy: hard\n")
 	if err != nil || cfg.OperatorRevocationPolicy != RevocationPolicyHard {
 		t.Fatalf("Load() = %q, %v; want hard", cfg.OperatorRevocationPolicy, err)
 	}
@@ -99,12 +106,12 @@ func TestLoad_UnknownKeysAreRefused(t *testing.T) {
 }
 
 func TestLoad_OperatorOCSP(t *testing.T) {
-	cfg, err := loadYAML(t, fileSource+"operatorOCSP:\n  mode: url\n  url: http://ocsp.example.org/\n")
+	cfg, err := loadYAML(t, fileSourceMemory+"operatorOCSP:\n  mode: url\n  url: http://ocsp.example.org/\n")
 	if err != nil || cfg.OperatorOCSP.Mode != OCSPModeURL || cfg.OperatorOCSP.URL != "http://ocsp.example.org/" {
 		t.Fatalf("Load() = %+v, %v", cfg.OperatorOCSP, err)
 	}
 	for _, mode := range []string{"off", "aia"} {
-		if cfg, err := loadYAML(t, fileSource+"operatorOCSP:\n  mode: "+mode+"\n"); err != nil || cfg.OperatorOCSP.Mode != mode {
+		if cfg, err := loadYAML(t, fileSourceMemory+"operatorOCSP:\n  mode: "+mode+"\n"); err != nil || cfg.OperatorOCSP.Mode != mode {
 			t.Fatalf("Load(mode %s) = %+v, %v", mode, cfg.OperatorOCSP, err)
 		}
 	}

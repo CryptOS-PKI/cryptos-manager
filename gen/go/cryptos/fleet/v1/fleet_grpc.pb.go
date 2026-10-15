@@ -44,9 +44,10 @@ const (
 	FleetService_VerifyNodeAuditChain_FullMethodName            = "/cryptos.fleet.v1.FleetService/VerifyNodeAuditChain"
 	FleetService_ValidateCertificateChain_FullMethodName        = "/cryptos.fleet.v1.FleetService/ValidateCertificateChain"
 	FleetService_ListNodeTsaCertificates_FullMethodName         = "/cryptos.fleet.v1.FleetService/ListNodeTsaCertificates"
-	FleetService_MintNodeScepChallenge_FullMethodName           = "/cryptos.fleet.v1.FleetService/MintNodeScepChallenge"
-	FleetService_ListNodeScepChallenges_FullMethodName          = "/cryptos.fleet.v1.FleetService/ListNodeScepChallenges"
-	FleetService_RevokeNodeScepChallenge_FullMethodName         = "/cryptos.fleet.v1.FleetService/RevokeNodeScepChallenge"
+	FleetService_GetNodeImageStatus_FullMethodName              = "/cryptos.fleet.v1.FleetService/GetNodeImageStatus"
+	FleetService_StageNodeImage_FullMethodName                  = "/cryptos.fleet.v1.FleetService/StageNodeImage"
+	FleetService_ActivateNodeImage_FullMethodName               = "/cryptos.fleet.v1.FleetService/ActivateNodeImage"
+	FleetService_RollbackNodeImage_FullMethodName               = "/cryptos.fleet.v1.FleetService/RollbackNodeImage"
 	FleetService_IssueLeaf_FullMethodName                       = "/cryptos.fleet.v1.FleetService/IssueLeaf"
 	FleetService_RekeyNode_FullMethodName                       = "/cryptos.fleet.v1.FleetService/RekeyNode"
 	FleetService_GetNodeConfig_FullMethodName                   = "/cryptos.fleet.v1.FleetService/GetNodeConfig"
@@ -82,6 +83,9 @@ const (
 	FleetService_ListCertificateRequests_FullMethodName         = "/cryptos.fleet.v1.FleetService/ListCertificateRequests"
 	FleetService_GetCertificateRequestByID_FullMethodName       = "/cryptos.fleet.v1.FleetService/GetCertificateRequestByID"
 	FleetService_CancelCertificateRequest_FullMethodName        = "/cryptos.fleet.v1.FleetService/CancelCertificateRequest"
+	FleetService_MintNodeScepChallenge_FullMethodName           = "/cryptos.fleet.v1.FleetService/MintNodeScepChallenge"
+	FleetService_ListNodeScepChallenges_FullMethodName          = "/cryptos.fleet.v1.FleetService/ListNodeScepChallenges"
+	FleetService_RevokeNodeScepChallenge_FullMethodName         = "/cryptos.fleet.v1.FleetService/RevokeNodeScepChallenge"
 )
 
 // FleetServiceClient is the client API for FleetService service.
@@ -194,17 +198,30 @@ type FleetServiceClient interface {
 	// list while its TSA is not running. Readable at viewer level and above; a
 	// read, so it is not audited.
 	ListNodeTsaCertificates(ctx context.Context, in *ListNodeTsaCertificatesRequest, opts ...grpc.CallOption) (*ListNodeTsaCertificatesResponse, error)
-	// MintNodeScepChallenge mints a one-time SCEP challenge password on a
-	// managed node, for example to enroll a network device via its SCEP
-	// trustpoint. The password is returned once and is never written to the
-	// audit log. Operator-gated and audited (without the password).
-	MintNodeScepChallenge(ctx context.Context, in *MintNodeScepChallengeRequest, opts ...grpc.CallOption) (*MintNodeScepChallengeResponse, error)
-	// ListNodeScepChallenges lists a managed node's usable SCEP challenges,
-	// soonest to expire first. Operator-gated; a read, so it is not audited.
-	ListNodeScepChallenges(ctx context.Context, in *ListNodeScepChallengesRequest, opts ...grpc.CallOption) (*ListNodeScepChallengesResponse, error)
-	// RevokeNodeScepChallenge withdraws a managed node's SCEP challenge before
-	// it is used or expires. Operator-gated and audited.
-	RevokeNodeScepChallenge(ctx context.Context, in *RevokeNodeScepChallengeRequest, opts ...grpc.CallOption) (*RevokeNodeScepChallengeResponse, error)
+	// GetNodeImageStatus reports what CryptOS image a managed node is running,
+	// what it will boot next, and what it could roll back to. Readable at
+	// viewer level and above; a read, so it is not audited.
+	GetNodeImageStatus(ctx context.Context, in *GetNodeImageStatusRequest, opts ...grpc.CallOption) (*GetNodeImageStatusResponse, error)
+	// StageNodeImage installs a new CryptOS image on a managed node's spare ESP
+	// slot without touching the one it is running from. The manager fetches
+	// image_url itself (the browser never carries the image), checks the
+	// detached release signature, and streams it to the node the same way
+	// `cryptosctl image stage` does. The node will not boot it until
+	// ActivateNodeImage runs. Admin-gated (an unreviewed image on a trust
+	// anchor) and audited; the node's own refusals (a bad signature, or
+	// FailedPrecondition when another upgrade is already running) are
+	// surfaced unchanged.
+	StageNodeImage(ctx context.Context, in *StageNodeImageRequest, opts ...grpc.CallOption) (*StageNodeImageResponse, error)
+	// ActivateNodeImage reboots a managed node so a staged image starts
+	// running. confirm_ca_cn must equal the node's current CA common name, the
+	// same confirmation RebootNode requires, because activating is itself a
+	// reboot. Admin-gated and audited.
+	ActivateNodeImage(ctx context.Context, in *ActivateNodeImageRequest, opts ...grpc.CallOption) (*ActivateNodeImageResponse, error)
+	// RollbackNodeImage puts a managed node's previously running image back on
+	// the boot path, for a node that was already activated onto a bad image.
+	// ActivateNodeImage (or a reboot) is still needed to actually boot it.
+	// Admin-gated and audited.
+	RollbackNodeImage(ctx context.Context, in *RollbackNodeImageRequest, opts ...grpc.CallOption) (*RollbackNodeImageResponse, error)
 	// IssueLeaf signs a leaf certificate on the named issuing node from a
 	// browser-generated PKCS#10 CSR under a named issuance profile. Only the
 	// CSR crosses the wire; the leaf private key stays in the browser.
@@ -410,6 +427,9 @@ type FleetServiceClient interface {
 	// CancelCertificateRequest ends a pending certificate request. The
 	// requester may cancel their own; an admin may cancel any. Audited.
 	CancelCertificateRequest(ctx context.Context, in *CancelCertificateRequestRequest, opts ...grpc.CallOption) (*CancelCertificateRequestResponse, error)
+	MintNodeScepChallenge(ctx context.Context, in *MintNodeScepChallengeRequest, opts ...grpc.CallOption) (*MintNodeScepChallengeResponse, error)
+	ListNodeScepChallenges(ctx context.Context, in *ListNodeScepChallengesRequest, opts ...grpc.CallOption) (*ListNodeScepChallengesResponse, error)
+	RevokeNodeScepChallenge(ctx context.Context, in *RevokeNodeScepChallengeRequest, opts ...grpc.CallOption) (*RevokeNodeScepChallengeResponse, error)
 }
 
 type fleetServiceClient struct {
@@ -670,30 +690,40 @@ func (c *fleetServiceClient) ListNodeTsaCertificates(ctx context.Context, in *Li
 	return out, nil
 }
 
-func (c *fleetServiceClient) MintNodeScepChallenge(ctx context.Context, in *MintNodeScepChallengeRequest, opts ...grpc.CallOption) (*MintNodeScepChallengeResponse, error) {
+func (c *fleetServiceClient) GetNodeImageStatus(ctx context.Context, in *GetNodeImageStatusRequest, opts ...grpc.CallOption) (*GetNodeImageStatusResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(MintNodeScepChallengeResponse)
-	err := c.cc.Invoke(ctx, FleetService_MintNodeScepChallenge_FullMethodName, in, out, cOpts...)
+	out := new(GetNodeImageStatusResponse)
+	err := c.cc.Invoke(ctx, FleetService_GetNodeImageStatus_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *fleetServiceClient) ListNodeScepChallenges(ctx context.Context, in *ListNodeScepChallengesRequest, opts ...grpc.CallOption) (*ListNodeScepChallengesResponse, error) {
+func (c *fleetServiceClient) StageNodeImage(ctx context.Context, in *StageNodeImageRequest, opts ...grpc.CallOption) (*StageNodeImageResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ListNodeScepChallengesResponse)
-	err := c.cc.Invoke(ctx, FleetService_ListNodeScepChallenges_FullMethodName, in, out, cOpts...)
+	out := new(StageNodeImageResponse)
+	err := c.cc.Invoke(ctx, FleetService_StageNodeImage_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *fleetServiceClient) RevokeNodeScepChallenge(ctx context.Context, in *RevokeNodeScepChallengeRequest, opts ...grpc.CallOption) (*RevokeNodeScepChallengeResponse, error) {
+func (c *fleetServiceClient) ActivateNodeImage(ctx context.Context, in *ActivateNodeImageRequest, opts ...grpc.CallOption) (*ActivateNodeImageResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(RevokeNodeScepChallengeResponse)
-	err := c.cc.Invoke(ctx, FleetService_RevokeNodeScepChallenge_FullMethodName, in, out, cOpts...)
+	out := new(ActivateNodeImageResponse)
+	err := c.cc.Invoke(ctx, FleetService_ActivateNodeImage_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *fleetServiceClient) RollbackNodeImage(ctx context.Context, in *RollbackNodeImageRequest, opts ...grpc.CallOption) (*RollbackNodeImageResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RollbackNodeImageResponse)
+	err := c.cc.Invoke(ctx, FleetService_RollbackNodeImage_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1059,6 +1089,36 @@ func (c *fleetServiceClient) CancelCertificateRequest(ctx context.Context, in *C
 	return out, nil
 }
 
+func (c *fleetServiceClient) MintNodeScepChallenge(ctx context.Context, in *MintNodeScepChallengeRequest, opts ...grpc.CallOption) (*MintNodeScepChallengeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(MintNodeScepChallengeResponse)
+	err := c.cc.Invoke(ctx, FleetService_MintNodeScepChallenge_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *fleetServiceClient) ListNodeScepChallenges(ctx context.Context, in *ListNodeScepChallengesRequest, opts ...grpc.CallOption) (*ListNodeScepChallengesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListNodeScepChallengesResponse)
+	err := c.cc.Invoke(ctx, FleetService_ListNodeScepChallenges_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *fleetServiceClient) RevokeNodeScepChallenge(ctx context.Context, in *RevokeNodeScepChallengeRequest, opts ...grpc.CallOption) (*RevokeNodeScepChallengeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RevokeNodeScepChallengeResponse)
+	err := c.cc.Invoke(ctx, FleetService_RevokeNodeScepChallenge_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // FleetServiceServer is the server API for FleetService service.
 // All implementations should embed UnimplementedFleetServiceServer
 // for forward compatibility.
@@ -1169,17 +1229,30 @@ type FleetServiceServer interface {
 	// list while its TSA is not running. Readable at viewer level and above; a
 	// read, so it is not audited.
 	ListNodeTsaCertificates(context.Context, *ListNodeTsaCertificatesRequest) (*ListNodeTsaCertificatesResponse, error)
-	// MintNodeScepChallenge mints a one-time SCEP challenge password on a
-	// managed node, for example to enroll a network device via its SCEP
-	// trustpoint. The password is returned once and is never written to the
-	// audit log. Operator-gated and audited (without the password).
-	MintNodeScepChallenge(context.Context, *MintNodeScepChallengeRequest) (*MintNodeScepChallengeResponse, error)
-	// ListNodeScepChallenges lists a managed node's usable SCEP challenges,
-	// soonest to expire first. Operator-gated; a read, so it is not audited.
-	ListNodeScepChallenges(context.Context, *ListNodeScepChallengesRequest) (*ListNodeScepChallengesResponse, error)
-	// RevokeNodeScepChallenge withdraws a managed node's SCEP challenge before
-	// it is used or expires. Operator-gated and audited.
-	RevokeNodeScepChallenge(context.Context, *RevokeNodeScepChallengeRequest) (*RevokeNodeScepChallengeResponse, error)
+	// GetNodeImageStatus reports what CryptOS image a managed node is running,
+	// what it will boot next, and what it could roll back to. Readable at
+	// viewer level and above; a read, so it is not audited.
+	GetNodeImageStatus(context.Context, *GetNodeImageStatusRequest) (*GetNodeImageStatusResponse, error)
+	// StageNodeImage installs a new CryptOS image on a managed node's spare ESP
+	// slot without touching the one it is running from. The manager fetches
+	// image_url itself (the browser never carries the image), checks the
+	// detached release signature, and streams it to the node the same way
+	// `cryptosctl image stage` does. The node will not boot it until
+	// ActivateNodeImage runs. Admin-gated (an unreviewed image on a trust
+	// anchor) and audited; the node's own refusals (a bad signature, or
+	// FailedPrecondition when another upgrade is already running) are
+	// surfaced unchanged.
+	StageNodeImage(context.Context, *StageNodeImageRequest) (*StageNodeImageResponse, error)
+	// ActivateNodeImage reboots a managed node so a staged image starts
+	// running. confirm_ca_cn must equal the node's current CA common name, the
+	// same confirmation RebootNode requires, because activating is itself a
+	// reboot. Admin-gated and audited.
+	ActivateNodeImage(context.Context, *ActivateNodeImageRequest) (*ActivateNodeImageResponse, error)
+	// RollbackNodeImage puts a managed node's previously running image back on
+	// the boot path, for a node that was already activated onto a bad image.
+	// ActivateNodeImage (or a reboot) is still needed to actually boot it.
+	// Admin-gated and audited.
+	RollbackNodeImage(context.Context, *RollbackNodeImageRequest) (*RollbackNodeImageResponse, error)
 	// IssueLeaf signs a leaf certificate on the named issuing node from a
 	// browser-generated PKCS#10 CSR under a named issuance profile. Only the
 	// CSR crosses the wire; the leaf private key stays in the browser.
@@ -1385,6 +1458,9 @@ type FleetServiceServer interface {
 	// CancelCertificateRequest ends a pending certificate request. The
 	// requester may cancel their own; an admin may cancel any. Audited.
 	CancelCertificateRequest(context.Context, *CancelCertificateRequestRequest) (*CancelCertificateRequestResponse, error)
+	MintNodeScepChallenge(context.Context, *MintNodeScepChallengeRequest) (*MintNodeScepChallengeResponse, error)
+	ListNodeScepChallenges(context.Context, *ListNodeScepChallengesRequest) (*ListNodeScepChallengesResponse, error)
+	RevokeNodeScepChallenge(context.Context, *RevokeNodeScepChallengeRequest) (*RevokeNodeScepChallengeResponse, error)
 }
 
 // UnimplementedFleetServiceServer should be embedded to have
@@ -1469,14 +1545,17 @@ func (UnimplementedFleetServiceServer) ValidateCertificateChain(context.Context,
 func (UnimplementedFleetServiceServer) ListNodeTsaCertificates(context.Context, *ListNodeTsaCertificatesRequest) (*ListNodeTsaCertificatesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListNodeTsaCertificates not implemented")
 }
-func (UnimplementedFleetServiceServer) MintNodeScepChallenge(context.Context, *MintNodeScepChallengeRequest) (*MintNodeScepChallengeResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method MintNodeScepChallenge not implemented")
+func (UnimplementedFleetServiceServer) GetNodeImageStatus(context.Context, *GetNodeImageStatusRequest) (*GetNodeImageStatusResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetNodeImageStatus not implemented")
 }
-func (UnimplementedFleetServiceServer) ListNodeScepChallenges(context.Context, *ListNodeScepChallengesRequest) (*ListNodeScepChallengesResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method ListNodeScepChallenges not implemented")
+func (UnimplementedFleetServiceServer) StageNodeImage(context.Context, *StageNodeImageRequest) (*StageNodeImageResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method StageNodeImage not implemented")
 }
-func (UnimplementedFleetServiceServer) RevokeNodeScepChallenge(context.Context, *RevokeNodeScepChallengeRequest) (*RevokeNodeScepChallengeResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method RevokeNodeScepChallenge not implemented")
+func (UnimplementedFleetServiceServer) ActivateNodeImage(context.Context, *ActivateNodeImageRequest) (*ActivateNodeImageResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ActivateNodeImage not implemented")
+}
+func (UnimplementedFleetServiceServer) RollbackNodeImage(context.Context, *RollbackNodeImageRequest) (*RollbackNodeImageResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RollbackNodeImage not implemented")
 }
 func (UnimplementedFleetServiceServer) IssueLeaf(context.Context, *IssueLeafRequest) (*IssueLeafResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method IssueLeaf not implemented")
@@ -1582,6 +1661,15 @@ func (UnimplementedFleetServiceServer) GetCertificateRequestByID(context.Context
 }
 func (UnimplementedFleetServiceServer) CancelCertificateRequest(context.Context, *CancelCertificateRequestRequest) (*CancelCertificateRequestResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CancelCertificateRequest not implemented")
+}
+func (UnimplementedFleetServiceServer) MintNodeScepChallenge(context.Context, *MintNodeScepChallengeRequest) (*MintNodeScepChallengeResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method MintNodeScepChallenge not implemented")
+}
+func (UnimplementedFleetServiceServer) ListNodeScepChallenges(context.Context, *ListNodeScepChallengesRequest) (*ListNodeScepChallengesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListNodeScepChallenges not implemented")
+}
+func (UnimplementedFleetServiceServer) RevokeNodeScepChallenge(context.Context, *RevokeNodeScepChallengeRequest) (*RevokeNodeScepChallengeResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RevokeNodeScepChallenge not implemented")
 }
 func (UnimplementedFleetServiceServer) testEmbeddedByValue() {}
 
@@ -2053,56 +2141,74 @@ func _FleetService_ListNodeTsaCertificates_Handler(srv interface{}, ctx context.
 	return interceptor(ctx, in, info, handler)
 }
 
-func _FleetService_MintNodeScepChallenge_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(MintNodeScepChallengeRequest)
+func _FleetService_GetNodeImageStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetNodeImageStatusRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(FleetServiceServer).MintNodeScepChallenge(ctx, in)
+		return srv.(FleetServiceServer).GetNodeImageStatus(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: FleetService_MintNodeScepChallenge_FullMethodName,
+		FullMethod: FleetService_GetNodeImageStatus_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FleetServiceServer).MintNodeScepChallenge(ctx, req.(*MintNodeScepChallengeRequest))
+		return srv.(FleetServiceServer).GetNodeImageStatus(ctx, req.(*GetNodeImageStatusRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _FleetService_ListNodeScepChallenges_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ListNodeScepChallengesRequest)
+func _FleetService_StageNodeImage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(StageNodeImageRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(FleetServiceServer).ListNodeScepChallenges(ctx, in)
+		return srv.(FleetServiceServer).StageNodeImage(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: FleetService_ListNodeScepChallenges_FullMethodName,
+		FullMethod: FleetService_StageNodeImage_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FleetServiceServer).ListNodeScepChallenges(ctx, req.(*ListNodeScepChallengesRequest))
+		return srv.(FleetServiceServer).StageNodeImage(ctx, req.(*StageNodeImageRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _FleetService_RevokeNodeScepChallenge_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(RevokeNodeScepChallengeRequest)
+func _FleetService_ActivateNodeImage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ActivateNodeImageRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(FleetServiceServer).RevokeNodeScepChallenge(ctx, in)
+		return srv.(FleetServiceServer).ActivateNodeImage(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: FleetService_RevokeNodeScepChallenge_FullMethodName,
+		FullMethod: FleetService_ActivateNodeImage_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FleetServiceServer).RevokeNodeScepChallenge(ctx, req.(*RevokeNodeScepChallengeRequest))
+		return srv.(FleetServiceServer).ActivateNodeImage(ctx, req.(*ActivateNodeImageRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FleetService_RollbackNodeImage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RollbackNodeImageRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FleetServiceServer).RollbackNodeImage(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FleetService_RollbackNodeImage_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FleetServiceServer).RollbackNodeImage(ctx, req.(*RollbackNodeImageRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -2730,6 +2836,60 @@ func _FleetService_CancelCertificateRequest_Handler(srv interface{}, ctx context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _FleetService_MintNodeScepChallenge_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MintNodeScepChallengeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FleetServiceServer).MintNodeScepChallenge(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FleetService_MintNodeScepChallenge_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FleetServiceServer).MintNodeScepChallenge(ctx, req.(*MintNodeScepChallengeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FleetService_ListNodeScepChallenges_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListNodeScepChallengesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FleetServiceServer).ListNodeScepChallenges(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FleetService_ListNodeScepChallenges_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FleetServiceServer).ListNodeScepChallenges(ctx, req.(*ListNodeScepChallengesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FleetService_RevokeNodeScepChallenge_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RevokeNodeScepChallengeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FleetServiceServer).RevokeNodeScepChallenge(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FleetService_RevokeNodeScepChallenge_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FleetServiceServer).RevokeNodeScepChallenge(ctx, req.(*RevokeNodeScepChallengeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // FleetService_ServiceDesc is the grpc.ServiceDesc for FleetService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -2838,16 +2998,20 @@ var FleetService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _FleetService_ListNodeTsaCertificates_Handler,
 		},
 		{
-			MethodName: "MintNodeScepChallenge",
-			Handler:    _FleetService_MintNodeScepChallenge_Handler,
+			MethodName: "GetNodeImageStatus",
+			Handler:    _FleetService_GetNodeImageStatus_Handler,
 		},
 		{
-			MethodName: "ListNodeScepChallenges",
-			Handler:    _FleetService_ListNodeScepChallenges_Handler,
+			MethodName: "StageNodeImage",
+			Handler:    _FleetService_StageNodeImage_Handler,
 		},
 		{
-			MethodName: "RevokeNodeScepChallenge",
-			Handler:    _FleetService_RevokeNodeScepChallenge_Handler,
+			MethodName: "ActivateNodeImage",
+			Handler:    _FleetService_ActivateNodeImage_Handler,
+		},
+		{
+			MethodName: "RollbackNodeImage",
+			Handler:    _FleetService_RollbackNodeImage_Handler,
 		},
 		{
 			MethodName: "IssueLeaf",
@@ -2984,6 +3148,18 @@ var FleetService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CancelCertificateRequest",
 			Handler:    _FleetService_CancelCertificateRequest_Handler,
+		},
+		{
+			MethodName: "MintNodeScepChallenge",
+			Handler:    _FleetService_MintNodeScepChallenge_Handler,
+		},
+		{
+			MethodName: "ListNodeScepChallenges",
+			Handler:    _FleetService_ListNodeScepChallenges_Handler,
+		},
+		{
+			MethodName: "RevokeNodeScepChallenge",
+			Handler:    _FleetService_RevokeNodeScepChallenge_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{
