@@ -142,3 +142,40 @@ nodeCreds:
 # warning on every connection to the node and the fleet view shows it as not
 # verified. There is no switch that turns verification off for every node.
 nodes: []
+
+# A dedicated ServiceAccount for the Fleet Manager pod, off by default: the
+# pod then runs under the namespace's default ServiceAccount, as it always
+# has. Turn this on to give the pod its own identity (for example, to attach a
+# cloud workload-identity annotation) without touching whatever else runs
+# under default in the namespace.
+serviceAccount:
+  create: false
+  # Optional name override. When empty and create is true, the chart derives
+  # the name from fleet-manager.name.
+  name: ""
+  annotations: {}
+
+# Expose the Fleet Manager through an Ingress, off by default so operators
+# consciously choose how to expose the UI (a LoadBalancer Service and a
+# port-forward both work with no Ingress at all). className and annotations
+# are optional; tls lists are only needed when terminating TLS at the Ingress
+# instead of at the manager itself.
+#
+# ingress:
+#   enabled: true
+#   className: "nginx"
+#   annotations: {}
+#   hosts:
+#     - host: fleetos.example.org
+#       paths:
+#         - path: /
+#           pathType: Prefix
+#   tls:
+#     - secretName: fleetos-tls
+#       hosts: ["fleetos.example.org"]
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts: []
+  tls: []
