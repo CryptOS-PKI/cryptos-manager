@@ -200,6 +200,21 @@ type fakeConn struct {
 	// instead of err.
 	listTsaCertificatesErr error
 
+	// gotMintProfile, gotMintTTL and gotMintBoundNames record what
+	// MintScepChallenge was called with.
+	gotMintProfile     string
+	gotMintTTL         uint32
+	gotMintBoundNames  []string
+	mintChallengeResp  *nodev1.MintScepChallengeResponse
+	mintChallengeErr   error
+	listChallengesResp *nodev1.ListScepChallengesResponse
+	listChallengesErr  error
+	// gotRevokeChallengeID records the id RevokeScepChallenge was called
+	// with.
+	gotRevokeChallengeID string
+	revokeChallengeResp  *nodev1.RevokeScepChallengeResponse
+	revokeChallengeErr   error
+
 	// imageStatusResp, when set, is returned by GetImageStatus instead of the
 	// zero-value response.
 	imageStatusResp *nodev1.GetImageStatusResponse
@@ -547,6 +562,43 @@ func (f *fakeConn) ListTsaCertificates(context.Context) (*nodev1.ListTsaCertific
 		return f.listTsaCertificatesResp, nil
 	}
 	return &nodev1.ListTsaCertificatesResponse{}, nil
+}
+
+func (f *fakeConn) MintScepChallenge(_ context.Context, profile string, ttlSeconds uint32, boundNames []string) (*nodev1.MintScepChallengeResponse, error) {
+	f.record("MintScepChallenge")
+	f.gotMintProfile = profile
+	f.gotMintTTL = ttlSeconds
+	f.gotMintBoundNames = boundNames
+	if f.mintChallengeErr != nil {
+		return nil, f.mintChallengeErr
+	}
+	if f.mintChallengeResp != nil {
+		return f.mintChallengeResp, nil
+	}
+	return &nodev1.MintScepChallengeResponse{}, nil
+}
+
+func (f *fakeConn) ListScepChallenges(context.Context) (*nodev1.ListScepChallengesResponse, error) {
+	f.record("ListScepChallenges")
+	if f.listChallengesErr != nil {
+		return nil, f.listChallengesErr
+	}
+	if f.listChallengesResp != nil {
+		return f.listChallengesResp, nil
+	}
+	return &nodev1.ListScepChallengesResponse{}, nil
+}
+
+func (f *fakeConn) RevokeScepChallenge(_ context.Context, id string) (*nodev1.RevokeScepChallengeResponse, error) {
+	f.record("RevokeScepChallenge")
+	f.gotRevokeChallengeID = id
+	if f.revokeChallengeErr != nil {
+		return nil, f.revokeChallengeErr
+	}
+	if f.revokeChallengeResp != nil {
+		return f.revokeChallengeResp, nil
+	}
+	return &nodev1.RevokeScepChallengeResponse{}, nil
 }
 
 func (f *fakeConn) GetImageStatus(context.Context) (*nodev1.GetImageStatusResponse, error) {

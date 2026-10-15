@@ -431,6 +431,27 @@ func (c *Client) ListTsaCertificates(ctx context.Context) (*nodev1.ListTsaCertif
 	return c.node.ListTsaCertificates(ctx, &nodev1.ListTsaCertificatesRequest{})
 }
 
+// MintScepChallenge mints a one-time SCEP challenge password on the dialed
+// node.
+func (c *Client) MintScepChallenge(ctx context.Context, profile string, ttlSeconds uint32, boundNames []string) (*nodev1.MintScepChallengeResponse, error) {
+	return c.node.MintScepChallenge(ctx, &nodev1.MintScepChallengeRequest{
+		Profile:    profile,
+		TtlSeconds: ttlSeconds,
+		BoundNames: boundNames,
+	})
+}
+
+// ListScepChallenges lists the dialed node's usable SCEP challenges, soonest
+// to expire first.
+func (c *Client) ListScepChallenges(ctx context.Context) (*nodev1.ListScepChallengesResponse, error) {
+	return c.node.ListScepChallenges(ctx, &nodev1.ListScepChallengesRequest{})
+}
+
+// RevokeScepChallenge withdraws the dialed node's SCEP challenge by id.
+func (c *Client) RevokeScepChallenge(ctx context.Context, id string) (*nodev1.RevokeScepChallengeResponse, error) {
+	return c.node.RevokeScepChallenge(ctx, &nodev1.RevokeScepChallengeRequest{Id: id})
+}
+
 // GetImageStatus reports what CryptOS image the dialed node is running, what
 // it will boot next, and what it could roll back to.
 func (c *Client) GetImageStatus(ctx context.Context) (*nodev1.GetImageStatusResponse, error) {

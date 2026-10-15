@@ -426,6 +426,12 @@ service FleetService {
   // CancelCertificateRequest ends a pending certificate request. The
   // requester may cancel their own; an admin may cancel any. Audited.
   rpc CancelCertificateRequest(CancelCertificateRequestRequest) returns (CancelCertificateRequestResponse);
+
+  rpc MintNodeScepChallenge(MintNodeScepChallengeRequest) returns (MintNodeScepChallengeResponse);
+
+  rpc ListNodeScepChallenges(ListNodeScepChallengesRequest) returns (ListNodeScepChallengesResponse);
+
+  rpc RevokeNodeScepChallenge(RevokeNodeScepChallengeRequest) returns (RevokeNodeScepChallengeResponse);
 }
 
 message ListNodesRequest {}
@@ -1826,4 +1832,65 @@ message RollbackNodeImageRequest {
 message RollbackNodeImageResponse {
   NodeImageStatus status = 1;
   bool requires_reboot = 2;
+}
+
+// NodeScepChallenge describes a one-time SCEP challenge on a managed node,
+// without the challenge itself, which only MintNodeScepChallengeResponse
+// carries.
+message NodeScepChallenge {
+  // id identifies the challenge for listing and revocation.
+  string id = 1;
+  // profile is the node's Scep.profiles entry the enrolment it authorizes
+  // issues from.
+  string profile = 2;
+  // bound_names, when non-empty, are the only names the enrolment may
+  // request.
+  repeated string bound_names = 3;
+  string created_at = 4;
+  // expires_at is when the challenge stops being accepted if still unused.
+  string expires_at = 5;
+  // created_by_cn is the common name of the admin certificate that minted
+  // it.
+  string created_by_cn = 6;
+}
+
+message MintNodeScepChallengeRequest {
+  string node_name = 1;
+  string node_id = 2;
+  // profile names the node's Scep.profiles entry to issue from. May be empty
+  // only when the node has exactly one profile configured.
+  string profile = 3;
+  // ttl_seconds is how long the challenge stays usable. Zero means the
+  // node's default of one hour.
+  uint32 ttl_seconds = 4;
+  // bound_names optionally pins the names the enrolment may request.
+  repeated string bound_names = 5;
+}
+
+message MintNodeScepChallengeResponse {
+  // challenge_password is the challenge to give the device. Returned once
+  // and never again, and never written to the audit log.
+  string challenge_password = 1;
+  NodeScepChallenge challenge = 2;
+}
+
+message ListNodeScepChallengesRequest {
+  string node_name = 1;
+  string node_id = 2;
+}
+
+message ListNodeScepChallengesResponse {
+  // challenges are the usable challenges, soonest to expire first.
+  repeated NodeScepChallenge challenges = 1;
+}
+
+message RevokeNodeScepChallengeRequest {
+  string node_name = 1;
+  string node_id = 2;
+  string id = 3;
+}
+
+message RevokeNodeScepChallengeResponse {
+  // challenge is the withdrawn challenge as it was before revocation.
+  NodeScepChallenge challenge = 1;
 }

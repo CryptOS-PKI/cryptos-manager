@@ -215,6 +215,15 @@ const (
 	// FleetServiceCancelCertificateRequestProcedure is the fully-qualified name of the FleetService's
 	// CancelCertificateRequest RPC.
 	FleetServiceCancelCertificateRequestProcedure = "/cryptos.fleet.v1.FleetService/CancelCertificateRequest"
+	// FleetServiceMintNodeScepChallengeProcedure is the fully-qualified name of the FleetService's
+	// MintNodeScepChallenge RPC.
+	FleetServiceMintNodeScepChallengeProcedure = "/cryptos.fleet.v1.FleetService/MintNodeScepChallenge"
+	// FleetServiceListNodeScepChallengesProcedure is the fully-qualified name of the FleetService's
+	// ListNodeScepChallenges RPC.
+	FleetServiceListNodeScepChallengesProcedure = "/cryptos.fleet.v1.FleetService/ListNodeScepChallenges"
+	// FleetServiceRevokeNodeScepChallengeProcedure is the fully-qualified name of the FleetService's
+	// RevokeNodeScepChallenge RPC.
+	FleetServiceRevokeNodeScepChallengeProcedure = "/cryptos.fleet.v1.FleetService/RevokeNodeScepChallenge"
 )
 
 // FleetServiceClient is a client for the cryptos.fleet.v1.FleetService service.
@@ -549,6 +558,9 @@ type FleetServiceClient interface {
 	// CancelCertificateRequest ends a pending certificate request. The
 	// requester may cancel their own; an admin may cancel any. Audited.
 	CancelCertificateRequest(context.Context, *connect.Request[v1.CancelCertificateRequestRequest]) (*connect.Response[v1.CancelCertificateRequestResponse], error)
+	MintNodeScepChallenge(context.Context, *connect.Request[v1.MintNodeScepChallengeRequest]) (*connect.Response[v1.MintNodeScepChallengeResponse], error)
+	ListNodeScepChallenges(context.Context, *connect.Request[v1.ListNodeScepChallengesRequest]) (*connect.Response[v1.ListNodeScepChallengesResponse], error)
+	RevokeNodeScepChallenge(context.Context, *connect.Request[v1.RevokeNodeScepChallengeRequest]) (*connect.Response[v1.RevokeNodeScepChallengeResponse], error)
 }
 
 // NewFleetServiceClient constructs a client for the cryptos.fleet.v1.FleetService service. By
@@ -946,6 +958,24 @@ func NewFleetServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(fleetServiceMethods.ByName("CancelCertificateRequest")),
 			connect.WithClientOptions(opts...),
 		),
+		mintNodeScepChallenge: connect.NewClient[v1.MintNodeScepChallengeRequest, v1.MintNodeScepChallengeResponse](
+			httpClient,
+			baseURL+FleetServiceMintNodeScepChallengeProcedure,
+			connect.WithSchema(fleetServiceMethods.ByName("MintNodeScepChallenge")),
+			connect.WithClientOptions(opts...),
+		),
+		listNodeScepChallenges: connect.NewClient[v1.ListNodeScepChallengesRequest, v1.ListNodeScepChallengesResponse](
+			httpClient,
+			baseURL+FleetServiceListNodeScepChallengesProcedure,
+			connect.WithSchema(fleetServiceMethods.ByName("ListNodeScepChallenges")),
+			connect.WithClientOptions(opts...),
+		),
+		revokeNodeScepChallenge: connect.NewClient[v1.RevokeNodeScepChallengeRequest, v1.RevokeNodeScepChallengeResponse](
+			httpClient,
+			baseURL+FleetServiceRevokeNodeScepChallengeProcedure,
+			connect.WithSchema(fleetServiceMethods.ByName("RevokeNodeScepChallenge")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -1015,6 +1045,9 @@ type fleetServiceClient struct {
 	listCertificateRequests         *connect.Client[v1.ListCertificateRequestsRequest, v1.ListCertificateRequestsResponse]
 	getCertificateRequestByID       *connect.Client[v1.GetCertificateRequestByIDRequest, v1.GetCertificateRequestByIDResponse]
 	cancelCertificateRequest        *connect.Client[v1.CancelCertificateRequestRequest, v1.CancelCertificateRequestResponse]
+	mintNodeScepChallenge           *connect.Client[v1.MintNodeScepChallengeRequest, v1.MintNodeScepChallengeResponse]
+	listNodeScepChallenges          *connect.Client[v1.ListNodeScepChallengesRequest, v1.ListNodeScepChallengesResponse]
+	revokeNodeScepChallenge         *connect.Client[v1.RevokeNodeScepChallengeRequest, v1.RevokeNodeScepChallengeResponse]
 }
 
 // ListNodes calls cryptos.fleet.v1.FleetService.ListNodes.
@@ -1338,6 +1371,21 @@ func (c *fleetServiceClient) GetCertificateRequestByID(ctx context.Context, req 
 // CancelCertificateRequest calls cryptos.fleet.v1.FleetService.CancelCertificateRequest.
 func (c *fleetServiceClient) CancelCertificateRequest(ctx context.Context, req *connect.Request[v1.CancelCertificateRequestRequest]) (*connect.Response[v1.CancelCertificateRequestResponse], error) {
 	return c.cancelCertificateRequest.CallUnary(ctx, req)
+}
+
+// MintNodeScepChallenge calls cryptos.fleet.v1.FleetService.MintNodeScepChallenge.
+func (c *fleetServiceClient) MintNodeScepChallenge(ctx context.Context, req *connect.Request[v1.MintNodeScepChallengeRequest]) (*connect.Response[v1.MintNodeScepChallengeResponse], error) {
+	return c.mintNodeScepChallenge.CallUnary(ctx, req)
+}
+
+// ListNodeScepChallenges calls cryptos.fleet.v1.FleetService.ListNodeScepChallenges.
+func (c *fleetServiceClient) ListNodeScepChallenges(ctx context.Context, req *connect.Request[v1.ListNodeScepChallengesRequest]) (*connect.Response[v1.ListNodeScepChallengesResponse], error) {
+	return c.listNodeScepChallenges.CallUnary(ctx, req)
+}
+
+// RevokeNodeScepChallenge calls cryptos.fleet.v1.FleetService.RevokeNodeScepChallenge.
+func (c *fleetServiceClient) RevokeNodeScepChallenge(ctx context.Context, req *connect.Request[v1.RevokeNodeScepChallengeRequest]) (*connect.Response[v1.RevokeNodeScepChallengeResponse], error) {
+	return c.revokeNodeScepChallenge.CallUnary(ctx, req)
 }
 
 // FleetServiceHandler is an implementation of the cryptos.fleet.v1.FleetService service.
@@ -1672,6 +1720,9 @@ type FleetServiceHandler interface {
 	// CancelCertificateRequest ends a pending certificate request. The
 	// requester may cancel their own; an admin may cancel any. Audited.
 	CancelCertificateRequest(context.Context, *connect.Request[v1.CancelCertificateRequestRequest]) (*connect.Response[v1.CancelCertificateRequestResponse], error)
+	MintNodeScepChallenge(context.Context, *connect.Request[v1.MintNodeScepChallengeRequest]) (*connect.Response[v1.MintNodeScepChallengeResponse], error)
+	ListNodeScepChallenges(context.Context, *connect.Request[v1.ListNodeScepChallengesRequest]) (*connect.Response[v1.ListNodeScepChallengesResponse], error)
+	RevokeNodeScepChallenge(context.Context, *connect.Request[v1.RevokeNodeScepChallengeRequest]) (*connect.Response[v1.RevokeNodeScepChallengeResponse], error)
 }
 
 // NewFleetServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -2065,6 +2116,24 @@ func NewFleetServiceHandler(svc FleetServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(fleetServiceMethods.ByName("CancelCertificateRequest")),
 		connect.WithHandlerOptions(opts...),
 	)
+	fleetServiceMintNodeScepChallengeHandler := connect.NewUnaryHandler(
+		FleetServiceMintNodeScepChallengeProcedure,
+		svc.MintNodeScepChallenge,
+		connect.WithSchema(fleetServiceMethods.ByName("MintNodeScepChallenge")),
+		connect.WithHandlerOptions(opts...),
+	)
+	fleetServiceListNodeScepChallengesHandler := connect.NewUnaryHandler(
+		FleetServiceListNodeScepChallengesProcedure,
+		svc.ListNodeScepChallenges,
+		connect.WithSchema(fleetServiceMethods.ByName("ListNodeScepChallenges")),
+		connect.WithHandlerOptions(opts...),
+	)
+	fleetServiceRevokeNodeScepChallengeHandler := connect.NewUnaryHandler(
+		FleetServiceRevokeNodeScepChallengeProcedure,
+		svc.RevokeNodeScepChallenge,
+		connect.WithSchema(fleetServiceMethods.ByName("RevokeNodeScepChallenge")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/cryptos.fleet.v1.FleetService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case FleetServiceListNodesProcedure:
@@ -2195,6 +2264,12 @@ func NewFleetServiceHandler(svc FleetServiceHandler, opts ...connect.HandlerOpti
 			fleetServiceGetCertificateRequestByIDHandler.ServeHTTP(w, r)
 		case FleetServiceCancelCertificateRequestProcedure:
 			fleetServiceCancelCertificateRequestHandler.ServeHTTP(w, r)
+		case FleetServiceMintNodeScepChallengeProcedure:
+			fleetServiceMintNodeScepChallengeHandler.ServeHTTP(w, r)
+		case FleetServiceListNodeScepChallengesProcedure:
+			fleetServiceListNodeScepChallengesHandler.ServeHTTP(w, r)
+		case FleetServiceRevokeNodeScepChallengeProcedure:
+			fleetServiceRevokeNodeScepChallengeHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -2458,4 +2533,16 @@ func (UnimplementedFleetServiceHandler) GetCertificateRequestByID(context.Contex
 
 func (UnimplementedFleetServiceHandler) CancelCertificateRequest(context.Context, *connect.Request[v1.CancelCertificateRequestRequest]) (*connect.Response[v1.CancelCertificateRequestResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cryptos.fleet.v1.FleetService.CancelCertificateRequest is not implemented"))
+}
+
+func (UnimplementedFleetServiceHandler) MintNodeScepChallenge(context.Context, *connect.Request[v1.MintNodeScepChallengeRequest]) (*connect.Response[v1.MintNodeScepChallengeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cryptos.fleet.v1.FleetService.MintNodeScepChallenge is not implemented"))
+}
+
+func (UnimplementedFleetServiceHandler) ListNodeScepChallenges(context.Context, *connect.Request[v1.ListNodeScepChallengesRequest]) (*connect.Response[v1.ListNodeScepChallengesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cryptos.fleet.v1.FleetService.ListNodeScepChallenges is not implemented"))
+}
+
+func (UnimplementedFleetServiceHandler) RevokeNodeScepChallenge(context.Context, *connect.Request[v1.RevokeNodeScepChallengeRequest]) (*connect.Response[v1.RevokeNodeScepChallengeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cryptos.fleet.v1.FleetService.RevokeNodeScepChallenge is not implemented"))
 }

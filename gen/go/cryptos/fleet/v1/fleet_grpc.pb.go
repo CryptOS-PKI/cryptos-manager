@@ -83,6 +83,9 @@ const (
 	FleetService_ListCertificateRequests_FullMethodName         = "/cryptos.fleet.v1.FleetService/ListCertificateRequests"
 	FleetService_GetCertificateRequestByID_FullMethodName       = "/cryptos.fleet.v1.FleetService/GetCertificateRequestByID"
 	FleetService_CancelCertificateRequest_FullMethodName        = "/cryptos.fleet.v1.FleetService/CancelCertificateRequest"
+	FleetService_MintNodeScepChallenge_FullMethodName           = "/cryptos.fleet.v1.FleetService/MintNodeScepChallenge"
+	FleetService_ListNodeScepChallenges_FullMethodName          = "/cryptos.fleet.v1.FleetService/ListNodeScepChallenges"
+	FleetService_RevokeNodeScepChallenge_FullMethodName         = "/cryptos.fleet.v1.FleetService/RevokeNodeScepChallenge"
 )
 
 // FleetServiceClient is the client API for FleetService service.
@@ -424,6 +427,9 @@ type FleetServiceClient interface {
 	// CancelCertificateRequest ends a pending certificate request. The
 	// requester may cancel their own; an admin may cancel any. Audited.
 	CancelCertificateRequest(ctx context.Context, in *CancelCertificateRequestRequest, opts ...grpc.CallOption) (*CancelCertificateRequestResponse, error)
+	MintNodeScepChallenge(ctx context.Context, in *MintNodeScepChallengeRequest, opts ...grpc.CallOption) (*MintNodeScepChallengeResponse, error)
+	ListNodeScepChallenges(ctx context.Context, in *ListNodeScepChallengesRequest, opts ...grpc.CallOption) (*ListNodeScepChallengesResponse, error)
+	RevokeNodeScepChallenge(ctx context.Context, in *RevokeNodeScepChallengeRequest, opts ...grpc.CallOption) (*RevokeNodeScepChallengeResponse, error)
 }
 
 type fleetServiceClient struct {
@@ -1083,6 +1089,36 @@ func (c *fleetServiceClient) CancelCertificateRequest(ctx context.Context, in *C
 	return out, nil
 }
 
+func (c *fleetServiceClient) MintNodeScepChallenge(ctx context.Context, in *MintNodeScepChallengeRequest, opts ...grpc.CallOption) (*MintNodeScepChallengeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(MintNodeScepChallengeResponse)
+	err := c.cc.Invoke(ctx, FleetService_MintNodeScepChallenge_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *fleetServiceClient) ListNodeScepChallenges(ctx context.Context, in *ListNodeScepChallengesRequest, opts ...grpc.CallOption) (*ListNodeScepChallengesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListNodeScepChallengesResponse)
+	err := c.cc.Invoke(ctx, FleetService_ListNodeScepChallenges_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *fleetServiceClient) RevokeNodeScepChallenge(ctx context.Context, in *RevokeNodeScepChallengeRequest, opts ...grpc.CallOption) (*RevokeNodeScepChallengeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RevokeNodeScepChallengeResponse)
+	err := c.cc.Invoke(ctx, FleetService_RevokeNodeScepChallenge_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // FleetServiceServer is the server API for FleetService service.
 // All implementations should embed UnimplementedFleetServiceServer
 // for forward compatibility.
@@ -1422,6 +1458,9 @@ type FleetServiceServer interface {
 	// CancelCertificateRequest ends a pending certificate request. The
 	// requester may cancel their own; an admin may cancel any. Audited.
 	CancelCertificateRequest(context.Context, *CancelCertificateRequestRequest) (*CancelCertificateRequestResponse, error)
+	MintNodeScepChallenge(context.Context, *MintNodeScepChallengeRequest) (*MintNodeScepChallengeResponse, error)
+	ListNodeScepChallenges(context.Context, *ListNodeScepChallengesRequest) (*ListNodeScepChallengesResponse, error)
+	RevokeNodeScepChallenge(context.Context, *RevokeNodeScepChallengeRequest) (*RevokeNodeScepChallengeResponse, error)
 }
 
 // UnimplementedFleetServiceServer should be embedded to have
@@ -1622,6 +1661,15 @@ func (UnimplementedFleetServiceServer) GetCertificateRequestByID(context.Context
 }
 func (UnimplementedFleetServiceServer) CancelCertificateRequest(context.Context, *CancelCertificateRequestRequest) (*CancelCertificateRequestResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CancelCertificateRequest not implemented")
+}
+func (UnimplementedFleetServiceServer) MintNodeScepChallenge(context.Context, *MintNodeScepChallengeRequest) (*MintNodeScepChallengeResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method MintNodeScepChallenge not implemented")
+}
+func (UnimplementedFleetServiceServer) ListNodeScepChallenges(context.Context, *ListNodeScepChallengesRequest) (*ListNodeScepChallengesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListNodeScepChallenges not implemented")
+}
+func (UnimplementedFleetServiceServer) RevokeNodeScepChallenge(context.Context, *RevokeNodeScepChallengeRequest) (*RevokeNodeScepChallengeResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RevokeNodeScepChallenge not implemented")
 }
 func (UnimplementedFleetServiceServer) testEmbeddedByValue() {}
 
@@ -2788,6 +2836,60 @@ func _FleetService_CancelCertificateRequest_Handler(srv interface{}, ctx context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _FleetService_MintNodeScepChallenge_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MintNodeScepChallengeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FleetServiceServer).MintNodeScepChallenge(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FleetService_MintNodeScepChallenge_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FleetServiceServer).MintNodeScepChallenge(ctx, req.(*MintNodeScepChallengeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FleetService_ListNodeScepChallenges_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListNodeScepChallengesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FleetServiceServer).ListNodeScepChallenges(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FleetService_ListNodeScepChallenges_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FleetServiceServer).ListNodeScepChallenges(ctx, req.(*ListNodeScepChallengesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FleetService_RevokeNodeScepChallenge_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RevokeNodeScepChallengeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FleetServiceServer).RevokeNodeScepChallenge(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FleetService_RevokeNodeScepChallenge_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FleetServiceServer).RevokeNodeScepChallenge(ctx, req.(*RevokeNodeScepChallengeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // FleetService_ServiceDesc is the grpc.ServiceDesc for FleetService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -3046,6 +3148,18 @@ var FleetService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CancelCertificateRequest",
 			Handler:    _FleetService_CancelCertificateRequest_Handler,
+		},
+		{
+			MethodName: "MintNodeScepChallenge",
+			Handler:    _FleetService_MintNodeScepChallenge_Handler,
+		},
+		{
+			MethodName: "ListNodeScepChallenges",
+			Handler:    _FleetService_ListNodeScepChallenges_Handler,
+		},
+		{
+			MethodName: "RevokeNodeScepChallenge",
+			Handler:    _FleetService_RevokeNodeScepChallenge_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{
