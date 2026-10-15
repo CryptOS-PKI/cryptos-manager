@@ -96,11 +96,27 @@ mcp:
 # namespace whose secretKey holds the DSN, for example
 # postgres://manager:<password>@db:5432/manager. It reaches the manager as
 # MANAGER_DATABASE_URL, so the password never lands in the rendered config.
-# Required unless authBypass is true; without it the manager runs its
-# in-memory demo store, which is emptied on every restart.
+# The chart only connects: it never creates the database, user or role (see
+# docs/storage.md for the setup).
+#
+# Required unless storage.mode is memory. With neither set, the chart refuses
+# to render and names this field.
 database:
   existingSecret: ""
   secretKey: "database-url"
+
+# storage.mode: memory is the explicit, non-durable alternative to Postgres,
+# for a home lab or single-box install: nothing persists across a restart,
+# and the manager rebuilds its view of the fleet from the configured nodes
+# instead. Mutually exclusive with database.existingSecret.
+#
+# It is single-replica only: the chart forces replicaCount: 1 and refuses to
+# render with more, and the manager enforces the same limit at runtime (a
+# Kubernetes Lease in this release's namespace) independent of the chart, so
+# running it outside Helm (a hand-edited manifest, kubectl scale) is still
+# refused. See docs/storage.md.
+storage:
+  mode: ""
 
 # The admin key the manager mints for every node it adopts, at
 # /var/lib/cryptos-manager/node-creds. An adopted node trusts only that key,
