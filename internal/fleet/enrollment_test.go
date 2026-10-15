@@ -662,6 +662,18 @@ func (r *routingConn) ListTsaCertificates(ctx context.Context) (*nodev1.ListTsaC
 	return r.ferry.ListTsaCertificates(ctx)
 }
 
+func (r *routingConn) ListScepEnrollments(ctx context.Context, profile string) (*nodev1.ListScepEnrollmentsResponse, error) {
+	return r.ferry.ListScepEnrollments(ctx, profile)
+}
+
+func (r *routingConn) ApproveScepEnrollment(ctx context.Context, id string) (*nodev1.ApproveScepEnrollmentResponse, error) {
+	return r.ferry.ApproveScepEnrollment(ctx, id)
+}
+
+func (r *routingConn) RejectScepEnrollment(ctx context.Context, id, reason string) (*nodev1.RejectScepEnrollmentResponse, error) {
+	return r.ferry.RejectScepEnrollment(ctx, id, reason)
+}
+
 func (r *routingConn) Close() error {
 	_ = r.ferry.Close()
 	return r.identity.Close()

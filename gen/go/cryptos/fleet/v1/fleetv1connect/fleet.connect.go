@@ -104,6 +104,15 @@ const (
 	// FleetServiceListNodeTsaCertificatesProcedure is the fully-qualified name of the FleetService's
 	// ListNodeTsaCertificates RPC.
 	FleetServiceListNodeTsaCertificatesProcedure = "/cryptos.fleet.v1.FleetService/ListNodeTsaCertificates"
+	// FleetServiceListNodeScepEnrollmentsProcedure is the fully-qualified name of the FleetService's
+	// ListNodeScepEnrollments RPC.
+	FleetServiceListNodeScepEnrollmentsProcedure = "/cryptos.fleet.v1.FleetService/ListNodeScepEnrollments"
+	// FleetServiceApproveNodeScepEnrollmentProcedure is the fully-qualified name of the FleetService's
+	// ApproveNodeScepEnrollment RPC.
+	FleetServiceApproveNodeScepEnrollmentProcedure = "/cryptos.fleet.v1.FleetService/ApproveNodeScepEnrollment"
+	// FleetServiceRejectNodeScepEnrollmentProcedure is the fully-qualified name of the FleetService's
+	// RejectNodeScepEnrollment RPC.
+	FleetServiceRejectNodeScepEnrollmentProcedure = "/cryptos.fleet.v1.FleetService/RejectNodeScepEnrollment"
 	// FleetServiceIssueLeafProcedure is the fully-qualified name of the FleetService's IssueLeaf RPC.
 	FleetServiceIssueLeafProcedure = "/cryptos.fleet.v1.FleetService/IssueLeaf"
 	// FleetServiceRekeyNodeProcedure is the fully-qualified name of the FleetService's RekeyNode RPC.
@@ -308,6 +317,17 @@ type FleetServiceClient interface {
 	// list while its TSA is not running. Readable at viewer level and above; a
 	// read, so it is not audited.
 	ListNodeTsaCertificates(context.Context, *connect.Request[v1.ListNodeTsaCertificatesRequest]) (*connect.Response[v1.ListNodeTsaCertificatesResponse], error)
+	// ListNodeScepEnrollments lists a managed node's pending SCEP device
+	// enrolments, proxying the node's own queue. Operator-gated; a read, so it
+	// is not audited.
+	ListNodeScepEnrollments(context.Context, *connect.Request[v1.ListNodeScepEnrollmentsRequest]) (*connect.Response[v1.ListNodeScepEnrollmentsResponse], error)
+	// ApproveNodeScepEnrollment approves a pending SCEP enrolment on a managed
+	// node, issuing the device a certificate. Operator-gated and audited.
+	ApproveNodeScepEnrollment(context.Context, *connect.Request[v1.ApproveNodeScepEnrollmentRequest]) (*connect.Response[v1.ApproveNodeScepEnrollmentResponse], error)
+	// RejectNodeScepEnrollment rejects a pending SCEP enrolment on a managed
+	// node with a reason, recorded in the node's own audit log. Operator-gated
+	// and audited.
+	RejectNodeScepEnrollment(context.Context, *connect.Request[v1.RejectNodeScepEnrollmentRequest]) (*connect.Response[v1.RejectNodeScepEnrollmentResponse], error)
 	// IssueLeaf signs a leaf certificate on the named issuing node from a
 	// browser-generated PKCS#10 CSR under a named issuance profile. Only the
 	// CSR crosses the wire; the leaf private key stays in the browser.
@@ -676,6 +696,24 @@ func NewFleetServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(fleetServiceMethods.ByName("ListNodeTsaCertificates")),
 			connect.WithClientOptions(opts...),
 		),
+		listNodeScepEnrollments: connect.NewClient[v1.ListNodeScepEnrollmentsRequest, v1.ListNodeScepEnrollmentsResponse](
+			httpClient,
+			baseURL+FleetServiceListNodeScepEnrollmentsProcedure,
+			connect.WithSchema(fleetServiceMethods.ByName("ListNodeScepEnrollments")),
+			connect.WithClientOptions(opts...),
+		),
+		approveNodeScepEnrollment: connect.NewClient[v1.ApproveNodeScepEnrollmentRequest, v1.ApproveNodeScepEnrollmentResponse](
+			httpClient,
+			baseURL+FleetServiceApproveNodeScepEnrollmentProcedure,
+			connect.WithSchema(fleetServiceMethods.ByName("ApproveNodeScepEnrollment")),
+			connect.WithClientOptions(opts...),
+		),
+		rejectNodeScepEnrollment: connect.NewClient[v1.RejectNodeScepEnrollmentRequest, v1.RejectNodeScepEnrollmentResponse](
+			httpClient,
+			baseURL+FleetServiceRejectNodeScepEnrollmentProcedure,
+			connect.WithSchema(fleetServiceMethods.ByName("RejectNodeScepEnrollment")),
+			connect.WithClientOptions(opts...),
+		),
 		issueLeaf: connect.NewClient[v1.IssueLeafRequest, v1.IssueLeafResponse](
 			httpClient,
 			baseURL+FleetServiceIssueLeafProcedure,
@@ -916,6 +954,9 @@ type fleetServiceClient struct {
 	verifyNodeAuditChain            *connect.Client[v1.VerifyNodeAuditChainRequest, v1.VerifyNodeAuditChainResponse]
 	validateCertificateChain        *connect.Client[v1.ValidateCertificateChainRequest, v1.ValidateCertificateChainResponse]
 	listNodeTsaCertificates         *connect.Client[v1.ListNodeTsaCertificatesRequest, v1.ListNodeTsaCertificatesResponse]
+	listNodeScepEnrollments         *connect.Client[v1.ListNodeScepEnrollmentsRequest, v1.ListNodeScepEnrollmentsResponse]
+	approveNodeScepEnrollment       *connect.Client[v1.ApproveNodeScepEnrollmentRequest, v1.ApproveNodeScepEnrollmentResponse]
+	rejectNodeScepEnrollment        *connect.Client[v1.RejectNodeScepEnrollmentRequest, v1.RejectNodeScepEnrollmentResponse]
 	issueLeaf                       *connect.Client[v1.IssueLeafRequest, v1.IssueLeafResponse]
 	rekeyNode                       *connect.Client[v1.RekeyNodeRequest, v1.RekeyNodeResponse]
 	getNodeConfig                   *connect.Client[v1.GetNodeConfigRequest, v1.GetNodeConfigResponse]
@@ -1076,6 +1117,21 @@ func (c *fleetServiceClient) ValidateCertificateChain(ctx context.Context, req *
 // ListNodeTsaCertificates calls cryptos.fleet.v1.FleetService.ListNodeTsaCertificates.
 func (c *fleetServiceClient) ListNodeTsaCertificates(ctx context.Context, req *connect.Request[v1.ListNodeTsaCertificatesRequest]) (*connect.Response[v1.ListNodeTsaCertificatesResponse], error) {
 	return c.listNodeTsaCertificates.CallUnary(ctx, req)
+}
+
+// ListNodeScepEnrollments calls cryptos.fleet.v1.FleetService.ListNodeScepEnrollments.
+func (c *fleetServiceClient) ListNodeScepEnrollments(ctx context.Context, req *connect.Request[v1.ListNodeScepEnrollmentsRequest]) (*connect.Response[v1.ListNodeScepEnrollmentsResponse], error) {
+	return c.listNodeScepEnrollments.CallUnary(ctx, req)
+}
+
+// ApproveNodeScepEnrollment calls cryptos.fleet.v1.FleetService.ApproveNodeScepEnrollment.
+func (c *fleetServiceClient) ApproveNodeScepEnrollment(ctx context.Context, req *connect.Request[v1.ApproveNodeScepEnrollmentRequest]) (*connect.Response[v1.ApproveNodeScepEnrollmentResponse], error) {
+	return c.approveNodeScepEnrollment.CallUnary(ctx, req)
+}
+
+// RejectNodeScepEnrollment calls cryptos.fleet.v1.FleetService.RejectNodeScepEnrollment.
+func (c *fleetServiceClient) RejectNodeScepEnrollment(ctx context.Context, req *connect.Request[v1.RejectNodeScepEnrollmentRequest]) (*connect.Response[v1.RejectNodeScepEnrollmentResponse], error) {
+	return c.rejectNodeScepEnrollment.CallUnary(ctx, req)
 }
 
 // IssueLeaf calls cryptos.fleet.v1.FleetService.IssueLeaf.
@@ -1359,6 +1415,17 @@ type FleetServiceHandler interface {
 	// list while its TSA is not running. Readable at viewer level and above; a
 	// read, so it is not audited.
 	ListNodeTsaCertificates(context.Context, *connect.Request[v1.ListNodeTsaCertificatesRequest]) (*connect.Response[v1.ListNodeTsaCertificatesResponse], error)
+	// ListNodeScepEnrollments lists a managed node's pending SCEP device
+	// enrolments, proxying the node's own queue. Operator-gated; a read, so it
+	// is not audited.
+	ListNodeScepEnrollments(context.Context, *connect.Request[v1.ListNodeScepEnrollmentsRequest]) (*connect.Response[v1.ListNodeScepEnrollmentsResponse], error)
+	// ApproveNodeScepEnrollment approves a pending SCEP enrolment on a managed
+	// node, issuing the device a certificate. Operator-gated and audited.
+	ApproveNodeScepEnrollment(context.Context, *connect.Request[v1.ApproveNodeScepEnrollmentRequest]) (*connect.Response[v1.ApproveNodeScepEnrollmentResponse], error)
+	// RejectNodeScepEnrollment rejects a pending SCEP enrolment on a managed
+	// node with a reason, recorded in the node's own audit log. Operator-gated
+	// and audited.
+	RejectNodeScepEnrollment(context.Context, *connect.Request[v1.RejectNodeScepEnrollmentRequest]) (*connect.Response[v1.RejectNodeScepEnrollmentResponse], error)
 	// IssueLeaf signs a leaf certificate on the named issuing node from a
 	// browser-generated PKCS#10 CSR under a named issuance profile. Only the
 	// CSR crosses the wire; the leaf private key stays in the browser.
@@ -1723,6 +1790,24 @@ func NewFleetServiceHandler(svc FleetServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(fleetServiceMethods.ByName("ListNodeTsaCertificates")),
 		connect.WithHandlerOptions(opts...),
 	)
+	fleetServiceListNodeScepEnrollmentsHandler := connect.NewUnaryHandler(
+		FleetServiceListNodeScepEnrollmentsProcedure,
+		svc.ListNodeScepEnrollments,
+		connect.WithSchema(fleetServiceMethods.ByName("ListNodeScepEnrollments")),
+		connect.WithHandlerOptions(opts...),
+	)
+	fleetServiceApproveNodeScepEnrollmentHandler := connect.NewUnaryHandler(
+		FleetServiceApproveNodeScepEnrollmentProcedure,
+		svc.ApproveNodeScepEnrollment,
+		connect.WithSchema(fleetServiceMethods.ByName("ApproveNodeScepEnrollment")),
+		connect.WithHandlerOptions(opts...),
+	)
+	fleetServiceRejectNodeScepEnrollmentHandler := connect.NewUnaryHandler(
+		FleetServiceRejectNodeScepEnrollmentProcedure,
+		svc.RejectNodeScepEnrollment,
+		connect.WithSchema(fleetServiceMethods.ByName("RejectNodeScepEnrollment")),
+		connect.WithHandlerOptions(opts...),
+	)
 	fleetServiceIssueLeafHandler := connect.NewUnaryHandler(
 		FleetServiceIssueLeafProcedure,
 		svc.IssueLeaf,
@@ -1985,6 +2070,12 @@ func NewFleetServiceHandler(svc FleetServiceHandler, opts ...connect.HandlerOpti
 			fleetServiceValidateCertificateChainHandler.ServeHTTP(w, r)
 		case FleetServiceListNodeTsaCertificatesProcedure:
 			fleetServiceListNodeTsaCertificatesHandler.ServeHTTP(w, r)
+		case FleetServiceListNodeScepEnrollmentsProcedure:
+			fleetServiceListNodeScepEnrollmentsHandler.ServeHTTP(w, r)
+		case FleetServiceApproveNodeScepEnrollmentProcedure:
+			fleetServiceApproveNodeScepEnrollmentHandler.ServeHTTP(w, r)
+		case FleetServiceRejectNodeScepEnrollmentProcedure:
+			fleetServiceRejectNodeScepEnrollmentHandler.ServeHTTP(w, r)
 		case FleetServiceIssueLeafProcedure:
 			fleetServiceIssueLeafHandler.ServeHTTP(w, r)
 		case FleetServiceRekeyNodeProcedure:
@@ -2162,6 +2253,18 @@ func (UnimplementedFleetServiceHandler) ValidateCertificateChain(context.Context
 
 func (UnimplementedFleetServiceHandler) ListNodeTsaCertificates(context.Context, *connect.Request[v1.ListNodeTsaCertificatesRequest]) (*connect.Response[v1.ListNodeTsaCertificatesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cryptos.fleet.v1.FleetService.ListNodeTsaCertificates is not implemented"))
+}
+
+func (UnimplementedFleetServiceHandler) ListNodeScepEnrollments(context.Context, *connect.Request[v1.ListNodeScepEnrollmentsRequest]) (*connect.Response[v1.ListNodeScepEnrollmentsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cryptos.fleet.v1.FleetService.ListNodeScepEnrollments is not implemented"))
+}
+
+func (UnimplementedFleetServiceHandler) ApproveNodeScepEnrollment(context.Context, *connect.Request[v1.ApproveNodeScepEnrollmentRequest]) (*connect.Response[v1.ApproveNodeScepEnrollmentResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cryptos.fleet.v1.FleetService.ApproveNodeScepEnrollment is not implemented"))
+}
+
+func (UnimplementedFleetServiceHandler) RejectNodeScepEnrollment(context.Context, *connect.Request[v1.RejectNodeScepEnrollmentRequest]) (*connect.Response[v1.RejectNodeScepEnrollmentResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cryptos.fleet.v1.FleetService.RejectNodeScepEnrollment is not implemented"))
 }
 
 func (UnimplementedFleetServiceHandler) IssueLeaf(context.Context, *connect.Request[v1.IssueLeafRequest]) (*connect.Response[v1.IssueLeafResponse], error) {

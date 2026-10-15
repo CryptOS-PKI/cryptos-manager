@@ -44,6 +44,9 @@ const (
 	FleetService_VerifyNodeAuditChain_FullMethodName            = "/cryptos.fleet.v1.FleetService/VerifyNodeAuditChain"
 	FleetService_ValidateCertificateChain_FullMethodName        = "/cryptos.fleet.v1.FleetService/ValidateCertificateChain"
 	FleetService_ListNodeTsaCertificates_FullMethodName         = "/cryptos.fleet.v1.FleetService/ListNodeTsaCertificates"
+	FleetService_ListNodeScepEnrollments_FullMethodName         = "/cryptos.fleet.v1.FleetService/ListNodeScepEnrollments"
+	FleetService_ApproveNodeScepEnrollment_FullMethodName       = "/cryptos.fleet.v1.FleetService/ApproveNodeScepEnrollment"
+	FleetService_RejectNodeScepEnrollment_FullMethodName        = "/cryptos.fleet.v1.FleetService/RejectNodeScepEnrollment"
 	FleetService_IssueLeaf_FullMethodName                       = "/cryptos.fleet.v1.FleetService/IssueLeaf"
 	FleetService_RekeyNode_FullMethodName                       = "/cryptos.fleet.v1.FleetService/RekeyNode"
 	FleetService_GetNodeConfig_FullMethodName                   = "/cryptos.fleet.v1.FleetService/GetNodeConfig"
@@ -191,6 +194,17 @@ type FleetServiceClient interface {
 	// list while its TSA is not running. Readable at viewer level and above; a
 	// read, so it is not audited.
 	ListNodeTsaCertificates(ctx context.Context, in *ListNodeTsaCertificatesRequest, opts ...grpc.CallOption) (*ListNodeTsaCertificatesResponse, error)
+	// ListNodeScepEnrollments lists a managed node's pending SCEP device
+	// enrolments, proxying the node's own queue. Operator-gated; a read, so it
+	// is not audited.
+	ListNodeScepEnrollments(ctx context.Context, in *ListNodeScepEnrollmentsRequest, opts ...grpc.CallOption) (*ListNodeScepEnrollmentsResponse, error)
+	// ApproveNodeScepEnrollment approves a pending SCEP enrolment on a managed
+	// node, issuing the device a certificate. Operator-gated and audited.
+	ApproveNodeScepEnrollment(ctx context.Context, in *ApproveNodeScepEnrollmentRequest, opts ...grpc.CallOption) (*ApproveNodeScepEnrollmentResponse, error)
+	// RejectNodeScepEnrollment rejects a pending SCEP enrolment on a managed
+	// node with a reason, recorded in the node's own audit log. Operator-gated
+	// and audited.
+	RejectNodeScepEnrollment(ctx context.Context, in *RejectNodeScepEnrollmentRequest, opts ...grpc.CallOption) (*RejectNodeScepEnrollmentResponse, error)
 	// IssueLeaf signs a leaf certificate on the named issuing node from a
 	// browser-generated PKCS#10 CSR under a named issuance profile. Only the
 	// CSR crosses the wire; the leaf private key stays in the browser.
@@ -650,6 +664,36 @@ func (c *fleetServiceClient) ListNodeTsaCertificates(ctx context.Context, in *Li
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ListNodeTsaCertificatesResponse)
 	err := c.cc.Invoke(ctx, FleetService_ListNodeTsaCertificates_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *fleetServiceClient) ListNodeScepEnrollments(ctx context.Context, in *ListNodeScepEnrollmentsRequest, opts ...grpc.CallOption) (*ListNodeScepEnrollmentsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListNodeScepEnrollmentsResponse)
+	err := c.cc.Invoke(ctx, FleetService_ListNodeScepEnrollments_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *fleetServiceClient) ApproveNodeScepEnrollment(ctx context.Context, in *ApproveNodeScepEnrollmentRequest, opts ...grpc.CallOption) (*ApproveNodeScepEnrollmentResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ApproveNodeScepEnrollmentResponse)
+	err := c.cc.Invoke(ctx, FleetService_ApproveNodeScepEnrollment_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *fleetServiceClient) RejectNodeScepEnrollment(ctx context.Context, in *RejectNodeScepEnrollmentRequest, opts ...grpc.CallOption) (*RejectNodeScepEnrollmentResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RejectNodeScepEnrollmentResponse)
+	err := c.cc.Invoke(ctx, FleetService_RejectNodeScepEnrollment_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1125,6 +1169,17 @@ type FleetServiceServer interface {
 	// list while its TSA is not running. Readable at viewer level and above; a
 	// read, so it is not audited.
 	ListNodeTsaCertificates(context.Context, *ListNodeTsaCertificatesRequest) (*ListNodeTsaCertificatesResponse, error)
+	// ListNodeScepEnrollments lists a managed node's pending SCEP device
+	// enrolments, proxying the node's own queue. Operator-gated; a read, so it
+	// is not audited.
+	ListNodeScepEnrollments(context.Context, *ListNodeScepEnrollmentsRequest) (*ListNodeScepEnrollmentsResponse, error)
+	// ApproveNodeScepEnrollment approves a pending SCEP enrolment on a managed
+	// node, issuing the device a certificate. Operator-gated and audited.
+	ApproveNodeScepEnrollment(context.Context, *ApproveNodeScepEnrollmentRequest) (*ApproveNodeScepEnrollmentResponse, error)
+	// RejectNodeScepEnrollment rejects a pending SCEP enrolment on a managed
+	// node with a reason, recorded in the node's own audit log. Operator-gated
+	// and audited.
+	RejectNodeScepEnrollment(context.Context, *RejectNodeScepEnrollmentRequest) (*RejectNodeScepEnrollmentResponse, error)
 	// IssueLeaf signs a leaf certificate on the named issuing node from a
 	// browser-generated PKCS#10 CSR under a named issuance profile. Only the
 	// CSR crosses the wire; the leaf private key stays in the browser.
@@ -1413,6 +1468,15 @@ func (UnimplementedFleetServiceServer) ValidateCertificateChain(context.Context,
 }
 func (UnimplementedFleetServiceServer) ListNodeTsaCertificates(context.Context, *ListNodeTsaCertificatesRequest) (*ListNodeTsaCertificatesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListNodeTsaCertificates not implemented")
+}
+func (UnimplementedFleetServiceServer) ListNodeScepEnrollments(context.Context, *ListNodeScepEnrollmentsRequest) (*ListNodeScepEnrollmentsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListNodeScepEnrollments not implemented")
+}
+func (UnimplementedFleetServiceServer) ApproveNodeScepEnrollment(context.Context, *ApproveNodeScepEnrollmentRequest) (*ApproveNodeScepEnrollmentResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ApproveNodeScepEnrollment not implemented")
+}
+func (UnimplementedFleetServiceServer) RejectNodeScepEnrollment(context.Context, *RejectNodeScepEnrollmentRequest) (*RejectNodeScepEnrollmentResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RejectNodeScepEnrollment not implemented")
 }
 func (UnimplementedFleetServiceServer) IssueLeaf(context.Context, *IssueLeafRequest) (*IssueLeafResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method IssueLeaf not implemented")
@@ -1985,6 +2049,60 @@ func _FleetService_ListNodeTsaCertificates_Handler(srv interface{}, ctx context.
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(FleetServiceServer).ListNodeTsaCertificates(ctx, req.(*ListNodeTsaCertificatesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FleetService_ListNodeScepEnrollments_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListNodeScepEnrollmentsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FleetServiceServer).ListNodeScepEnrollments(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FleetService_ListNodeScepEnrollments_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FleetServiceServer).ListNodeScepEnrollments(ctx, req.(*ListNodeScepEnrollmentsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FleetService_ApproveNodeScepEnrollment_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ApproveNodeScepEnrollmentRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FleetServiceServer).ApproveNodeScepEnrollment(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FleetService_ApproveNodeScepEnrollment_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FleetServiceServer).ApproveNodeScepEnrollment(ctx, req.(*ApproveNodeScepEnrollmentRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FleetService_RejectNodeScepEnrollment_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RejectNodeScepEnrollmentRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FleetServiceServer).RejectNodeScepEnrollment(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FleetService_RejectNodeScepEnrollment_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FleetServiceServer).RejectNodeScepEnrollment(ctx, req.(*RejectNodeScepEnrollmentRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -2718,6 +2836,18 @@ var FleetService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListNodeTsaCertificates",
 			Handler:    _FleetService_ListNodeTsaCertificates_Handler,
+		},
+		{
+			MethodName: "ListNodeScepEnrollments",
+			Handler:    _FleetService_ListNodeScepEnrollments_Handler,
+		},
+		{
+			MethodName: "ApproveNodeScepEnrollment",
+			Handler:    _FleetService_ApproveNodeScepEnrollment_Handler,
+		},
+		{
+			MethodName: "RejectNodeScepEnrollment",
+			Handler:    _FleetService_RejectNodeScepEnrollment_Handler,
 		},
 		{
 			MethodName: "IssueLeaf",

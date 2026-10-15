@@ -430,6 +430,24 @@ func (c *Client) ListTsaCertificates(ctx context.Context) (*nodev1.ListTsaCertif
 	return c.node.ListTsaCertificates(ctx, &nodev1.ListTsaCertificatesRequest{})
 }
 
+// ListScepEnrollments lists the dialed node's pending SCEP device
+// enrolments, optionally scoped to one profile.
+func (c *Client) ListScepEnrollments(ctx context.Context, profile string) (*nodev1.ListScepEnrollmentsResponse, error) {
+	return c.node.ListScepEnrollments(ctx, &nodev1.ListScepEnrollmentsRequest{Profile: profile})
+}
+
+// ApproveScepEnrollment approves a pending SCEP enrolment on the dialed node
+// by id, issuing the device a certificate.
+func (c *Client) ApproveScepEnrollment(ctx context.Context, id string) (*nodev1.ApproveScepEnrollmentResponse, error) {
+	return c.node.ApproveScepEnrollment(ctx, &nodev1.ApproveScepEnrollmentRequest{Id: id})
+}
+
+// RejectScepEnrollment rejects a pending SCEP enrolment on the dialed node by
+// id, with a reason recorded in the node's own audit log.
+func (c *Client) RejectScepEnrollment(ctx context.Context, id, reason string) (*nodev1.RejectScepEnrollmentResponse, error) {
+	return c.node.RejectScepEnrollment(ctx, &nodev1.RejectScepEnrollmentRequest{Id: id, Reason: reason})
+}
+
 // Close releases the underlying gRPC connection.
 func (c *Client) Close() error {
 	return c.conn.Close()

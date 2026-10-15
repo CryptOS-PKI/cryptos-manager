@@ -63,6 +63,9 @@ type NodeConn interface {
 	VerifyAuditChain(ctx context.Context) (*nodev1.VerifyAuditChainResponse, error)
 	ListTsaCertificates(ctx context.Context) (*nodev1.ListTsaCertificatesResponse, error)
 	StartCeremony(ctx context.Context, kind nodev1.CeremonyKind, machineConfigYAML []byte) (nodeclient.CeremonyStream, error)
+	ListScepEnrollments(ctx context.Context, profile string) (*nodev1.ListScepEnrollmentsResponse, error)
+	ApproveScepEnrollment(ctx context.Context, id string) (*nodev1.ApproveScepEnrollmentResponse, error)
+	RejectScepEnrollment(ctx context.Context, id, reason string) (*nodev1.RejectScepEnrollmentResponse, error)
 	Close() error
 }
 

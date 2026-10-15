@@ -109,6 +109,25 @@ func (fakeNodeService) ImportCAKey(_ context.Context, req *nodev1.ImportCAKeyReq
 	}, nil
 }
 
+func (fakeNodeService) ListScepEnrollments(_ context.Context, req *nodev1.ListScepEnrollmentsRequest) (*nodev1.ListScepEnrollmentsResponse, error) {
+	return &nodev1.ListScepEnrollmentsResponse{
+		Enrollments: []*nodev1.ScepEnrollment{{Id: "fake-enrollment-id", Profile: req.GetProfile()}},
+	}, nil
+}
+
+func (fakeNodeService) ApproveScepEnrollment(_ context.Context, req *nodev1.ApproveScepEnrollmentRequest) (*nodev1.ApproveScepEnrollmentResponse, error) {
+	return &nodev1.ApproveScepEnrollmentResponse{
+		Enrollment: &nodev1.ScepEnrollment{Id: req.GetId()},
+		SerialHex:  "fake-serial-test-marker",
+	}, nil
+}
+
+func (fakeNodeService) RejectScepEnrollment(_ context.Context, req *nodev1.RejectScepEnrollmentRequest) (*nodev1.RejectScepEnrollmentResponse, error) {
+	return &nodev1.RejectScepEnrollmentResponse{
+		Enrollment: &nodev1.ScepEnrollment{Id: req.GetId() + ":" + req.GetReason()},
+	}, nil
+}
+
 // testCA is a minimal self-signed CA used to mint both the fake node's
 // server cert and the test admin client cert.
 type testCA struct {
@@ -335,6 +354,30 @@ func TestDial_GetStatus_GetIdentity(t *testing.T) {
 	}
 	if got := importResp.GetIdentity().GetChainPem(); got != "imported:env-bytes:relayed-passphrase" {
 		t.Errorf("ImportCAKey().Identity.ChainPem = %q, want imported:env-bytes:relayed-passphrase (envelope/passphrase not relayed)", got)
+	}
+
+	listEnrollResp, err := client.ListScepEnrollments(ctx, "network-device")
+	if err != nil {
+		t.Fatalf("ListScepEnrollments() error = %v, want nil", err)
+	}
+	if len(listEnrollResp.GetEnrollments()) != 1 || listEnrollResp.GetEnrollments()[0].GetProfile() != "network-device" {
+		t.Errorf("ListScepEnrollments().Enrollments = %v, want one network-device entry", listEnrollResp.GetEnrollments())
+	}
+
+	approveResp, err := client.ApproveScepEnrollment(ctx, "enr-123")
+	if err != nil {
+		t.Fatalf("ApproveScepEnrollment() error = %v, want nil", err)
+	}
+	if approveResp.GetEnrollment().GetId() != "enr-123" || approveResp.GetSerialHex() != "fake-serial-test-marker" {
+		t.Errorf("ApproveScepEnrollment() = %+v, want id enr-123 relayed with the fake's serial", approveResp)
+	}
+
+	rejectResp, err := client.RejectScepEnrollment(ctx, "enr-456", "unexpected device")
+	if err != nil {
+		t.Fatalf("RejectScepEnrollment() error = %v, want nil", err)
+	}
+	if got := rejectResp.GetEnrollment().GetId(); got != "enr-456:unexpected device" {
+		t.Errorf("RejectScepEnrollment().Enrollment.Id = %q, want enr-456:unexpected device (id/reason not relayed)", got)
 	}
 }
 
