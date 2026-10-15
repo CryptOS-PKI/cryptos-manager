@@ -30,26 +30,17 @@ import (
 	nodev1 "github.com/CryptOS-PKI/cryptos-node/gen/go/cryptos/node/v1"
 )
 
-// requireOperatorLevel resolves the caller's identity and returns a
-// PermissionDenied error unless the caller is at least operator level.
-func requireOperatorLevel(ctx context.Context) (authz.Identity, error) {
-	id, err := operatorLevel(ctx)
-	if err != nil {
-		return authz.Identity{}, err
-	}
-	if id.Level < authz.LevelOperator {
-		return authz.Identity{}, connect.NewError(connect.CodePermissionDenied, errors.New("fleet: operator level required"))
-	}
-	return id, nil
-}
-
 // MintNodeScepChallenge mints a one-time SCEP challenge password on a
 // managed node, for example to enroll a network device via its SCEP
 // trustpoint. Operator-gated and audited; the challenge_password itself is
 // never written to the audit log, only the challenge's id and profile.
 func (s *Service) MintNodeScepChallenge(ctx context.Context, req *connect.Request[fleetv1.MintNodeScepChallengeRequest]) (*connect.Response[fleetv1.MintNodeScepChallengeResponse], error) {
-	if _, err := requireOperatorLevel(ctx); err != nil {
+	id, err := operatorLevel(ctx)
+	if err != nil {
 		return nil, err
+	}
+	if id.Level < authz.LevelOperator {
+		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("fleet: operator level required"))
 	}
 
 	node, err := s.resolveNode("MintNodeScepChallenge", req.Msg.GetNodeId(), req.Msg.GetNodeName(), currentNames)
@@ -87,8 +78,12 @@ func (s *Service) MintNodeScepChallenge(ctx context.Context, req *connect.Reques
 // ListNodeScepChallenges lists a managed node's usable SCEP challenges,
 // soonest to expire first. Operator-gated; a read, so it is not audited.
 func (s *Service) ListNodeScepChallenges(ctx context.Context, req *connect.Request[fleetv1.ListNodeScepChallengesRequest]) (*connect.Response[fleetv1.ListNodeScepChallengesResponse], error) {
-	if _, err := requireOperatorLevel(ctx); err != nil {
+	id, err := operatorLevel(ctx)
+	if err != nil {
 		return nil, err
+	}
+	if id.Level < authz.LevelOperator {
+		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("fleet: operator level required"))
 	}
 
 	node, err := s.resolveNode("ListNodeScepChallenges", req.Msg.GetNodeId(), req.Msg.GetNodeName(), currentNames)
@@ -118,8 +113,12 @@ func (s *Service) ListNodeScepChallenges(ctx context.Context, req *connect.Reque
 // RevokeNodeScepChallenge withdraws a managed node's SCEP challenge before it
 // is used or expires. Operator-gated and audited.
 func (s *Service) RevokeNodeScepChallenge(ctx context.Context, req *connect.Request[fleetv1.RevokeNodeScepChallengeRequest]) (*connect.Response[fleetv1.RevokeNodeScepChallengeResponse], error) {
-	if _, err := requireOperatorLevel(ctx); err != nil {
+	caller, err := operatorLevel(ctx)
+	if err != nil {
 		return nil, err
+	}
+	if caller.Level < authz.LevelOperator {
+		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("fleet: operator level required"))
 	}
 
 	node, err := s.resolveNode("RevokeNodeScepChallenge", req.Msg.GetNodeId(), req.Msg.GetNodeName(), currentNames)
