@@ -59,6 +59,7 @@ type NodeConn interface {
 	ImportCAKey(ctx context.Context, envelope, passphrase []byte) (*nodev1.ImportCAKeyResponse, error)
 	RemoteReset(ctx context.Context, confirmCN string) (*nodev1.RemoteResetResponse, error)
 	Reboot(ctx context.Context, confirmCN string, powerOff bool) (*nodev1.RebootResponse, error)
+	ListTsaCertificates(ctx context.Context) (*nodev1.ListTsaCertificatesResponse, error)
 	StartCeremony(ctx context.Context, kind nodev1.CeremonyKind, machineConfigYAML []byte) (nodeclient.CeremonyStream, error)
 	Close() error
 }

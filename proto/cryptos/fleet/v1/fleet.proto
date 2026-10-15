@@ -138,6 +138,12 @@ service FleetService {
   // operator-supplied certificate material; a read, so it is not audited.
   rpc ValidateCertificateChain(ValidateCertificateChainRequest) returns (ValidateCertificateChainResponse);
 
+  // ListNodeTsaCertificates lists the certificates a managed node's
+  // time-stamp authority has signed tokens with. The node returns an empty
+  // list while its TSA is not running. Readable at viewer level and above; a
+  // read, so it is not audited.
+  rpc ListNodeTsaCertificates(ListNodeTsaCertificatesRequest) returns (ListNodeTsaCertificatesResponse);
+
   // IssueLeaf signs a leaf certificate on the named issuing node from a
   // browser-generated PKCS#10 CSR under a named issuance profile. Only the
   // CSR crosses the wire; the leaf private key stays in the browser.
@@ -1521,6 +1527,44 @@ message CancelCertificateRequestRequest {
 
 message CancelCertificateRequestResponse {
   CertificateRequest request = 1;
+}
+
+// ListNodeTsaCertificatesRequest names the node whose time-stamp authority
+// certificates to list.
+message ListNodeTsaCertificatesRequest {
+  // node_name is the managed node to read.
+  // Deprecated: use node_id. Still resolves the node's current name for one
+  // release.
+  string node_name = 1;
+  // node_id is the stable ID (NodeSummary.id) of the node. Preferred over
+  // node_name; when both are set they must name the same node, or the
+  // manager returns InvalidArgument.
+  string node_id = 2;
+}
+
+// NodeTsaCertificate is one certificate a node's time-stamp authority has
+// signed tokens with. Timestamps are RFC3339 strings, empty when unset.
+message NodeTsaCertificate {
+  // cert_pem is the TSA certificate, PEM encoded. It chains to the node's CA
+  // certificate.
+  string cert_pem = 1;
+  // serial_hex is the certificate's serial number in hex, which a token's
+  // signer identifier (ESSCertIDv2) names alongside the issuer.
+  string serial_hex = 2;
+  // sha256_hex is the lowercase hex SHA-256 of the DER certificate, the hash
+  // a token's ESSCertIDv2 carries.
+  string sha256_hex = 3;
+  string not_before = 4;
+  string not_after = 5;
+  // current is true for the one certificate new tokens are signed with.
+  // Every other entry is a past certificate kept for verifying old tokens.
+  // No entry is current while the node's TSA is not running.
+  bool current = 6;
+}
+
+message ListNodeTsaCertificatesResponse {
+  // certificates are newest first.
+  repeated NodeTsaCertificate certificates = 1;
 }
 
 // ValidateCertificateChainRequest carries a certificate to check against a
