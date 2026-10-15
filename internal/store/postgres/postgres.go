@@ -68,6 +68,18 @@ func (s *Store) Ping(ctx context.Context) error {
 	return s.pool.Ping(ctx)
 }
 
+// Version reports the connected server's version string (for example
+// "18.1"), for the manager's health check to display. It is best-effort
+// detail, not a dependency check: callers that only care whether the database
+// is reachable use Ping.
+func (s *Store) Version(ctx context.Context) (string, error) {
+	var v string
+	if err := s.pool.QueryRow(ctx, "SHOW server_version").Scan(&v); err != nil {
+		return "", fmt.Errorf("postgres: server_version: %w", err)
+	}
+	return v, nil
+}
+
 // bg is the context used by the interface methods, which are context-free to
 // match store.Store; Postgres calls always need one.
 func bg() context.Context { return context.Background() }

@@ -47,10 +47,10 @@ import (
 	"github.com/CryptOS-PKI/cryptos-manager/internal/mcpauth"
 	"github.com/CryptOS-PKI/cryptos-manager/internal/nodeclient"
 	"github.com/CryptOS-PKI/cryptos-manager/internal/operatorca"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/singlereplica"
 	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
 	"github.com/CryptOS-PKI/cryptos-manager/internal/store/memory"
 	"github.com/CryptOS-PKI/cryptos-manager/internal/store/postgres"
-	"github.com/CryptOS-PKI/cryptos-manager/internal/store/seed"
 	"github.com/CryptOS-PKI/cryptos-manager/internal/webui"
 )
 
@@ -128,19 +128,36 @@ func main() {
 		trustStore store.OperatorTrust
 		bootStore  bootstrap.Store
 		certStore  serverCertStore
-		storeCheck func(context.Context) error
+		health     storeHealth
 	)
 	if os.Getenv(config.DatabaseURLEnv) != "" {
 		log.Printf("manager: database_url taken from %s", config.DatabaseURLEnv)
 	}
-	if cfg.DatabaseURL == "" {
-		// Dev-only in-memory store: seed the demo catalog so the offline mock UI
-		// renders against fixtures. The demo catalog never touches a real store.
-		profiles, adapters, audit, enrollments := seed.Catalog()
-		mem := memory.NewWithCatalog(nodes, profiles, adapters, audit, enrollments)
+	switch cfg.Storage.Mode {
+	case config.StorageModeMemory:
+		// config.Load refuses neither-nor and both-at-once, so Mode ==
+		// memory here means DatabaseURL is empty: this is the only other
+		// branch.
+		guard, err := singlereplica.Acquire(context.Background(), singlereplica.Options{
+			Name:    replicaLockName(),
+			DataDir: fleet.NodeCredsDir(),
+			OnLost: func(err error) {
+				log.Fatalf("manager: storage.mode=memory: lost the single-replica guard: %v", err)
+			},
+		})
+		if err != nil {
+			log.Fatalf("manager: storage.mode=memory: %v", err)
+		}
+		defer func() { _ = guard.Release(context.Background()) }()
+
+		// No demo catalog: a clean, empty store like Postgres starts with,
+		// seeded only with configured nodes. On restart it is empty again;
+		// the fleet nodes are the durable record (#194).
+		mem := memory.New(nodes)
 		st, trustStore = mem, mem
-		log.Printf("manager: no database_url configured, using in-memory store (demo catalog seeded)")
-	} else {
+		health = storeHealth{Mode: config.StorageModeMemory}
+		log.Printf("manager: WARNING storage.mode=memory: operator registrations and the manager's own audit log are lost on restart; the CA nodes keep their own audit chains (docs/storage.md)")
+	default:
 		ctx := context.Background()
 		// Wait for Postgres rather than exiting if it is not up yet: a
 		// restarted container frequently comes back before its database does
@@ -161,7 +178,7 @@ func main() {
 			log.Fatalf("manager: seed postgres: %v", err)
 		}
 		st, trustStore, bootStore, certStore = pg, pg, pg, pg
-		storeCheck = pg.Ping
+		health = storeHealth{Mode: storageModePostgres, Check: pg.Ping, Version: pg.Version}
 		log.Printf("manager: using postgres store")
 	}
 
@@ -282,7 +299,7 @@ func main() {
 		mcpKeys.Admit = trust.auth.AdmitMCP
 	}
 
-	mounts := rootMounts(cfg, []func(*http.ServeMux){healthMount(storeCheck)}, bootMount)
+	mounts := rootMounts(cfg, []func(*http.ServeMux){healthMount(health)}, bootMount)
 	if cfg.MCP.Enabled {
 		mount, err := mcpMount(cfg.MCP.PublicURL, svc, st, mcpKeys, approvals, trust.trust.Roots, trust.rev, authMW, b.Version)
 		if err != nil {
