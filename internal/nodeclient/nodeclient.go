@@ -403,6 +403,26 @@ func (c *Client) ImportCAKey(ctx context.Context, envelope, passphrase []byte) (
 	return c.node.ImportCAKey(ctx, &nodev1.ImportCAKeyRequest{Envelope: envelope, Passphrase: passphrase})
 }
 
+// ListAuditEvents returns a page of the dialed node's own hash-chained audit
+// log (distinct from the manager's own audit log), oldest entry first.
+func (c *Client) ListAuditEvents(ctx context.Context, pageSize int32, pageToken, fromTime, toTime, eventType, actor string) (*nodev1.ListAuditEventsResponse, error) {
+	return c.node.ListAuditEvents(ctx, &nodev1.ListAuditEventsRequest{
+		PageSize:  pageSize,
+		PageToken: pageToken,
+		FromTime:  fromTime,
+		ToTime:    toTime,
+		EventType: eventType,
+		Actor:     actor,
+	})
+}
+
+// VerifyAuditChain asks the dialed node to verify its own stored audit log: a
+// gap-free sequence, each entry's signature, and the hash chain between
+// entries. A broken chain is a result, not an error.
+func (c *Client) VerifyAuditChain(ctx context.Context) (*nodev1.VerifyAuditChainResponse, error) {
+	return c.node.VerifyAuditChain(ctx, &nodev1.VerifyAuditChainRequest{})
+}
+
 // ListTsaCertificates returns the dialed node's time-stamp authority
 // certificates (see Tsa in the node's machine config). The node returns an
 // empty list while its TSA is not running.

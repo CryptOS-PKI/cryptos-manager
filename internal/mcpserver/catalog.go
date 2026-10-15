@@ -121,6 +121,8 @@ var Catalog = []Spec{
 	{Name: "certificate_request_cancel", RPC: "CancelCertificateRequest", Policy: Excluded, Reason: "certificate requests are made by people, not agents"},
 	{Name: "profile_set_requestable", RPC: "SetProfileRequestable", Policy: Excluded, Reason: "not yet exposed to agents"},
 	{Name: "profile_list_requestable", RPC: "ListRequestableProfiles", Policy: Excluded, Reason: "not yet exposed to agents"},
+	{Name: "node_audit_list", RPC: "ListNodeAuditEvents", Policy: Excluded, Reason: "not yet exposed to agents"},
+	{Name: "node_audit_verify_chain", RPC: "VerifyNodeAuditChain", Policy: Excluded, Reason: "not yet exposed to agents"},
 	{Name: "certificate_chain_validate", RPC: "ValidateCertificateChain", Policy: Excluded, Reason: "not yet exposed to agents"},
 	{Name: "node_tsa_list", RPC: "ListNodeTsaCertificates", Policy: Excluded, Reason: "not yet exposed to agents"},
 }
