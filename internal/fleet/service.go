@@ -23,6 +23,7 @@ limitations under the License.
 import (
 	"context"
 	"crypto/x509"
+	"io"
 
 	log "github.com/Bugs5382/go-log"
 	fleetv1connect "github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1/fleetv1connect"
@@ -63,6 +64,10 @@ type NodeConn interface {
 	VerifyAuditChain(ctx context.Context) (*nodev1.VerifyAuditChainResponse, error)
 	ListTsaCertificates(ctx context.Context) (*nodev1.ListTsaCertificatesResponse, error)
 	StartCeremony(ctx context.Context, kind nodev1.CeremonyKind, machineConfigYAML []byte) (nodeclient.CeremonyStream, error)
+	GetImageStatus(ctx context.Context) (*nodev1.GetImageStatusResponse, error)
+	StageImage(ctx context.Context, signature []byte, sizeBytes uint64, sha256Hex string, r io.Reader) (*nodev1.StageImageResponse, error)
+	ActivateImage(ctx context.Context, confirmCN string) (*nodev1.ActivateImageResponse, error)
+	RollbackImage(ctx context.Context) (*nodev1.RollbackImageResponse, error)
 	Close() error
 }
 
@@ -114,6 +119,11 @@ type Service struct {
 
 	// nodeCAWatch sees every CA chain a node reports.
 	nodeCAWatch *operatorca.NodeCAWatch
+
+	// imageFetch retrieves a CryptOS image from a URL for StageNodeImage, so
+	// the browser never carries the image. Tests inject a fake; production
+	// wires an operatorca.Fetcher sized for an image rather than a CRL.
+	imageFetch func(ctx context.Context, url string) (io.ReadCloser, int64, error)
 
 	log log.Logger
 }

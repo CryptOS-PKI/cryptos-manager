@@ -155,6 +155,34 @@ service FleetService {
   // read, so it is not audited.
   rpc ListNodeTsaCertificates(ListNodeTsaCertificatesRequest) returns (ListNodeTsaCertificatesResponse);
 
+  // GetNodeImageStatus reports what CryptOS image a managed node is running,
+  // what it will boot next, and what it could roll back to. Readable at
+  // viewer level and above; a read, so it is not audited.
+  rpc GetNodeImageStatus(GetNodeImageStatusRequest) returns (GetNodeImageStatusResponse);
+
+  // StageNodeImage installs a new CryptOS image on a managed node's spare ESP
+  // slot without touching the one it is running from. The manager fetches
+  // image_url itself (the browser never carries the image), checks the
+  // detached release signature, and streams it to the node the same way
+  // `cryptosctl image stage` does. The node will not boot it until
+  // ActivateNodeImage runs. Admin-gated (an unreviewed image on a trust
+  // anchor) and audited; the node's own refusals (a bad signature, or
+  // FailedPrecondition when another upgrade is already running) are
+  // surfaced unchanged.
+  rpc StageNodeImage(StageNodeImageRequest) returns (StageNodeImageResponse);
+
+  // ActivateNodeImage reboots a managed node so a staged image starts
+  // running. confirm_ca_cn must equal the node's current CA common name, the
+  // same confirmation RebootNode requires, because activating is itself a
+  // reboot. Admin-gated and audited.
+  rpc ActivateNodeImage(ActivateNodeImageRequest) returns (ActivateNodeImageResponse);
+
+  // RollbackNodeImage puts a managed node's previously running image back on
+  // the boot path, for a node that was already activated onto a bad image.
+  // ActivateNodeImage (or a reboot) is still needed to actually boot it.
+  // Admin-gated and audited.
+  rpc RollbackNodeImage(RollbackNodeImageRequest) returns (RollbackNodeImageResponse);
+
   // IssueLeaf signs a leaf certificate on the named issuing node from a
   // browser-generated PKCS#10 CSR under a named issuance profile. Only the
   // CSR crosses the wire; the leaf private key stays in the browser.
@@ -1707,4 +1735,95 @@ message VerifyNodeAuditChainResponse {
   // reason says why verification failed at first_broken_sequence; empty when
   // intact.
   string reason = 4;
+}
+
+// GetNodeImageStatusRequest names the node whose CryptOS image status to
+// read.
+message GetNodeImageStatusRequest {
+  // node_name is the managed node to read.
+  // Deprecated: use node_id. Still resolves the node's current name for one
+  // release.
+  string node_name = 1;
+  // node_id is the stable ID (NodeSummary.id) of the node. Preferred over
+  // node_name; when both are set they must name the same node, or the
+  // manager returns InvalidArgument.
+  string node_id = 2;
+}
+
+// NodeImageStatus describes the images on a managed node's ESP and the one
+// currently running.
+message NodeImageStatus {
+  // running_sha256 is the digest of the image the node booted, hex encoded.
+  string running_sha256 = 1;
+  // active_sha256 is the digest of the image the firmware will boot next. It
+  // differs from running_sha256 exactly when a staged image is waiting for a
+  // reboot.
+  string active_sha256 = 2;
+  // previous_sha256 is the retained image RollbackNodeImage would restore,
+  // hex encoded, empty on a node that has never been upgraded.
+  string previous_sha256 = 3;
+  // reboot_pending is true when active_sha256 differs from running_sha256.
+  bool reboot_pending = 4;
+  // running_version is the CryptOS version string baked into the running
+  // image.
+  string running_version = 5;
+}
+
+message GetNodeImageStatusResponse {
+  NodeImageStatus status = 1;
+}
+
+// StageNodeImageRequest carries where to fetch the image from and the
+// detached release signature over it; the manager fetches image_url itself.
+message StageNodeImageRequest {
+  // node_name is the managed node to stage onto.
+  // Deprecated: use node_id. Still resolves the node's current name for one
+  // release.
+  string node_name = 1;
+  // node_id is the stable ID (NodeSummary.id) of the node. Preferred over
+  // node_name; when both are set they must name the same node, or the
+  // manager returns InvalidArgument.
+  string node_id = 2;
+  // image_url is an http or https URL the manager fetches the image from.
+  // Required.
+  string image_url = 3;
+  // signature is the detached release signature over the whole image: PKCS#1
+  // v1.5 over a SHA-256 digest, made by the CryptOS release key. Required;
+  // the node refuses a transfer it cannot verify.
+  bytes signature = 4;
+  // sha256 is the expected digest of the image, hex encoded. Optional; when
+  // set the node checks it against what it received.
+  string sha256 = 5;
+}
+
+message StageNodeImageResponse {
+  NodeImageStatus status = 1;
+  // requires_reboot is always true on success: the staged image is what the
+  // firmware will boot, but the node is still running the old one.
+  bool requires_reboot = 2;
+}
+
+// ActivateNodeImageRequest confirms an operator-initiated reboot onto a
+// staged image.
+message ActivateNodeImageRequest {
+  string node_name = 1;
+  string node_id = 2;
+  // confirm_ca_cn must equal the node's current CA common name.
+  string confirm_ca_cn = 3;
+}
+
+message ActivateNodeImageResponse {
+  // The node reboots shortly after replying; the reply exists so the caller
+  // learns the reboot was accepted before the connection drops.
+  bool rebooting = 1;
+}
+
+message RollbackNodeImageRequest {
+  string node_name = 1;
+  string node_id = 2;
+}
+
+message RollbackNodeImageResponse {
+  NodeImageStatus status = 1;
+  bool requires_reboot = 2;
 }

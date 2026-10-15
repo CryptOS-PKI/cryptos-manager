@@ -204,7 +204,8 @@ func main() {
 
 	svc := fleet.New(st, dial).
 		WithServerCertCapture(nodeclient.FetchServerCert).
-		WithUnverifiedNodes(insecure.skip)
+		WithUnverifiedNodes(insecure.skip).
+		WithImageFetch(fleet.NewHTTPImageFetch(fleet.ImageFetchTimeout, fleet.MaxNodeImageBytes))
 
 	pemDial := func(endpoint, certPEM, keyPEM, caPEM string) (fleet.NodeConn, error) {
 		return nodeclient.DialPEM(endpoint, certPEM, keyPEM, caPEM)

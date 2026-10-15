@@ -27,6 +27,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"errors"
+	"io"
 	"math/big"
 	"testing"
 	"time"
@@ -198,6 +199,43 @@ type fakeConn struct {
 	// listTsaCertificatesErr, when set, is returned by ListTsaCertificates
 	// instead of err.
 	listTsaCertificatesErr error
+
+	// imageStatusResp, when set, is returned by GetImageStatus instead of the
+	// zero-value response.
+	imageStatusResp *nodev1.GetImageStatusResponse
+	// imageStatusErr, when set, is returned by GetImageStatus instead of err.
+	imageStatusErr error
+
+	// gotStageSignature, gotStageSize, gotStageSha256 and gotStageBytes
+	// record what StageImage was called with (gotStageBytes is the fully
+	// drained reader), so a test can assert the handler forwarded the fetched
+	// image to the node unchanged.
+	gotStageSignature []byte
+	gotStageSize      uint64
+	gotStageSha256    string
+	gotStageBytes     []byte
+	// stageImageResp, when set, is returned by StageImage instead of the
+	// zero-value response.
+	stageImageResp *nodev1.StageImageResponse
+	// stageImageErr, when set, is returned by StageImage instead of err.
+	stageImageErr error
+
+	// gotActivateCN records the confirmation CN ActivateImage was called
+	// with.
+	gotActivateCN string
+	// activateImageResp, when set, is returned by ActivateImage instead of
+	// the zero-value response.
+	activateImageResp *nodev1.ActivateImageResponse
+	// activateImageErr, when set, is returned by ActivateImage instead of
+	// err.
+	activateImageErr error
+
+	// rollbackImageResp, when set, is returned by RollbackImage instead of
+	// the zero-value response.
+	rollbackImageResp *nodev1.RollbackImageResponse
+	// rollbackImageErr, when set, is returned by RollbackImage instead of
+	// err.
+	rollbackImageErr error
 }
 
 func (f *fakeConn) BeginKeyRotation(context.Context) (*nodev1.BeginKeyRotationResponse, error) {
@@ -509,6 +547,59 @@ func (f *fakeConn) ListTsaCertificates(context.Context) (*nodev1.ListTsaCertific
 		return f.listTsaCertificatesResp, nil
 	}
 	return &nodev1.ListTsaCertificatesResponse{}, nil
+}
+
+func (f *fakeConn) GetImageStatus(context.Context) (*nodev1.GetImageStatusResponse, error) {
+	f.record("GetImageStatus")
+	if f.imageStatusErr != nil {
+		return nil, f.imageStatusErr
+	}
+	if f.imageStatusResp != nil {
+		return f.imageStatusResp, nil
+	}
+	return &nodev1.GetImageStatusResponse{}, nil
+}
+
+func (f *fakeConn) StageImage(_ context.Context, signature []byte, sizeBytes uint64, sha256Hex string, r io.Reader) (*nodev1.StageImageResponse, error) {
+	f.record("StageImage")
+	f.gotStageSignature = signature
+	f.gotStageSize = sizeBytes
+	f.gotStageSha256 = sha256Hex
+	b, err := io.ReadAll(r)
+	if err != nil {
+		return nil, err
+	}
+	f.gotStageBytes = b
+	if f.stageImageErr != nil {
+		return nil, f.stageImageErr
+	}
+	if f.stageImageResp != nil {
+		return f.stageImageResp, nil
+	}
+	return &nodev1.StageImageResponse{}, nil
+}
+
+func (f *fakeConn) ActivateImage(_ context.Context, confirmCN string) (*nodev1.ActivateImageResponse, error) {
+	f.record("ActivateImage")
+	f.gotActivateCN = confirmCN
+	if f.activateImageErr != nil {
+		return nil, f.activateImageErr
+	}
+	if f.activateImageResp != nil {
+		return f.activateImageResp, nil
+	}
+	return &nodev1.ActivateImageResponse{}, nil
+}
+
+func (f *fakeConn) RollbackImage(context.Context) (*nodev1.RollbackImageResponse, error) {
+	f.record("RollbackImage")
+	if f.rollbackImageErr != nil {
+		return nil, f.rollbackImageErr
+	}
+	if f.rollbackImageResp != nil {
+		return f.rollbackImageResp, nil
+	}
+	return &nodev1.RollbackImageResponse{}, nil
 }
 
 // record appends name to the shared call log, if this fake was given one.
