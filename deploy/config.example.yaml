@@ -1,4 +1,4 @@
-# Fleet Manager config for the compose topology in deploy/compose.yaml.
+# FleetOS Manager config for the compose topology in deploy/compose.yaml.
 #
 # Install as /etc/cryptos/fleet/config.yaml owned by uid 65532, mode 0400. It
 # carries the Postgres password in database_url, so treat it as a secret rather

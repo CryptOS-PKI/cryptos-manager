@@ -119,6 +119,15 @@ tasks:
     desc: Build the container image with version, commit, build date and web ref stamped in (needs a sibling web checkout; pass docker build flags after --).
     cmds:
       - deploy/build-image.sh {{.CLI_ARGS}}
+  compose:check:
+    desc: Validate deploy/compose.yaml renders (docker compose config) without needing the real host paths.
+    cmds:
+      - |
+        set -eu
+        tmp="$(mktemp -d)"
+        trap 'rm -rf "$tmp"' EXIT
+        printf 'POSTGRES_PASSWORD=test\n' > "$tmp/postgres.env"
+        POSTGRES_ENV_FILE="$tmp/postgres.env" docker compose -f deploy/compose.yaml config >/dev/null
   run:
     desc: Run the manager server against config.yaml.
     env:
