@@ -1,0 +1,86 @@
+name: Chart Lint
+# helm lint plus a handful of helm template scenarios that must render or must
+# be refused, so a broken chart.fleet-manager fails at PR time instead of at
+# the next release.
+#
+# Pull requests only, and not while the PR is a draft; the PR run covers what
+# merges, so nothing reruns on push to main.
+on:
+  pull_request:
+    branches: [main]
+    paths: ["chart/fleet-manager/**"]
+    types: [opened, synchronize, reopened, ready_for_review]
+# One run per PR per workflow: a new push cancels the older PR run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  chart:
+    name: ⎈ Chart lint + template
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Setup Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310  # v5.0.1
+
+      - name: helm lint (Postgres)
+        run: helm lint chart/fleet-manager --set database.existingSecret=pg-dsn
+
+      - name: helm lint (storage.mode memory)
+        run: helm lint chart/fleet-manager --set storage.mode=memory
+
+      - name: helm template renders with Postgres configured
+        run: helm template test chart/fleet-manager --set database.existingSecret=pg-dsn > /dev/null
+
+      - name: helm template renders with storage.mode memory
+        run: helm template test chart/fleet-manager --set storage.mode=memory > /dev/null
+
+      - name: helm template refuses neither database nor storage.mode memory
+        run: |
+          if helm template test chart/fleet-manager 2>/tmp/err; then
+            echo "expected a render failure with no database and no storage.mode" >&2
+            exit 1
+          fi
+          grep -q 'either database.existingSecret or storage.mode: memory must be set' /tmp/err
+
+      - name: helm template refuses database and storage.mode memory together
+        run: |
+          if helm template test chart/fleet-manager \
+              --set database.existingSecret=pg-dsn --set storage.mode=memory 2>/tmp/err; then
+            echo "expected a render failure with both set" >&2
+            exit 1
+          fi
+          grep -q 'mutually exclusive' /tmp/err
+
+      - name: helm template refuses storage.mode memory with more than one replica
+        run: |
+          if helm template test chart/fleet-manager \
+              --set storage.mode=memory --set replicaCount=2 \
+              --set 'nodeCreds.accessModes={ReadWriteMany}' 2>/tmp/err; then
+            echo "expected a render failure for replicaCount > 1 in memory mode" >&2
+            exit 1
+          fi
+          grep -q 'storage.mode: memory supports replicaCount: 1 only' /tmp/err
+
+      - name: helm template refuses an unknown storage.mode
+        run: |
+          if helm template test chart/fleet-manager --set storage.mode=demo 2>/tmp/err; then
+            echo "expected a render failure for an unknown storage.mode" >&2
+            exit 1
+          fi
+          grep -q 'storage.mode must be empty or "memory"' /tmp/err
+
+      - name: helm template refuses MCP with storage.mode memory
+        run: |
+          if helm template test chart/fleet-manager --set storage.mode=memory \
+              --set mcp.enabled=true --set mcp.publicURL=https://fleetos.example.org 2>/tmp/err; then
+            echo "expected a render failure for mcp.enabled with storage.mode memory" >&2
+            exit 1
+          fi
+          grep -q 'mcp.enabled requires database.existingSecret' /tmp/err
