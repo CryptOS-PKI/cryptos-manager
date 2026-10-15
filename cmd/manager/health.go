@@ -39,14 +39,46 @@ const healthPath = "/healthz"
 // a symptom worth surfacing.
 const healthTimeout = 3 * time.Second
 
+// storageModePostgres is the health body's storage.mode value for the
+// Postgres store. There is no config.StorageModePostgres: Postgres is
+// selected by database_url, not by a storage.mode value (config.go), but the
+// health body still needs to say which store is live.
+const storageModePostgres = "postgres"
+
 type healthStatus struct {
-	Status string `json:"status"`
+	Status  string        `json:"status"`
+	Storage storageStatus `json:"storage"`
+}
+
+// storageStatus is the health body's report on the durable store: which mode
+// is live, whether it currently answers, and (when known) its version. The
+// console banner (#194) reads this to warn when Mode is memory.
+type storageStatus struct {
+	Mode    string `json:"mode"`
+	State   string `json:"state"`
+	Version string `json:"version,omitempty"`
+}
+
+// Storage states reported in storageStatus.State.
+const (
+	storageStateOK          = "ok"
+	storageStateDegraded    = "degraded"
+	storageStateUnavailable = "unavailable"
+)
+
+// storeHealth is what healthHandler needs to report on the durable store.
+// Check and Version are nil for storage mode memory, which cannot be
+// unreachable and has no server version to report.
+type storeHealth struct {
+	Mode    string
+	Check   func(context.Context) error
+	Version func(context.Context) (string, error)
 }
 
 // healthHandler reports whether the manager can serve: it is up, and its
-// durable store (when it has one) answers. storeCheck is nil for the in-memory
-// store, which cannot be unreachable.
-func healthHandler(storeCheck func(context.Context) error) http.Handler {
+// durable store answers. Storage mode memory is reported degraded rather than
+// checked or failed: it cannot be unreachable, but it is not durable.
+func healthHandler(sh storeHealth) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			w.Header().Set("Allow", "GET, HEAD")
@@ -55,15 +87,26 @@ func healthHandler(storeCheck func(context.Context) error) http.Handler {
 			return
 		}
 
-		code, body := http.StatusOK, healthStatus{Status: "ok"}
-		if storeCheck != nil {
+		code := http.StatusOK
+		status := "ok"
+		storage := storageStatus{Mode: sh.Mode, State: storageStateOK}
+
+		switch {
+		case sh.Mode == config.StorageModeMemory:
+			storage.State = storageStateDegraded
+			status = storageStateDegraded
+		case sh.Check != nil:
 			ctx, cancel := context.WithTimeout(r.Context(), healthTimeout)
 			defer cancel()
-			if err := storeCheck(ctx); err != nil {
+			if err := sh.Check(ctx); err != nil {
 				// The endpoint is anonymous and the driver error names the
 				// database host, so the detail goes to the log only.
 				log.Printf("manager: WARNING health check: store unreachable: %v", err)
-				code, body = http.StatusServiceUnavailable, healthStatus{Status: "unavailable"}
+				code, status, storage.State = http.StatusServiceUnavailable, "unavailable", storageStateUnavailable
+			} else if sh.Version != nil {
+				if v, err := sh.Version(ctx); err == nil {
+					storage.Version = v
+				}
 			}
 		}
 
@@ -73,16 +116,16 @@ func healthHandler(storeCheck func(context.Context) error) http.Handler {
 		if r.Method == http.MethodHead {
 			return
 		}
-		if err := json.NewEncoder(w).Encode(body); err != nil {
+		if err := json.NewEncoder(w).Encode(healthStatus{Status: status, Storage: storage}); err != nil {
 			log.Printf("manager: WARNING serving %s: %v", healthPath, err)
 		}
 	})
 }
 
 // healthMount adds the health endpoint to the root mux.
-func healthMount(storeCheck func(context.Context) error) func(*http.ServeMux) {
+func healthMount(sh storeHealth) func(*http.ServeMux) {
 	return func(mux *http.ServeMux) {
-		mux.Handle(healthPath, healthHandler(storeCheck))
+		mux.Handle(healthPath, healthHandler(sh))
 	}
 }
 
