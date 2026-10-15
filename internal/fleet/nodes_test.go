@@ -191,6 +191,13 @@ type fakeConn struct {
 	// verifyAuditChainErr, when set, is returned by VerifyAuditChain instead
 	// of err.
 	verifyAuditChainErr error
+
+	// listTsaCertificatesResp, when set, is returned by ListTsaCertificates
+	// instead of the zero-value response.
+	listTsaCertificatesResp *nodev1.ListTsaCertificatesResponse
+	// listTsaCertificatesErr, when set, is returned by ListTsaCertificates
+	// instead of err.
+	listTsaCertificatesErr error
 }
 
 func (f *fakeConn) BeginKeyRotation(context.Context) (*nodev1.BeginKeyRotationResponse, error) {
@@ -491,6 +498,17 @@ func (f *fakeConn) VerifyAuditChain(context.Context) (*nodev1.VerifyAuditChainRe
 		return f.verifyAuditChainResp, nil
 	}
 	return &nodev1.VerifyAuditChainResponse{}, nil
+}
+
+func (f *fakeConn) ListTsaCertificates(context.Context) (*nodev1.ListTsaCertificatesResponse, error) {
+	f.record("ListTsaCertificates")
+	if f.listTsaCertificatesErr != nil {
+		return nil, f.listTsaCertificatesErr
+	}
+	if f.listTsaCertificatesResp != nil {
+		return f.listTsaCertificatesResp, nil
+	}
+	return &nodev1.ListTsaCertificatesResponse{}, nil
 }
 
 // record appends name to the shared call log, if this fake was given one.

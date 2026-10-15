@@ -43,9 +43,10 @@ Or start from nothing: with Postgres and no `operatorCAPath`, the manager serves
 
 **Docker:**
 
-Releases are source only, so `ghcr.io/cryptos-pki/cryptos-manager` is not a published
-image — build and push your own (see [*Building the image yourself*](#building-the-image-yourself))
-and swap the tag below for it.
+A release tag publishes `ghcr.io/cryptos-pki/cryptos-manager:vX.Y.Z` (and `:latest` for
+a stable tag — not an rc). Pull it directly, or build your own (see
+[*Building the image yourself*](#building-the-image-yourself)) and swap the tag below for
+that.
 
 ```sh
 docker run -p 443:8443 -p 80:8080 \
@@ -155,8 +156,9 @@ worth knowing before you adapt it:
 
 ### Building the image yourself
 
-Releases are source only — no image or chart is published — so this is the supported
-path, not just a stopgap before a first release.
+The published image (above) is the default path. Build your own instead to track an
+unreleased commit, or to customise the build; the chart's `image.repository`/`image.tag`
+(or `MANAGER_IMAGE` for compose) point it at whatever you push.
 
 > [!IMPORTANT]
 > **The build context is the workspace root, not this repo.** The `Dockerfile` copies from
@@ -182,8 +184,8 @@ works but reports `dev` / `unknown`. Extra arguments go straight to `docker buil
 
 **Helm (OCI):**
 
-`oci://ghcr.io/cryptos-pki/charts/fleet-manager` is not a published chart either — package
-and push `chart/fleet-manager` to a registry you control, then install from there.
+A release tag also publishes the chart, versioned to match (the tag without its leading
+`v`):
 
 ```sh
 helm install fleet oci://ghcr.io/cryptos-pki/charts/fleet-manager --version X.Y.Z \
@@ -193,7 +195,9 @@ helm install fleet oci://ghcr.io/cryptos-pki/charts/fleet-manager --version X.Y.
   --set-json 'nodes=[{"name":"pki-root","endpoint":"pki-root.example:443","role":"root","adminCertPath":"...","adminKeyPath":"...","caCertPath":"..."}]'
 ```
 
-`chart/fleet-manager` is the supported chart. `tls.certSecret` and `operatorCA.configMap`
+`chart/fleet-manager` is the supported chart — install it straight from a checkout
+(`helm install fleet chart/fleet-manager ...`) if you want an unreleased commit or a
+local edit instead of the published one. `tls.certSecret` and `operatorCA.configMap`
 are optional: leave both empty for day zero and the manager serves a self-signed
 certificate and opens first run, with the bootstrap token in its log (the install notes
 print the commands to find it). `firstRun: disabled` keeps first run shut. Setting
@@ -308,7 +312,7 @@ After a stacked pull request is retargeted onto `main`, CI starts on its next pu
 
 ## 📦 Releasing
 
-Nothing tags automatically. On push to `main`, release-drafter categorises the merged conventional-commit PRs into the draft release notes. The maintainer then publishes the GitHub Release by hand, which creates the `vX.Y.Z` tag. Releases are source only: that tag triggers `job-release-image.yaml`, which builds the container image from the pinned web ref with BuildKit and runs it read-only against the health check, but pushes nothing — no registry login, no image or chart, no `latest`. The node ISO ships from [`cryptos`](https://github.com/CryptOS-PKI/cryptos). Adopters build and push their own image and chart from the tagged source (see [*Building the image yourself*](#building-the-image-yourself)). (The repo's own release/governance tooling — release-drafter, golic — is the maintainer's; adopters don't need it.)
+Nothing tags automatically. On push to `main`, release-drafter categorises the merged conventional-commit PRs into the draft release notes. The maintainer then publishes the GitHub Release by hand, which creates the `vX.Y.Z` tag. That tag triggers `job-release-image.yaml`, which builds the container image from the pinned web ref with BuildKit, runs it read-only against the health check, and — only once that passes — pushes `ghcr.io/cryptos-pki/cryptos-manager:vX.Y.Z` and packages and pushes the chart to `oci://ghcr.io/cryptos-pki/charts/fleet-manager` at the same version. `latest` moves only on a stable tag (no `-` prerelease suffix); an rc publishes its own tag but never `latest`. Neither push carries any provenance, SBOM or other attestation. The node ISO ships from [`cryptos-appliance`](https://github.com/CryptOS-PKI/cryptos-appliance), source only. Adopters who want something other than the published image or chart build and push their own from the tagged source (see [*Building the image yourself*](#building-the-image-yourself)). (The repo's own release/governance tooling — release-drafter, golic — is the maintainer's; adopters don't need it.)
 
 The release image is meant to be rebuildable from its tag. Every base image in the
 `Dockerfile` is pinned by digest, the build date is the tagged commit's time rather than

@@ -123,6 +123,8 @@ var Catalog = []Spec{
 	{Name: "profile_list_requestable", RPC: "ListRequestableProfiles", Policy: Excluded, Reason: "not yet exposed to agents"},
 	{Name: "node_audit_list", RPC: "ListNodeAuditEvents", Policy: Excluded, Reason: "not yet exposed to agents"},
 	{Name: "node_audit_verify_chain", RPC: "VerifyNodeAuditChain", Policy: Excluded, Reason: "not yet exposed to agents"},
+	{Name: "certificate_chain_validate", RPC: "ValidateCertificateChain", Policy: Excluded, Reason: "not yet exposed to agents"},
+	{Name: "node_tsa_list", RPC: "ListNodeTsaCertificates", Policy: Excluded, Reason: "not yet exposed to agents"},
 }
 
 func spec(name string) Spec {

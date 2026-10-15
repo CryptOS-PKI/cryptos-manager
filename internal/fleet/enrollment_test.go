@@ -658,6 +658,10 @@ func (r *routingConn) VerifyAuditChain(ctx context.Context) (*nodev1.VerifyAudit
 	return r.ferry.VerifyAuditChain(ctx)
 }
 
+func (r *routingConn) ListTsaCertificates(ctx context.Context) (*nodev1.ListTsaCertificatesResponse, error) {
+	return r.ferry.ListTsaCertificates(ctx)
+}
+
 func (r *routingConn) Close() error {
 	_ = r.ferry.Close()
 	return r.identity.Close()

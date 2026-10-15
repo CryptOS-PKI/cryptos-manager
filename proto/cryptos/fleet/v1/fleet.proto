@@ -142,6 +142,19 @@ service FleetService {
   // viewer level and above; a read, so it is not audited.
   rpc VerifyNodeAuditChain(VerifyNodeAuditChainRequest) returns (VerifyNodeAuditChainResponse);
 
+  // ValidateCertificateChain checks whether a submitted certificate chains to
+  // a managed node's CA, the check `cryptosctl identity validate` runs
+  // locally against a node's own chain. A certificate that does not chain is
+  // a result, not an RPC error. Operator-gated, since it parses
+  // operator-supplied certificate material; a read, so it is not audited.
+  rpc ValidateCertificateChain(ValidateCertificateChainRequest) returns (ValidateCertificateChainResponse);
+
+  // ListNodeTsaCertificates lists the certificates a managed node's
+  // time-stamp authority has signed tokens with. The node returns an empty
+  // list while its TSA is not running. Readable at viewer level and above; a
+  // read, so it is not audited.
+  rpc ListNodeTsaCertificates(ListNodeTsaCertificatesRequest) returns (ListNodeTsaCertificatesResponse);
+
   // IssueLeaf signs a leaf certificate on the named issuing node from a
   // browser-generated PKCS#10 CSR under a named issuance profile. Only the
   // CSR crosses the wire; the leaf private key stays in the browser.
@@ -1525,6 +1538,79 @@ message CancelCertificateRequestRequest {
 
 message CancelCertificateRequestResponse {
   CertificateRequest request = 1;
+}
+
+// ListNodeTsaCertificatesRequest names the node whose time-stamp authority
+// certificates to list.
+message ListNodeTsaCertificatesRequest {
+  // node_name is the managed node to read.
+  // Deprecated: use node_id. Still resolves the node's current name for one
+  // release.
+  string node_name = 1;
+  // node_id is the stable ID (NodeSummary.id) of the node. Preferred over
+  // node_name; when both are set they must name the same node, or the
+  // manager returns InvalidArgument.
+  string node_id = 2;
+}
+
+// NodeTsaCertificate is one certificate a node's time-stamp authority has
+// signed tokens with. Timestamps are RFC3339 strings, empty when unset.
+message NodeTsaCertificate {
+  // cert_pem is the TSA certificate, PEM encoded. It chains to the node's CA
+  // certificate.
+  string cert_pem = 1;
+  // serial_hex is the certificate's serial number in hex, which a token's
+  // signer identifier (ESSCertIDv2) names alongside the issuer.
+  string serial_hex = 2;
+  // sha256_hex is the lowercase hex SHA-256 of the DER certificate, the hash
+  // a token's ESSCertIDv2 carries.
+  string sha256_hex = 3;
+  string not_before = 4;
+  string not_after = 5;
+  // current is true for the one certificate new tokens are signed with.
+  // Every other entry is a past certificate kept for verifying old tokens.
+  // No entry is current while the node's TSA is not running.
+  bool current = 6;
+}
+
+message ListNodeTsaCertificatesResponse {
+  // certificates are newest first.
+  repeated NodeTsaCertificate certificates = 1;
+}
+
+// ValidateCertificateChainRequest carries a certificate to check against a
+// managed node's CA.
+message ValidateCertificateChainRequest {
+  // node_name is the managed node whose CA to validate against.
+  // Deprecated: use node_id. Still resolves the node's current name for one
+  // release.
+  string node_name = 1;
+  // node_id is the stable ID (NodeSummary.id) of the node. Preferred over
+  // node_name; when both are set they must name the same node, or the
+  // manager returns InvalidArgument.
+  string node_id = 2;
+  // certificate_pem is the certificate to validate, PEM encoded. Additional
+  // PEM CERTIFICATE blocks after the first are taken as intermediates that
+  // help the chain reach the node's CA; they need not be supplied when the
+  // node's own chain already carries them.
+  string certificate_pem = 3;
+}
+
+// ValidateCertificateChainResponse reports whether certificate_pem chains to
+// the node's CA. A certificate that does not chain is a result, not an RPC
+// error.
+message ValidateCertificateChainResponse {
+  // valid is true when the certificate chains to the node's CA.
+  bool valid = 1;
+  // reason explains why the certificate does not validate; empty when valid.
+  string reason = 2;
+  // subject is the submitted certificate's subject.
+  string subject = 3;
+  // issuer is the submitted certificate's issuer.
+  string issuer = 4;
+  // node_ca_subject is the subject of the node's own CA certificate (its
+  // GetIdentity leaf), the anchor the certificate was checked against.
+  string node_ca_subject = 5;
 }
 
 // ListNodeAuditEventsRequest pages through a managed node's own audit log,

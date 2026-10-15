@@ -423,6 +423,13 @@ func (c *Client) VerifyAuditChain(ctx context.Context) (*nodev1.VerifyAuditChain
 	return c.node.VerifyAuditChain(ctx, &nodev1.VerifyAuditChainRequest{})
 }
 
+// ListTsaCertificates returns the dialed node's time-stamp authority
+// certificates (see Tsa in the node's machine config). The node returns an
+// empty list while its TSA is not running.
+func (c *Client) ListTsaCertificates(ctx context.Context) (*nodev1.ListTsaCertificatesResponse, error) {
+	return c.node.ListTsaCertificates(ctx, &nodev1.ListTsaCertificatesRequest{})
+}
+
 // Close releases the underlying gRPC connection.
 func (c *Client) Close() error {
 	return c.conn.Close()
