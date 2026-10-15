@@ -40,6 +40,7 @@ const (
 	FleetService_WhoAmI_FullMethodName                          = "/cryptos.fleet.v1.FleetService/WhoAmI"
 	FleetService_RevokeCertificate_FullMethodName               = "/cryptos.fleet.v1.FleetService/RevokeCertificate"
 	FleetService_GetCertificate_FullMethodName                  = "/cryptos.fleet.v1.FleetService/GetCertificate"
+	FleetService_ListNodeTsaCertificates_FullMethodName         = "/cryptos.fleet.v1.FleetService/ListNodeTsaCertificates"
 	FleetService_IssueLeaf_FullMethodName                       = "/cryptos.fleet.v1.FleetService/IssueLeaf"
 	FleetService_RekeyNode_FullMethodName                       = "/cryptos.fleet.v1.FleetService/RekeyNode"
 	FleetService_GetNodeConfig_FullMethodName                   = "/cryptos.fleet.v1.FleetService/GetNodeConfig"
@@ -167,6 +168,11 @@ type FleetServiceClient interface {
 	// Readable at viewer level and above; a read, so it is not audited. NotFound
 	// if the node has no certificate with that serial.
 	GetCertificate(ctx context.Context, in *GetCertificateRequest, opts ...grpc.CallOption) (*GetCertificateResponse, error)
+	// ListNodeTsaCertificates lists the certificates a managed node's
+	// time-stamp authority has signed tokens with. The node returns an empty
+	// list while its TSA is not running. Readable at viewer level and above; a
+	// read, so it is not audited.
+	ListNodeTsaCertificates(ctx context.Context, in *ListNodeTsaCertificatesRequest, opts ...grpc.CallOption) (*ListNodeTsaCertificatesResponse, error)
 	// IssueLeaf signs a leaf certificate on the named issuing node from a
 	// browser-generated PKCS#10 CSR under a named issuance profile. Only the
 	// CSR crosses the wire; the leaf private key stays in the browser.
@@ -586,6 +592,16 @@ func (c *fleetServiceClient) GetCertificate(ctx context.Context, in *GetCertific
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetCertificateResponse)
 	err := c.cc.Invoke(ctx, FleetService_GetCertificate_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *fleetServiceClient) ListNodeTsaCertificates(ctx context.Context, in *ListNodeTsaCertificatesRequest, opts ...grpc.CallOption) (*ListNodeTsaCertificatesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListNodeTsaCertificatesResponse)
+	err := c.cc.Invoke(ctx, FleetService_ListNodeTsaCertificates_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1041,6 +1057,11 @@ type FleetServiceServer interface {
 	// Readable at viewer level and above; a read, so it is not audited. NotFound
 	// if the node has no certificate with that serial.
 	GetCertificate(context.Context, *GetCertificateRequest) (*GetCertificateResponse, error)
+	// ListNodeTsaCertificates lists the certificates a managed node's
+	// time-stamp authority has signed tokens with. The node returns an empty
+	// list while its TSA is not running. Readable at viewer level and above; a
+	// read, so it is not audited.
+	ListNodeTsaCertificates(context.Context, *ListNodeTsaCertificatesRequest) (*ListNodeTsaCertificatesResponse, error)
 	// IssueLeaf signs a leaf certificate on the named issuing node from a
 	// browser-generated PKCS#10 CSR under a named issuance profile. Only the
 	// CSR crosses the wire; the leaf private key stays in the browser.
@@ -1317,6 +1338,9 @@ func (UnimplementedFleetServiceServer) RevokeCertificate(context.Context, *Revok
 }
 func (UnimplementedFleetServiceServer) GetCertificate(context.Context, *GetCertificateRequest) (*GetCertificateResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetCertificate not implemented")
+}
+func (UnimplementedFleetServiceServer) ListNodeTsaCertificates(context.Context, *ListNodeTsaCertificatesRequest) (*ListNodeTsaCertificatesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListNodeTsaCertificates not implemented")
 }
 func (UnimplementedFleetServiceServer) IssueLeaf(context.Context, *IssueLeafRequest) (*IssueLeafResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method IssueLeaf not implemented")
@@ -1817,6 +1841,24 @@ func _FleetService_GetCertificate_Handler(srv interface{}, ctx context.Context, 
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(FleetServiceServer).GetCertificate(ctx, req.(*GetCertificateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FleetService_ListNodeTsaCertificates_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListNodeTsaCertificatesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FleetServiceServer).ListNodeTsaCertificates(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FleetService_ListNodeTsaCertificates_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FleetServiceServer).ListNodeTsaCertificates(ctx, req.(*ListNodeTsaCertificatesRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -2534,6 +2576,10 @@ var FleetService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetCertificate",
 			Handler:    _FleetService_GetCertificate_Handler,
+		},
+		{
+			MethodName: "ListNodeTsaCertificates",
+			Handler:    _FleetService_ListNodeTsaCertificates_Handler,
 		},
 		{
 			MethodName: "IssueLeaf",

@@ -650,6 +650,10 @@ func (r *routingConn) StartCeremony(ctx context.Context, kind nodev1.CeremonyKin
 	return r.identity.StartCeremony(ctx, kind, machineConfigYAML)
 }
 
+func (r *routingConn) ListTsaCertificates(ctx context.Context) (*nodev1.ListTsaCertificatesResponse, error) {
+	return r.ferry.ListTsaCertificates(ctx)
+}
+
 func (r *routingConn) Close() error {
 	_ = r.ferry.Close()
 	return r.identity.Close()
