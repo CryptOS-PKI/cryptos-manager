@@ -46,3 +46,28 @@ func TestPing_UnreachableDatabase(t *testing.T) {
 		t.Fatal("Ping: want an error for an unreachable database")
 	}
 }
+
+func TestVersion_ReachableDatabase(t *testing.T) {
+	s := testStore(t)
+	v, err := s.Version(context.Background())
+	if err != nil {
+		t.Fatalf("Version: %v", err)
+	}
+	if v == "" {
+		t.Error("Version: want a non-empty server version")
+	}
+}
+
+func TestVersion_UnreachableDatabase(t *testing.T) {
+	pool, err := pgxpool.New(context.Background(), "postgres://manager@127.0.0.1:1/manager?connect_timeout=1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := (&Store{pool: pool}).Version(ctx); err == nil {
+		t.Fatal("Version: want an error for an unreachable database")
+	}
+}

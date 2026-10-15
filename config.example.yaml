@@ -17,11 +17,14 @@
 listen: "127.0.0.1:8080"
 corsOrigins: ["http://localhost:5173", "http://127.0.0.1:5173"]
 authBypass: true
-# database_url selects durable Postgres state. Leave it unset (or empty) to use
-# the in-memory store seeded from the built-in catalog, which is the default for
-# offline dev. When set, the manager applies the schema, seeds the catalog into
+# The manager refuses to start with neither database_url nor storage.mode:
+# memory set (see docs/storage.md). This example uses memory mode for offline
+# dev: nothing persists across a restart. Set database_url instead for durable
+# Postgres state; the manager then applies the schema, seeds the catalog into
 # an empty database on first run, and persists enrollments and the audit chain.
 # database_url: "postgres://manager:secret@localhost:5432/manager"
+storage:
+  mode: memory
 # mcp serves the Model Context Protocol endpoint for AI agents at /mcp (see
 # docs/mcp.md). Off by default. Enabling it requires authBypass: false and
 # database_url, or the manager refuses to start.

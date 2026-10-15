@@ -85,11 +85,16 @@ type Config struct {
 	// refused.
 	FirstRun string `yaml:"firstRun"`
 
-	// DatabaseURL is the Postgres connection DSN for durable state. Empty
-	// selects the in-memory store, seeded from the built-in catalog, which
-	// stays the default for offline dev and tests. A non-empty
-	// MANAGER_DATABASE_URL (DatabaseURLEnv) overrides it.
+	// DatabaseURL is the Postgres connection DSN for durable state, the
+	// default and the only durable option: the manager never creates
+	// databases, users or roles, only connects to one already provisioned
+	// (docs/storage.md). A non-empty MANAGER_DATABASE_URL (DatabaseURLEnv)
+	// overrides it. Load refuses a config that sets neither this nor
+	// storage.mode: memory.
 	DatabaseURL string `yaml:"database_url"`
+
+	// Storage selects the non-Postgres storage mode. See StorageConfig.
+	Storage StorageConfig `yaml:"storage"`
 
 	// OperatorCANode is refused at load with OperatorCANodeMigration: a
 	// CryptOS node can't be the operator CA. It is parsed only so the refusal
@@ -102,6 +107,21 @@ type Config struct {
 
 	Nodes []NodeCfg `yaml:"nodes"`
 }
+
+// StorageConfig selects the manager's storage mode. Mode is empty (Postgres,
+// via DatabaseURL) or StorageModeMemory: an explicit, single-replica,
+// non-durable mode for home labs and single-box installs, where the fleet
+// nodes are the durable record and the manager only caches its view of them.
+// Setting neither DatabaseURL nor Mode refuses to load, rather than silently
+// falling back to memory: a production install that forgot its database
+// secret used to come up looking healthy and lose its state on the next
+// restart. See docs/storage.md.
+type StorageConfig struct {
+	Mode string `yaml:"mode"`
+}
+
+// StorageModeMemory is the only accepted StorageConfig.Mode value.
+const StorageModeMemory = "memory"
 
 // CRLSource is one operatorCRL entry: an http or https URL, or a file path,
 // never both.
@@ -243,6 +263,37 @@ func (c *Config) validate() error {
 		if n.AdminKeyPath == "" {
 			return fmt.Errorf("nodes[%d] (%s): adminKeyPath must not be empty", i, n.Name)
 		}
+	}
+
+	// Checked last, so a config that is invalid for some other, more specific
+	// reason (a bad operatorOCSP mode, say) reports that reason rather than
+	// being masked by the storage refusal.
+	if err := c.validateStorage(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// validateStorage refuses a config that names no durable store (neither
+// database_url nor storage.mode: memory), names both, or sets an unknown
+// storage.mode. PostgreSQL remains the default: it is selected by setting
+// database_url and leaving storage.mode unset.
+func (c Config) validateStorage() error {
+	switch c.Storage.Mode {
+	case "", StorageModeMemory:
+	default:
+		return fmt.Errorf("storage.mode must be unset or %q, not %q", StorageModeMemory, c.Storage.Mode)
+	}
+
+	switch {
+	case c.DatabaseURL == "" && c.Storage.Mode != StorageModeMemory:
+		return fmt.Errorf(
+			"no durable store configured: set database_url to a PostgreSQL connection, " +
+				"or storage.mode: memory for a single-replica install with no persistent inventory (docs/storage.md)",
+		)
+	case c.DatabaseURL != "" && c.Storage.Mode == StorageModeMemory:
+		return fmt.Errorf("database_url and storage.mode: memory are mutually exclusive: choose one durable store")
 	}
 
 	return nil

@@ -22,6 +22,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"errors"
+	"io"
 	"testing"
 
 	connect "connectrpc.com/connect"
@@ -672,6 +673,34 @@ func (r *routingConn) ApproveScepEnrollment(ctx context.Context, id string) (*no
 
 func (r *routingConn) RejectScepEnrollment(ctx context.Context, id, reason string) (*nodev1.RejectScepEnrollmentResponse, error) {
 	return r.ferry.RejectScepEnrollment(ctx, id, reason)
+}
+
+func (r *routingConn) MintScepChallenge(ctx context.Context, profile string, ttlSeconds uint32, boundNames []string) (*nodev1.MintScepChallengeResponse, error) {
+	return r.ferry.MintScepChallenge(ctx, profile, ttlSeconds, boundNames)
+}
+
+func (r *routingConn) ListScepChallenges(ctx context.Context) (*nodev1.ListScepChallengesResponse, error) {
+	return r.ferry.ListScepChallenges(ctx)
+}
+
+func (r *routingConn) RevokeScepChallenge(ctx context.Context, id string) (*nodev1.RevokeScepChallengeResponse, error) {
+	return r.ferry.RevokeScepChallenge(ctx, id)
+}
+
+func (r *routingConn) GetImageStatus(ctx context.Context) (*nodev1.GetImageStatusResponse, error) {
+	return r.ferry.GetImageStatus(ctx)
+}
+
+func (r *routingConn) StageImage(ctx context.Context, signature []byte, sizeBytes uint64, sha256Hex string, body io.Reader) (*nodev1.StageImageResponse, error) {
+	return r.ferry.StageImage(ctx, signature, sizeBytes, sha256Hex, body)
+}
+
+func (r *routingConn) ActivateImage(ctx context.Context, confirmCN string) (*nodev1.ActivateImageResponse, error) {
+	return r.ferry.ActivateImage(ctx, confirmCN)
+}
+
+func (r *routingConn) RollbackImage(ctx context.Context) (*nodev1.RollbackImageResponse, error) {
+	return r.ferry.RollbackImage(ctx)
 }
 
 func (r *routingConn) Close() error {

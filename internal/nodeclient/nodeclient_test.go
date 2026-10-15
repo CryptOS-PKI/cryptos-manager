@@ -26,17 +26,22 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"fmt"
+	"io"
 	"math/big"
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
 	nodev1 "github.com/CryptOS-PKI/cryptos-node/gen/go/cryptos/node/v1"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/status"
 )
 
 // fakeNodeService is a minimal NodeService that answers GetStatus and
@@ -126,6 +131,72 @@ func (fakeNodeService) RejectScepEnrollment(_ context.Context, req *nodev1.Rejec
 	return &nodev1.RejectScepEnrollmentResponse{
 		Enrollment: &nodev1.ScepEnrollment{Id: req.GetId() + ":" + req.GetReason()},
 	}, nil
+}
+
+func (fakeNodeService) MintScepChallenge(_ context.Context, req *nodev1.MintScepChallengeRequest) (*nodev1.MintScepChallengeResponse, error) {
+	return &nodev1.MintScepChallengeResponse{
+		ChallengePassword: "fake-password-test-marker",
+		Challenge:         &nodev1.ScepChallenge{Id: "fake-challenge-id", Profile: req.GetProfile()},
+	}, nil
+}
+
+func (fakeNodeService) ListScepChallenges(context.Context, *nodev1.ListScepChallengesRequest) (*nodev1.ListScepChallengesResponse, error) {
+	return &nodev1.ListScepChallengesResponse{
+		Challenges: []*nodev1.ScepChallenge{{Id: "fake-challenge-id"}},
+	}, nil
+}
+
+func (fakeNodeService) RevokeScepChallenge(_ context.Context, req *nodev1.RevokeScepChallengeRequest) (*nodev1.RevokeScepChallengeResponse, error) {
+	return &nodev1.RevokeScepChallengeResponse{Challenge: &nodev1.ScepChallenge{Id: req.GetId()}}, nil
+}
+
+func (fakeNodeService) GetImageStatus(context.Context, *nodev1.GetImageStatusRequest) (*nodev1.GetImageStatusResponse, error) {
+	return &nodev1.GetImageStatusResponse{
+		Status: &nodev1.ImageStatus{RunningSha256: "fake-image-test-marker"},
+	}, nil
+}
+
+// StageImage reads the begin header and every chunk, and echoes the
+// reassembled image's length and the begin header's fields back so the test
+// can assert the Client split and reassembled it correctly across the wire.
+func (fakeNodeService) StageImage(stream nodev1.NodeService_StageImageServer) error {
+	var (
+		begin *nodev1.StageImageBegin
+		image []byte
+	)
+	for {
+		req, err := stream.Recv()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		switch p := req.GetPayload().(type) {
+		case *nodev1.StageImageRequest_Begin:
+			begin = p.Begin
+		case *nodev1.StageImageRequest_Chunk:
+			image = append(image, p.Chunk...)
+		}
+	}
+	return stream.SendAndClose(&nodev1.StageImageResponse{
+		Status: &nodev1.ImageStatus{
+			ActiveSha256:   fmt.Sprintf("len=%d sig=%s sha256=%s", len(image), begin.GetSignature(), begin.GetSha256()),
+			RunningVersion: string(image),
+		},
+		RequiresReboot: true,
+	})
+}
+
+func (fakeNodeService) ActivateImage(_ context.Context, req *nodev1.ActivateImageRequest) (*nodev1.ActivateImageResponse, error) {
+	if req.GetConfirmCaCn() != "fake-node" {
+		return nil, status.Error(codes.PermissionDenied, "confirmation CN does not match the CA CN")
+	}
+	return &nodev1.ActivateImageResponse{Rebooting: true}, nil
+}
+
+func (fakeNodeService) RollbackImage(context.Context, *nodev1.RollbackImageRequest) (*nodev1.RollbackImageResponse, error) {
+	return &nodev1.RollbackImageResponse{Status: &nodev1.ImageStatus{ActiveSha256: "rolled-back-test-marker"}}, nil
 }
 
 // testCA is a minimal self-signed CA used to mint both the fake node's
@@ -378,6 +449,110 @@ func TestDial_GetStatus_GetIdentity(t *testing.T) {
 	}
 	if got := rejectResp.GetEnrollment().GetId(); got != "enr-456:unexpected device" {
 		t.Errorf("RejectScepEnrollment().Enrollment.Id = %q, want enr-456:unexpected device (id/reason not relayed)", got)
+	}
+
+	mintResp, err := client.MintScepChallenge(ctx, "network-device", 3600, []string{"switch-1.example.org"})
+	if err != nil {
+		t.Fatalf("MintScepChallenge() error = %v, want nil", err)
+	}
+	if mintResp.GetChallengePassword() != "fake-password-test-marker" || mintResp.GetChallenge().GetProfile() != "network-device" {
+		t.Errorf("MintScepChallenge() = %+v, want the fake's canned response relayed through", mintResp)
+	}
+
+	listChallengesResp, err := client.ListScepChallenges(ctx)
+	if err != nil {
+		t.Fatalf("ListScepChallenges() error = %v, want nil", err)
+	}
+	if len(listChallengesResp.GetChallenges()) != 1 || listChallengesResp.GetChallenges()[0].GetId() != "fake-challenge-id" {
+		t.Errorf("ListScepChallenges().Challenges = %v, want one fake-challenge-id entry", listChallengesResp.GetChallenges())
+	}
+
+	revokeResp, err := client.RevokeScepChallenge(ctx, "ch-123")
+	if err != nil {
+		t.Fatalf("RevokeScepChallenge() error = %v, want nil", err)
+	}
+	if got := revokeResp.GetChallenge().GetId(); got != "ch-123" {
+		t.Errorf("RevokeScepChallenge().Challenge.Id = %q, want ch-123 (id not relayed)", got)
+	}
+
+	imageStatusResp, err := client.GetImageStatus(ctx)
+	if err != nil {
+		t.Fatalf("GetImageStatus() error = %v, want nil", err)
+	}
+	if got := imageStatusResp.GetStatus().GetRunningSha256(); got != "fake-image-test-marker" {
+		t.Errorf("GetImageStatus().Status.RunningSha256 = %q, want fake-image-test-marker", got)
+	}
+
+	rollbackResp, err := client.RollbackImage(ctx)
+	if err != nil {
+		t.Fatalf("RollbackImage() error = %v, want nil", err)
+	}
+	if got := rollbackResp.GetStatus().GetActiveSha256(); got != "rolled-back-test-marker" {
+		t.Errorf("RollbackImage().Status.ActiveSha256 = %q, want rolled-back-test-marker", got)
+	}
+
+	activateResp, err := client.ActivateImage(ctx, "fake-node")
+	if err != nil {
+		t.Fatalf("ActivateImage() error = %v, want nil", err)
+	}
+	if !activateResp.GetRebooting() {
+		t.Error("ActivateImage().Rebooting = false, want true")
+	}
+	if _, err := client.ActivateImage(ctx, "wrong-cn"); status.Code(err) != codes.PermissionDenied {
+		t.Errorf("ActivateImage(wrong CN) code = %v, want PermissionDenied", status.Code(err))
+	}
+}
+
+// TestClient_StageImage_ChunksAndReassembles proves StageImage splits an
+// image larger than one chunk into multiple StageImageRequest_Chunk
+// messages and that the fake node's reassembly matches byte for byte, so
+// chunking never reorders or drops bytes.
+func TestClient_StageImage_ChunksAndReassembles(t *testing.T) {
+	serverCA := newTestCA(t, "fake-node-server-ca")
+	clientCA := newTestCA(t, "fake-node-client-ca")
+
+	addr, stop := startFakeNode(t, serverCA, clientCA)
+	defer stop()
+
+	adminPair := clientCA.issueLeaf(t, "manager-admin", []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth})
+	dir := t.TempDir()
+	certPath, keyPath := writePEMFiles(t, dir, adminPair)
+
+	node := store.Node{
+		Name:      "fake-node",
+		Endpoint:  addr,
+		Role:      "root",
+		AdminCert: certPath,
+		AdminKey:  keyPath,
+		CACert:    writeCAChainPEM(t, dir, serverCA),
+	}
+
+	client, err := Dial(node)
+	if err != nil {
+		t.Fatalf("Dial() error = %v, want nil", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Bigger than stageImageChunkSize (1 MiB) so the Client must send more
+	// than one chunk.
+	image := strings.Repeat("a", stageImageChunkSize+12345)
+
+	resp, err := client.StageImage(ctx, []byte("sig-bytes"), uint64(len(image)), "deadbeef", strings.NewReader(image))
+	if err != nil {
+		t.Fatalf("StageImage() error = %v, want nil", err)
+	}
+	if got := resp.GetStatus().GetRunningVersion(); got != image {
+		t.Errorf("fake node reassembled %d bytes, want the original %d bytes back byte for byte", len(got), len(image))
+	}
+	wantMarker := fmt.Sprintf("len=%d sig=sig-bytes sha256=deadbeef", len(image))
+	if got := resp.GetStatus().GetActiveSha256(); got != wantMarker {
+		t.Errorf("fake node begin header = %q, want %q", got, wantMarker)
+	}
+	if !resp.GetRequiresReboot() {
+		t.Error("StageImage().RequiresReboot = false, want true")
 	}
 }
 

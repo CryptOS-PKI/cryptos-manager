@@ -128,6 +128,13 @@ var Catalog = []Spec{
 	{Name: "node_scep_enrollment_list", RPC: "ListNodeScepEnrollments", Policy: Excluded, Reason: "not yet exposed to agents"},
 	{Name: "node_scep_enrollment_approve", RPC: "ApproveNodeScepEnrollment", Policy: Excluded, Reason: "issues a certificate to a device, decided by a person"},
 	{Name: "node_scep_enrollment_reject", RPC: "RejectNodeScepEnrollment", Policy: Excluded, Reason: "decided by a person"},
+	{Name: "node_scep_challenge_mint", RPC: "MintNodeScepChallenge", Policy: Excluded, Reason: "mints a credential a device will present"},
+	{Name: "node_scep_challenge_list", RPC: "ListNodeScepChallenges", Policy: Excluded, Reason: "not yet exposed to agents"},
+	{Name: "node_scep_challenge_revoke", RPC: "RevokeNodeScepChallenge", Policy: Excluded, Reason: "withdraws a device credential"},
+	{Name: "node_image_status", RPC: "GetNodeImageStatus", Policy: Excluded, Reason: "not yet exposed to agents"},
+	{Name: "node_image_stage", RPC: "StageNodeImage", Policy: Excluded, Reason: "stages an unreviewed OS image on a node"},
+	{Name: "node_image_activate", RPC: "ActivateNodeImage", Policy: Excluded, Reason: "an outage of everything the node signs for"},
+	{Name: "node_image_rollback", RPC: "RollbackNodeImage", Policy: Excluded, Reason: "changes what image a node boots next"},
 }
 
 func spec(name string) Spec {

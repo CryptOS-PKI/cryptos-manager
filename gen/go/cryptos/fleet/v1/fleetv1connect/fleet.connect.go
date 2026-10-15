@@ -104,15 +104,18 @@ const (
 	// FleetServiceListNodeTsaCertificatesProcedure is the fully-qualified name of the FleetService's
 	// ListNodeTsaCertificates RPC.
 	FleetServiceListNodeTsaCertificatesProcedure = "/cryptos.fleet.v1.FleetService/ListNodeTsaCertificates"
-	// FleetServiceListNodeScepEnrollmentsProcedure is the fully-qualified name of the FleetService's
-	// ListNodeScepEnrollments RPC.
-	FleetServiceListNodeScepEnrollmentsProcedure = "/cryptos.fleet.v1.FleetService/ListNodeScepEnrollments"
-	// FleetServiceApproveNodeScepEnrollmentProcedure is the fully-qualified name of the FleetService's
-	// ApproveNodeScepEnrollment RPC.
-	FleetServiceApproveNodeScepEnrollmentProcedure = "/cryptos.fleet.v1.FleetService/ApproveNodeScepEnrollment"
-	// FleetServiceRejectNodeScepEnrollmentProcedure is the fully-qualified name of the FleetService's
-	// RejectNodeScepEnrollment RPC.
-	FleetServiceRejectNodeScepEnrollmentProcedure = "/cryptos.fleet.v1.FleetService/RejectNodeScepEnrollment"
+	// FleetServiceGetNodeImageStatusProcedure is the fully-qualified name of the FleetService's
+	// GetNodeImageStatus RPC.
+	FleetServiceGetNodeImageStatusProcedure = "/cryptos.fleet.v1.FleetService/GetNodeImageStatus"
+	// FleetServiceStageNodeImageProcedure is the fully-qualified name of the FleetService's
+	// StageNodeImage RPC.
+	FleetServiceStageNodeImageProcedure = "/cryptos.fleet.v1.FleetService/StageNodeImage"
+	// FleetServiceActivateNodeImageProcedure is the fully-qualified name of the FleetService's
+	// ActivateNodeImage RPC.
+	FleetServiceActivateNodeImageProcedure = "/cryptos.fleet.v1.FleetService/ActivateNodeImage"
+	// FleetServiceRollbackNodeImageProcedure is the fully-qualified name of the FleetService's
+	// RollbackNodeImage RPC.
+	FleetServiceRollbackNodeImageProcedure = "/cryptos.fleet.v1.FleetService/RollbackNodeImage"
 	// FleetServiceIssueLeafProcedure is the fully-qualified name of the FleetService's IssueLeaf RPC.
 	FleetServiceIssueLeafProcedure = "/cryptos.fleet.v1.FleetService/IssueLeaf"
 	// FleetServiceRekeyNodeProcedure is the fully-qualified name of the FleetService's RekeyNode RPC.
@@ -212,6 +215,24 @@ const (
 	// FleetServiceCancelCertificateRequestProcedure is the fully-qualified name of the FleetService's
 	// CancelCertificateRequest RPC.
 	FleetServiceCancelCertificateRequestProcedure = "/cryptos.fleet.v1.FleetService/CancelCertificateRequest"
+	// FleetServiceMintNodeScepChallengeProcedure is the fully-qualified name of the FleetService's
+	// MintNodeScepChallenge RPC.
+	FleetServiceMintNodeScepChallengeProcedure = "/cryptos.fleet.v1.FleetService/MintNodeScepChallenge"
+	// FleetServiceListNodeScepChallengesProcedure is the fully-qualified name of the FleetService's
+	// ListNodeScepChallenges RPC.
+	FleetServiceListNodeScepChallengesProcedure = "/cryptos.fleet.v1.FleetService/ListNodeScepChallenges"
+	// FleetServiceRevokeNodeScepChallengeProcedure is the fully-qualified name of the FleetService's
+	// RevokeNodeScepChallenge RPC.
+	FleetServiceRevokeNodeScepChallengeProcedure = "/cryptos.fleet.v1.FleetService/RevokeNodeScepChallenge"
+	// FleetServiceListNodeScepEnrollmentsProcedure is the fully-qualified name of the FleetService's
+	// ListNodeScepEnrollments RPC.
+	FleetServiceListNodeScepEnrollmentsProcedure = "/cryptos.fleet.v1.FleetService/ListNodeScepEnrollments"
+	// FleetServiceApproveNodeScepEnrollmentProcedure is the fully-qualified name of the FleetService's
+	// ApproveNodeScepEnrollment RPC.
+	FleetServiceApproveNodeScepEnrollmentProcedure = "/cryptos.fleet.v1.FleetService/ApproveNodeScepEnrollment"
+	// FleetServiceRejectNodeScepEnrollmentProcedure is the fully-qualified name of the FleetService's
+	// RejectNodeScepEnrollment RPC.
+	FleetServiceRejectNodeScepEnrollmentProcedure = "/cryptos.fleet.v1.FleetService/RejectNodeScepEnrollment"
 )
 
 // FleetServiceClient is a client for the cryptos.fleet.v1.FleetService service.
@@ -317,17 +338,30 @@ type FleetServiceClient interface {
 	// list while its TSA is not running. Readable at viewer level and above; a
 	// read, so it is not audited.
 	ListNodeTsaCertificates(context.Context, *connect.Request[v1.ListNodeTsaCertificatesRequest]) (*connect.Response[v1.ListNodeTsaCertificatesResponse], error)
-	// ListNodeScepEnrollments lists a managed node's pending SCEP device
-	// enrolments, proxying the node's own queue. Operator-gated; a read, so it
-	// is not audited.
-	ListNodeScepEnrollments(context.Context, *connect.Request[v1.ListNodeScepEnrollmentsRequest]) (*connect.Response[v1.ListNodeScepEnrollmentsResponse], error)
-	// ApproveNodeScepEnrollment approves a pending SCEP enrolment on a managed
-	// node, issuing the device a certificate. Operator-gated and audited.
-	ApproveNodeScepEnrollment(context.Context, *connect.Request[v1.ApproveNodeScepEnrollmentRequest]) (*connect.Response[v1.ApproveNodeScepEnrollmentResponse], error)
-	// RejectNodeScepEnrollment rejects a pending SCEP enrolment on a managed
-	// node with a reason, recorded in the node's own audit log. Operator-gated
-	// and audited.
-	RejectNodeScepEnrollment(context.Context, *connect.Request[v1.RejectNodeScepEnrollmentRequest]) (*connect.Response[v1.RejectNodeScepEnrollmentResponse], error)
+	// GetNodeImageStatus reports what CryptOS image a managed node is running,
+	// what it will boot next, and what it could roll back to. Readable at
+	// viewer level and above; a read, so it is not audited.
+	GetNodeImageStatus(context.Context, *connect.Request[v1.GetNodeImageStatusRequest]) (*connect.Response[v1.GetNodeImageStatusResponse], error)
+	// StageNodeImage installs a new CryptOS image on a managed node's spare ESP
+	// slot without touching the one it is running from. The manager fetches
+	// image_url itself (the browser never carries the image), checks the
+	// detached release signature, and streams it to the node the same way
+	// `cryptosctl image stage` does. The node will not boot it until
+	// ActivateNodeImage runs. Admin-gated (an unreviewed image on a trust
+	// anchor) and audited; the node's own refusals (a bad signature, or
+	// FailedPrecondition when another upgrade is already running) are
+	// surfaced unchanged.
+	StageNodeImage(context.Context, *connect.Request[v1.StageNodeImageRequest]) (*connect.Response[v1.StageNodeImageResponse], error)
+	// ActivateNodeImage reboots a managed node so a staged image starts
+	// running. confirm_ca_cn must equal the node's current CA common name, the
+	// same confirmation RebootNode requires, because activating is itself a
+	// reboot. Admin-gated and audited.
+	ActivateNodeImage(context.Context, *connect.Request[v1.ActivateNodeImageRequest]) (*connect.Response[v1.ActivateNodeImageResponse], error)
+	// RollbackNodeImage puts a managed node's previously running image back on
+	// the boot path, for a node that was already activated onto a bad image.
+	// ActivateNodeImage (or a reboot) is still needed to actually boot it.
+	// Admin-gated and audited.
+	RollbackNodeImage(context.Context, *connect.Request[v1.RollbackNodeImageRequest]) (*connect.Response[v1.RollbackNodeImageResponse], error)
 	// IssueLeaf signs a leaf certificate on the named issuing node from a
 	// browser-generated PKCS#10 CSR under a named issuance profile. Only the
 	// CSR crosses the wire; the leaf private key stays in the browser.
@@ -533,6 +567,12 @@ type FleetServiceClient interface {
 	// CancelCertificateRequest ends a pending certificate request. The
 	// requester may cancel their own; an admin may cancel any. Audited.
 	CancelCertificateRequest(context.Context, *connect.Request[v1.CancelCertificateRequestRequest]) (*connect.Response[v1.CancelCertificateRequestResponse], error)
+	MintNodeScepChallenge(context.Context, *connect.Request[v1.MintNodeScepChallengeRequest]) (*connect.Response[v1.MintNodeScepChallengeResponse], error)
+	ListNodeScepChallenges(context.Context, *connect.Request[v1.ListNodeScepChallengesRequest]) (*connect.Response[v1.ListNodeScepChallengesResponse], error)
+	RevokeNodeScepChallenge(context.Context, *connect.Request[v1.RevokeNodeScepChallengeRequest]) (*connect.Response[v1.RevokeNodeScepChallengeResponse], error)
+	ListNodeScepEnrollments(context.Context, *connect.Request[v1.ListNodeScepEnrollmentsRequest]) (*connect.Response[v1.ListNodeScepEnrollmentsResponse], error)
+	ApproveNodeScepEnrollment(context.Context, *connect.Request[v1.ApproveNodeScepEnrollmentRequest]) (*connect.Response[v1.ApproveNodeScepEnrollmentResponse], error)
+	RejectNodeScepEnrollment(context.Context, *connect.Request[v1.RejectNodeScepEnrollmentRequest]) (*connect.Response[v1.RejectNodeScepEnrollmentResponse], error)
 }
 
 // NewFleetServiceClient constructs a client for the cryptos.fleet.v1.FleetService service. By
@@ -696,22 +736,28 @@ func NewFleetServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(fleetServiceMethods.ByName("ListNodeTsaCertificates")),
 			connect.WithClientOptions(opts...),
 		),
-		listNodeScepEnrollments: connect.NewClient[v1.ListNodeScepEnrollmentsRequest, v1.ListNodeScepEnrollmentsResponse](
+		getNodeImageStatus: connect.NewClient[v1.GetNodeImageStatusRequest, v1.GetNodeImageStatusResponse](
 			httpClient,
-			baseURL+FleetServiceListNodeScepEnrollmentsProcedure,
-			connect.WithSchema(fleetServiceMethods.ByName("ListNodeScepEnrollments")),
+			baseURL+FleetServiceGetNodeImageStatusProcedure,
+			connect.WithSchema(fleetServiceMethods.ByName("GetNodeImageStatus")),
 			connect.WithClientOptions(opts...),
 		),
-		approveNodeScepEnrollment: connect.NewClient[v1.ApproveNodeScepEnrollmentRequest, v1.ApproveNodeScepEnrollmentResponse](
+		stageNodeImage: connect.NewClient[v1.StageNodeImageRequest, v1.StageNodeImageResponse](
 			httpClient,
-			baseURL+FleetServiceApproveNodeScepEnrollmentProcedure,
-			connect.WithSchema(fleetServiceMethods.ByName("ApproveNodeScepEnrollment")),
+			baseURL+FleetServiceStageNodeImageProcedure,
+			connect.WithSchema(fleetServiceMethods.ByName("StageNodeImage")),
 			connect.WithClientOptions(opts...),
 		),
-		rejectNodeScepEnrollment: connect.NewClient[v1.RejectNodeScepEnrollmentRequest, v1.RejectNodeScepEnrollmentResponse](
+		activateNodeImage: connect.NewClient[v1.ActivateNodeImageRequest, v1.ActivateNodeImageResponse](
 			httpClient,
-			baseURL+FleetServiceRejectNodeScepEnrollmentProcedure,
-			connect.WithSchema(fleetServiceMethods.ByName("RejectNodeScepEnrollment")),
+			baseURL+FleetServiceActivateNodeImageProcedure,
+			connect.WithSchema(fleetServiceMethods.ByName("ActivateNodeImage")),
+			connect.WithClientOptions(opts...),
+		),
+		rollbackNodeImage: connect.NewClient[v1.RollbackNodeImageRequest, v1.RollbackNodeImageResponse](
+			httpClient,
+			baseURL+FleetServiceRollbackNodeImageProcedure,
+			connect.WithSchema(fleetServiceMethods.ByName("RollbackNodeImage")),
 			connect.WithClientOptions(opts...),
 		),
 		issueLeaf: connect.NewClient[v1.IssueLeafRequest, v1.IssueLeafResponse](
@@ -924,6 +970,42 @@ func NewFleetServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(fleetServiceMethods.ByName("CancelCertificateRequest")),
 			connect.WithClientOptions(opts...),
 		),
+		mintNodeScepChallenge: connect.NewClient[v1.MintNodeScepChallengeRequest, v1.MintNodeScepChallengeResponse](
+			httpClient,
+			baseURL+FleetServiceMintNodeScepChallengeProcedure,
+			connect.WithSchema(fleetServiceMethods.ByName("MintNodeScepChallenge")),
+			connect.WithClientOptions(opts...),
+		),
+		listNodeScepChallenges: connect.NewClient[v1.ListNodeScepChallengesRequest, v1.ListNodeScepChallengesResponse](
+			httpClient,
+			baseURL+FleetServiceListNodeScepChallengesProcedure,
+			connect.WithSchema(fleetServiceMethods.ByName("ListNodeScepChallenges")),
+			connect.WithClientOptions(opts...),
+		),
+		revokeNodeScepChallenge: connect.NewClient[v1.RevokeNodeScepChallengeRequest, v1.RevokeNodeScepChallengeResponse](
+			httpClient,
+			baseURL+FleetServiceRevokeNodeScepChallengeProcedure,
+			connect.WithSchema(fleetServiceMethods.ByName("RevokeNodeScepChallenge")),
+			connect.WithClientOptions(opts...),
+		),
+		listNodeScepEnrollments: connect.NewClient[v1.ListNodeScepEnrollmentsRequest, v1.ListNodeScepEnrollmentsResponse](
+			httpClient,
+			baseURL+FleetServiceListNodeScepEnrollmentsProcedure,
+			connect.WithSchema(fleetServiceMethods.ByName("ListNodeScepEnrollments")),
+			connect.WithClientOptions(opts...),
+		),
+		approveNodeScepEnrollment: connect.NewClient[v1.ApproveNodeScepEnrollmentRequest, v1.ApproveNodeScepEnrollmentResponse](
+			httpClient,
+			baseURL+FleetServiceApproveNodeScepEnrollmentProcedure,
+			connect.WithSchema(fleetServiceMethods.ByName("ApproveNodeScepEnrollment")),
+			connect.WithClientOptions(opts...),
+		),
+		rejectNodeScepEnrollment: connect.NewClient[v1.RejectNodeScepEnrollmentRequest, v1.RejectNodeScepEnrollmentResponse](
+			httpClient,
+			baseURL+FleetServiceRejectNodeScepEnrollmentProcedure,
+			connect.WithSchema(fleetServiceMethods.ByName("RejectNodeScepEnrollment")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -954,9 +1036,10 @@ type fleetServiceClient struct {
 	verifyNodeAuditChain            *connect.Client[v1.VerifyNodeAuditChainRequest, v1.VerifyNodeAuditChainResponse]
 	validateCertificateChain        *connect.Client[v1.ValidateCertificateChainRequest, v1.ValidateCertificateChainResponse]
 	listNodeTsaCertificates         *connect.Client[v1.ListNodeTsaCertificatesRequest, v1.ListNodeTsaCertificatesResponse]
-	listNodeScepEnrollments         *connect.Client[v1.ListNodeScepEnrollmentsRequest, v1.ListNodeScepEnrollmentsResponse]
-	approveNodeScepEnrollment       *connect.Client[v1.ApproveNodeScepEnrollmentRequest, v1.ApproveNodeScepEnrollmentResponse]
-	rejectNodeScepEnrollment        *connect.Client[v1.RejectNodeScepEnrollmentRequest, v1.RejectNodeScepEnrollmentResponse]
+	getNodeImageStatus              *connect.Client[v1.GetNodeImageStatusRequest, v1.GetNodeImageStatusResponse]
+	stageNodeImage                  *connect.Client[v1.StageNodeImageRequest, v1.StageNodeImageResponse]
+	activateNodeImage               *connect.Client[v1.ActivateNodeImageRequest, v1.ActivateNodeImageResponse]
+	rollbackNodeImage               *connect.Client[v1.RollbackNodeImageRequest, v1.RollbackNodeImageResponse]
 	issueLeaf                       *connect.Client[v1.IssueLeafRequest, v1.IssueLeafResponse]
 	rekeyNode                       *connect.Client[v1.RekeyNodeRequest, v1.RekeyNodeResponse]
 	getNodeConfig                   *connect.Client[v1.GetNodeConfigRequest, v1.GetNodeConfigResponse]
@@ -992,6 +1075,12 @@ type fleetServiceClient struct {
 	listCertificateRequests         *connect.Client[v1.ListCertificateRequestsRequest, v1.ListCertificateRequestsResponse]
 	getCertificateRequestByID       *connect.Client[v1.GetCertificateRequestByIDRequest, v1.GetCertificateRequestByIDResponse]
 	cancelCertificateRequest        *connect.Client[v1.CancelCertificateRequestRequest, v1.CancelCertificateRequestResponse]
+	mintNodeScepChallenge           *connect.Client[v1.MintNodeScepChallengeRequest, v1.MintNodeScepChallengeResponse]
+	listNodeScepChallenges          *connect.Client[v1.ListNodeScepChallengesRequest, v1.ListNodeScepChallengesResponse]
+	revokeNodeScepChallenge         *connect.Client[v1.RevokeNodeScepChallengeRequest, v1.RevokeNodeScepChallengeResponse]
+	listNodeScepEnrollments         *connect.Client[v1.ListNodeScepEnrollmentsRequest, v1.ListNodeScepEnrollmentsResponse]
+	approveNodeScepEnrollment       *connect.Client[v1.ApproveNodeScepEnrollmentRequest, v1.ApproveNodeScepEnrollmentResponse]
+	rejectNodeScepEnrollment        *connect.Client[v1.RejectNodeScepEnrollmentRequest, v1.RejectNodeScepEnrollmentResponse]
 }
 
 // ListNodes calls cryptos.fleet.v1.FleetService.ListNodes.
@@ -1119,19 +1208,24 @@ func (c *fleetServiceClient) ListNodeTsaCertificates(ctx context.Context, req *c
 	return c.listNodeTsaCertificates.CallUnary(ctx, req)
 }
 
-// ListNodeScepEnrollments calls cryptos.fleet.v1.FleetService.ListNodeScepEnrollments.
-func (c *fleetServiceClient) ListNodeScepEnrollments(ctx context.Context, req *connect.Request[v1.ListNodeScepEnrollmentsRequest]) (*connect.Response[v1.ListNodeScepEnrollmentsResponse], error) {
-	return c.listNodeScepEnrollments.CallUnary(ctx, req)
+// GetNodeImageStatus calls cryptos.fleet.v1.FleetService.GetNodeImageStatus.
+func (c *fleetServiceClient) GetNodeImageStatus(ctx context.Context, req *connect.Request[v1.GetNodeImageStatusRequest]) (*connect.Response[v1.GetNodeImageStatusResponse], error) {
+	return c.getNodeImageStatus.CallUnary(ctx, req)
 }
 
-// ApproveNodeScepEnrollment calls cryptos.fleet.v1.FleetService.ApproveNodeScepEnrollment.
-func (c *fleetServiceClient) ApproveNodeScepEnrollment(ctx context.Context, req *connect.Request[v1.ApproveNodeScepEnrollmentRequest]) (*connect.Response[v1.ApproveNodeScepEnrollmentResponse], error) {
-	return c.approveNodeScepEnrollment.CallUnary(ctx, req)
+// StageNodeImage calls cryptos.fleet.v1.FleetService.StageNodeImage.
+func (c *fleetServiceClient) StageNodeImage(ctx context.Context, req *connect.Request[v1.StageNodeImageRequest]) (*connect.Response[v1.StageNodeImageResponse], error) {
+	return c.stageNodeImage.CallUnary(ctx, req)
 }
 
-// RejectNodeScepEnrollment calls cryptos.fleet.v1.FleetService.RejectNodeScepEnrollment.
-func (c *fleetServiceClient) RejectNodeScepEnrollment(ctx context.Context, req *connect.Request[v1.RejectNodeScepEnrollmentRequest]) (*connect.Response[v1.RejectNodeScepEnrollmentResponse], error) {
-	return c.rejectNodeScepEnrollment.CallUnary(ctx, req)
+// ActivateNodeImage calls cryptos.fleet.v1.FleetService.ActivateNodeImage.
+func (c *fleetServiceClient) ActivateNodeImage(ctx context.Context, req *connect.Request[v1.ActivateNodeImageRequest]) (*connect.Response[v1.ActivateNodeImageResponse], error) {
+	return c.activateNodeImage.CallUnary(ctx, req)
+}
+
+// RollbackNodeImage calls cryptos.fleet.v1.FleetService.RollbackNodeImage.
+func (c *fleetServiceClient) RollbackNodeImage(ctx context.Context, req *connect.Request[v1.RollbackNodeImageRequest]) (*connect.Response[v1.RollbackNodeImageResponse], error) {
+	return c.rollbackNodeImage.CallUnary(ctx, req)
 }
 
 // IssueLeaf calls cryptos.fleet.v1.FleetService.IssueLeaf.
@@ -1312,6 +1406,36 @@ func (c *fleetServiceClient) CancelCertificateRequest(ctx context.Context, req *
 	return c.cancelCertificateRequest.CallUnary(ctx, req)
 }
 
+// MintNodeScepChallenge calls cryptos.fleet.v1.FleetService.MintNodeScepChallenge.
+func (c *fleetServiceClient) MintNodeScepChallenge(ctx context.Context, req *connect.Request[v1.MintNodeScepChallengeRequest]) (*connect.Response[v1.MintNodeScepChallengeResponse], error) {
+	return c.mintNodeScepChallenge.CallUnary(ctx, req)
+}
+
+// ListNodeScepChallenges calls cryptos.fleet.v1.FleetService.ListNodeScepChallenges.
+func (c *fleetServiceClient) ListNodeScepChallenges(ctx context.Context, req *connect.Request[v1.ListNodeScepChallengesRequest]) (*connect.Response[v1.ListNodeScepChallengesResponse], error) {
+	return c.listNodeScepChallenges.CallUnary(ctx, req)
+}
+
+// RevokeNodeScepChallenge calls cryptos.fleet.v1.FleetService.RevokeNodeScepChallenge.
+func (c *fleetServiceClient) RevokeNodeScepChallenge(ctx context.Context, req *connect.Request[v1.RevokeNodeScepChallengeRequest]) (*connect.Response[v1.RevokeNodeScepChallengeResponse], error) {
+	return c.revokeNodeScepChallenge.CallUnary(ctx, req)
+}
+
+// ListNodeScepEnrollments calls cryptos.fleet.v1.FleetService.ListNodeScepEnrollments.
+func (c *fleetServiceClient) ListNodeScepEnrollments(ctx context.Context, req *connect.Request[v1.ListNodeScepEnrollmentsRequest]) (*connect.Response[v1.ListNodeScepEnrollmentsResponse], error) {
+	return c.listNodeScepEnrollments.CallUnary(ctx, req)
+}
+
+// ApproveNodeScepEnrollment calls cryptos.fleet.v1.FleetService.ApproveNodeScepEnrollment.
+func (c *fleetServiceClient) ApproveNodeScepEnrollment(ctx context.Context, req *connect.Request[v1.ApproveNodeScepEnrollmentRequest]) (*connect.Response[v1.ApproveNodeScepEnrollmentResponse], error) {
+	return c.approveNodeScepEnrollment.CallUnary(ctx, req)
+}
+
+// RejectNodeScepEnrollment calls cryptos.fleet.v1.FleetService.RejectNodeScepEnrollment.
+func (c *fleetServiceClient) RejectNodeScepEnrollment(ctx context.Context, req *connect.Request[v1.RejectNodeScepEnrollmentRequest]) (*connect.Response[v1.RejectNodeScepEnrollmentResponse], error) {
+	return c.rejectNodeScepEnrollment.CallUnary(ctx, req)
+}
+
 // FleetServiceHandler is an implementation of the cryptos.fleet.v1.FleetService service.
 type FleetServiceHandler interface {
 	// ListNodes returns a summary for every node the manager knows about.
@@ -1415,17 +1539,30 @@ type FleetServiceHandler interface {
 	// list while its TSA is not running. Readable at viewer level and above; a
 	// read, so it is not audited.
 	ListNodeTsaCertificates(context.Context, *connect.Request[v1.ListNodeTsaCertificatesRequest]) (*connect.Response[v1.ListNodeTsaCertificatesResponse], error)
-	// ListNodeScepEnrollments lists a managed node's pending SCEP device
-	// enrolments, proxying the node's own queue. Operator-gated; a read, so it
-	// is not audited.
-	ListNodeScepEnrollments(context.Context, *connect.Request[v1.ListNodeScepEnrollmentsRequest]) (*connect.Response[v1.ListNodeScepEnrollmentsResponse], error)
-	// ApproveNodeScepEnrollment approves a pending SCEP enrolment on a managed
-	// node, issuing the device a certificate. Operator-gated and audited.
-	ApproveNodeScepEnrollment(context.Context, *connect.Request[v1.ApproveNodeScepEnrollmentRequest]) (*connect.Response[v1.ApproveNodeScepEnrollmentResponse], error)
-	// RejectNodeScepEnrollment rejects a pending SCEP enrolment on a managed
-	// node with a reason, recorded in the node's own audit log. Operator-gated
-	// and audited.
-	RejectNodeScepEnrollment(context.Context, *connect.Request[v1.RejectNodeScepEnrollmentRequest]) (*connect.Response[v1.RejectNodeScepEnrollmentResponse], error)
+	// GetNodeImageStatus reports what CryptOS image a managed node is running,
+	// what it will boot next, and what it could roll back to. Readable at
+	// viewer level and above; a read, so it is not audited.
+	GetNodeImageStatus(context.Context, *connect.Request[v1.GetNodeImageStatusRequest]) (*connect.Response[v1.GetNodeImageStatusResponse], error)
+	// StageNodeImage installs a new CryptOS image on a managed node's spare ESP
+	// slot without touching the one it is running from. The manager fetches
+	// image_url itself (the browser never carries the image), checks the
+	// detached release signature, and streams it to the node the same way
+	// `cryptosctl image stage` does. The node will not boot it until
+	// ActivateNodeImage runs. Admin-gated (an unreviewed image on a trust
+	// anchor) and audited; the node's own refusals (a bad signature, or
+	// FailedPrecondition when another upgrade is already running) are
+	// surfaced unchanged.
+	StageNodeImage(context.Context, *connect.Request[v1.StageNodeImageRequest]) (*connect.Response[v1.StageNodeImageResponse], error)
+	// ActivateNodeImage reboots a managed node so a staged image starts
+	// running. confirm_ca_cn must equal the node's current CA common name, the
+	// same confirmation RebootNode requires, because activating is itself a
+	// reboot. Admin-gated and audited.
+	ActivateNodeImage(context.Context, *connect.Request[v1.ActivateNodeImageRequest]) (*connect.Response[v1.ActivateNodeImageResponse], error)
+	// RollbackNodeImage puts a managed node's previously running image back on
+	// the boot path, for a node that was already activated onto a bad image.
+	// ActivateNodeImage (or a reboot) is still needed to actually boot it.
+	// Admin-gated and audited.
+	RollbackNodeImage(context.Context, *connect.Request[v1.RollbackNodeImageRequest]) (*connect.Response[v1.RollbackNodeImageResponse], error)
 	// IssueLeaf signs a leaf certificate on the named issuing node from a
 	// browser-generated PKCS#10 CSR under a named issuance profile. Only the
 	// CSR crosses the wire; the leaf private key stays in the browser.
@@ -1631,6 +1768,12 @@ type FleetServiceHandler interface {
 	// CancelCertificateRequest ends a pending certificate request. The
 	// requester may cancel their own; an admin may cancel any. Audited.
 	CancelCertificateRequest(context.Context, *connect.Request[v1.CancelCertificateRequestRequest]) (*connect.Response[v1.CancelCertificateRequestResponse], error)
+	MintNodeScepChallenge(context.Context, *connect.Request[v1.MintNodeScepChallengeRequest]) (*connect.Response[v1.MintNodeScepChallengeResponse], error)
+	ListNodeScepChallenges(context.Context, *connect.Request[v1.ListNodeScepChallengesRequest]) (*connect.Response[v1.ListNodeScepChallengesResponse], error)
+	RevokeNodeScepChallenge(context.Context, *connect.Request[v1.RevokeNodeScepChallengeRequest]) (*connect.Response[v1.RevokeNodeScepChallengeResponse], error)
+	ListNodeScepEnrollments(context.Context, *connect.Request[v1.ListNodeScepEnrollmentsRequest]) (*connect.Response[v1.ListNodeScepEnrollmentsResponse], error)
+	ApproveNodeScepEnrollment(context.Context, *connect.Request[v1.ApproveNodeScepEnrollmentRequest]) (*connect.Response[v1.ApproveNodeScepEnrollmentResponse], error)
+	RejectNodeScepEnrollment(context.Context, *connect.Request[v1.RejectNodeScepEnrollmentRequest]) (*connect.Response[v1.RejectNodeScepEnrollmentResponse], error)
 }
 
 // NewFleetServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -1790,22 +1933,28 @@ func NewFleetServiceHandler(svc FleetServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(fleetServiceMethods.ByName("ListNodeTsaCertificates")),
 		connect.WithHandlerOptions(opts...),
 	)
-	fleetServiceListNodeScepEnrollmentsHandler := connect.NewUnaryHandler(
-		FleetServiceListNodeScepEnrollmentsProcedure,
-		svc.ListNodeScepEnrollments,
-		connect.WithSchema(fleetServiceMethods.ByName("ListNodeScepEnrollments")),
+	fleetServiceGetNodeImageStatusHandler := connect.NewUnaryHandler(
+		FleetServiceGetNodeImageStatusProcedure,
+		svc.GetNodeImageStatus,
+		connect.WithSchema(fleetServiceMethods.ByName("GetNodeImageStatus")),
 		connect.WithHandlerOptions(opts...),
 	)
-	fleetServiceApproveNodeScepEnrollmentHandler := connect.NewUnaryHandler(
-		FleetServiceApproveNodeScepEnrollmentProcedure,
-		svc.ApproveNodeScepEnrollment,
-		connect.WithSchema(fleetServiceMethods.ByName("ApproveNodeScepEnrollment")),
+	fleetServiceStageNodeImageHandler := connect.NewUnaryHandler(
+		FleetServiceStageNodeImageProcedure,
+		svc.StageNodeImage,
+		connect.WithSchema(fleetServiceMethods.ByName("StageNodeImage")),
 		connect.WithHandlerOptions(opts...),
 	)
-	fleetServiceRejectNodeScepEnrollmentHandler := connect.NewUnaryHandler(
-		FleetServiceRejectNodeScepEnrollmentProcedure,
-		svc.RejectNodeScepEnrollment,
-		connect.WithSchema(fleetServiceMethods.ByName("RejectNodeScepEnrollment")),
+	fleetServiceActivateNodeImageHandler := connect.NewUnaryHandler(
+		FleetServiceActivateNodeImageProcedure,
+		svc.ActivateNodeImage,
+		connect.WithSchema(fleetServiceMethods.ByName("ActivateNodeImage")),
+		connect.WithHandlerOptions(opts...),
+	)
+	fleetServiceRollbackNodeImageHandler := connect.NewUnaryHandler(
+		FleetServiceRollbackNodeImageProcedure,
+		svc.RollbackNodeImage,
+		connect.WithSchema(fleetServiceMethods.ByName("RollbackNodeImage")),
 		connect.WithHandlerOptions(opts...),
 	)
 	fleetServiceIssueLeafHandler := connect.NewUnaryHandler(
@@ -2018,6 +2167,42 @@ func NewFleetServiceHandler(svc FleetServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(fleetServiceMethods.ByName("CancelCertificateRequest")),
 		connect.WithHandlerOptions(opts...),
 	)
+	fleetServiceMintNodeScepChallengeHandler := connect.NewUnaryHandler(
+		FleetServiceMintNodeScepChallengeProcedure,
+		svc.MintNodeScepChallenge,
+		connect.WithSchema(fleetServiceMethods.ByName("MintNodeScepChallenge")),
+		connect.WithHandlerOptions(opts...),
+	)
+	fleetServiceListNodeScepChallengesHandler := connect.NewUnaryHandler(
+		FleetServiceListNodeScepChallengesProcedure,
+		svc.ListNodeScepChallenges,
+		connect.WithSchema(fleetServiceMethods.ByName("ListNodeScepChallenges")),
+		connect.WithHandlerOptions(opts...),
+	)
+	fleetServiceRevokeNodeScepChallengeHandler := connect.NewUnaryHandler(
+		FleetServiceRevokeNodeScepChallengeProcedure,
+		svc.RevokeNodeScepChallenge,
+		connect.WithSchema(fleetServiceMethods.ByName("RevokeNodeScepChallenge")),
+		connect.WithHandlerOptions(opts...),
+	)
+	fleetServiceListNodeScepEnrollmentsHandler := connect.NewUnaryHandler(
+		FleetServiceListNodeScepEnrollmentsProcedure,
+		svc.ListNodeScepEnrollments,
+		connect.WithSchema(fleetServiceMethods.ByName("ListNodeScepEnrollments")),
+		connect.WithHandlerOptions(opts...),
+	)
+	fleetServiceApproveNodeScepEnrollmentHandler := connect.NewUnaryHandler(
+		FleetServiceApproveNodeScepEnrollmentProcedure,
+		svc.ApproveNodeScepEnrollment,
+		connect.WithSchema(fleetServiceMethods.ByName("ApproveNodeScepEnrollment")),
+		connect.WithHandlerOptions(opts...),
+	)
+	fleetServiceRejectNodeScepEnrollmentHandler := connect.NewUnaryHandler(
+		FleetServiceRejectNodeScepEnrollmentProcedure,
+		svc.RejectNodeScepEnrollment,
+		connect.WithSchema(fleetServiceMethods.ByName("RejectNodeScepEnrollment")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/cryptos.fleet.v1.FleetService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case FleetServiceListNodesProcedure:
@@ -2070,12 +2255,14 @@ func NewFleetServiceHandler(svc FleetServiceHandler, opts ...connect.HandlerOpti
 			fleetServiceValidateCertificateChainHandler.ServeHTTP(w, r)
 		case FleetServiceListNodeTsaCertificatesProcedure:
 			fleetServiceListNodeTsaCertificatesHandler.ServeHTTP(w, r)
-		case FleetServiceListNodeScepEnrollmentsProcedure:
-			fleetServiceListNodeScepEnrollmentsHandler.ServeHTTP(w, r)
-		case FleetServiceApproveNodeScepEnrollmentProcedure:
-			fleetServiceApproveNodeScepEnrollmentHandler.ServeHTTP(w, r)
-		case FleetServiceRejectNodeScepEnrollmentProcedure:
-			fleetServiceRejectNodeScepEnrollmentHandler.ServeHTTP(w, r)
+		case FleetServiceGetNodeImageStatusProcedure:
+			fleetServiceGetNodeImageStatusHandler.ServeHTTP(w, r)
+		case FleetServiceStageNodeImageProcedure:
+			fleetServiceStageNodeImageHandler.ServeHTTP(w, r)
+		case FleetServiceActivateNodeImageProcedure:
+			fleetServiceActivateNodeImageHandler.ServeHTTP(w, r)
+		case FleetServiceRollbackNodeImageProcedure:
+			fleetServiceRollbackNodeImageHandler.ServeHTTP(w, r)
 		case FleetServiceIssueLeafProcedure:
 			fleetServiceIssueLeafHandler.ServeHTTP(w, r)
 		case FleetServiceRekeyNodeProcedure:
@@ -2146,6 +2333,18 @@ func NewFleetServiceHandler(svc FleetServiceHandler, opts ...connect.HandlerOpti
 			fleetServiceGetCertificateRequestByIDHandler.ServeHTTP(w, r)
 		case FleetServiceCancelCertificateRequestProcedure:
 			fleetServiceCancelCertificateRequestHandler.ServeHTTP(w, r)
+		case FleetServiceMintNodeScepChallengeProcedure:
+			fleetServiceMintNodeScepChallengeHandler.ServeHTTP(w, r)
+		case FleetServiceListNodeScepChallengesProcedure:
+			fleetServiceListNodeScepChallengesHandler.ServeHTTP(w, r)
+		case FleetServiceRevokeNodeScepChallengeProcedure:
+			fleetServiceRevokeNodeScepChallengeHandler.ServeHTTP(w, r)
+		case FleetServiceListNodeScepEnrollmentsProcedure:
+			fleetServiceListNodeScepEnrollmentsHandler.ServeHTTP(w, r)
+		case FleetServiceApproveNodeScepEnrollmentProcedure:
+			fleetServiceApproveNodeScepEnrollmentHandler.ServeHTTP(w, r)
+		case FleetServiceRejectNodeScepEnrollmentProcedure:
+			fleetServiceRejectNodeScepEnrollmentHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -2255,16 +2454,20 @@ func (UnimplementedFleetServiceHandler) ListNodeTsaCertificates(context.Context,
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cryptos.fleet.v1.FleetService.ListNodeTsaCertificates is not implemented"))
 }
 
-func (UnimplementedFleetServiceHandler) ListNodeScepEnrollments(context.Context, *connect.Request[v1.ListNodeScepEnrollmentsRequest]) (*connect.Response[v1.ListNodeScepEnrollmentsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cryptos.fleet.v1.FleetService.ListNodeScepEnrollments is not implemented"))
+func (UnimplementedFleetServiceHandler) GetNodeImageStatus(context.Context, *connect.Request[v1.GetNodeImageStatusRequest]) (*connect.Response[v1.GetNodeImageStatusResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cryptos.fleet.v1.FleetService.GetNodeImageStatus is not implemented"))
 }
 
-func (UnimplementedFleetServiceHandler) ApproveNodeScepEnrollment(context.Context, *connect.Request[v1.ApproveNodeScepEnrollmentRequest]) (*connect.Response[v1.ApproveNodeScepEnrollmentResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cryptos.fleet.v1.FleetService.ApproveNodeScepEnrollment is not implemented"))
+func (UnimplementedFleetServiceHandler) StageNodeImage(context.Context, *connect.Request[v1.StageNodeImageRequest]) (*connect.Response[v1.StageNodeImageResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cryptos.fleet.v1.FleetService.StageNodeImage is not implemented"))
 }
 
-func (UnimplementedFleetServiceHandler) RejectNodeScepEnrollment(context.Context, *connect.Request[v1.RejectNodeScepEnrollmentRequest]) (*connect.Response[v1.RejectNodeScepEnrollmentResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cryptos.fleet.v1.FleetService.RejectNodeScepEnrollment is not implemented"))
+func (UnimplementedFleetServiceHandler) ActivateNodeImage(context.Context, *connect.Request[v1.ActivateNodeImageRequest]) (*connect.Response[v1.ActivateNodeImageResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cryptos.fleet.v1.FleetService.ActivateNodeImage is not implemented"))
+}
+
+func (UnimplementedFleetServiceHandler) RollbackNodeImage(context.Context, *connect.Request[v1.RollbackNodeImageRequest]) (*connect.Response[v1.RollbackNodeImageResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cryptos.fleet.v1.FleetService.RollbackNodeImage is not implemented"))
 }
 
 func (UnimplementedFleetServiceHandler) IssueLeaf(context.Context, *connect.Request[v1.IssueLeafRequest]) (*connect.Response[v1.IssueLeafResponse], error) {
@@ -2405,4 +2608,28 @@ func (UnimplementedFleetServiceHandler) GetCertificateRequestByID(context.Contex
 
 func (UnimplementedFleetServiceHandler) CancelCertificateRequest(context.Context, *connect.Request[v1.CancelCertificateRequestRequest]) (*connect.Response[v1.CancelCertificateRequestResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cryptos.fleet.v1.FleetService.CancelCertificateRequest is not implemented"))
+}
+
+func (UnimplementedFleetServiceHandler) MintNodeScepChallenge(context.Context, *connect.Request[v1.MintNodeScepChallengeRequest]) (*connect.Response[v1.MintNodeScepChallengeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cryptos.fleet.v1.FleetService.MintNodeScepChallenge is not implemented"))
+}
+
+func (UnimplementedFleetServiceHandler) ListNodeScepChallenges(context.Context, *connect.Request[v1.ListNodeScepChallengesRequest]) (*connect.Response[v1.ListNodeScepChallengesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cryptos.fleet.v1.FleetService.ListNodeScepChallenges is not implemented"))
+}
+
+func (UnimplementedFleetServiceHandler) RevokeNodeScepChallenge(context.Context, *connect.Request[v1.RevokeNodeScepChallengeRequest]) (*connect.Response[v1.RevokeNodeScepChallengeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cryptos.fleet.v1.FleetService.RevokeNodeScepChallenge is not implemented"))
+}
+
+func (UnimplementedFleetServiceHandler) ListNodeScepEnrollments(context.Context, *connect.Request[v1.ListNodeScepEnrollmentsRequest]) (*connect.Response[v1.ListNodeScepEnrollmentsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cryptos.fleet.v1.FleetService.ListNodeScepEnrollments is not implemented"))
+}
+
+func (UnimplementedFleetServiceHandler) ApproveNodeScepEnrollment(context.Context, *connect.Request[v1.ApproveNodeScepEnrollmentRequest]) (*connect.Response[v1.ApproveNodeScepEnrollmentResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cryptos.fleet.v1.FleetService.ApproveNodeScepEnrollment is not implemented"))
+}
+
+func (UnimplementedFleetServiceHandler) RejectNodeScepEnrollment(context.Context, *connect.Request[v1.RejectNodeScepEnrollmentRequest]) (*connect.Response[v1.RejectNodeScepEnrollmentResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cryptos.fleet.v1.FleetService.RejectNodeScepEnrollment is not implemented"))
 }
