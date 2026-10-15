@@ -104,6 +104,18 @@ const (
 	// FleetServiceListNodeTsaCertificatesProcedure is the fully-qualified name of the FleetService's
 	// ListNodeTsaCertificates RPC.
 	FleetServiceListNodeTsaCertificatesProcedure = "/cryptos.fleet.v1.FleetService/ListNodeTsaCertificates"
+	// FleetServiceGetNodeImageStatusProcedure is the fully-qualified name of the FleetService's
+	// GetNodeImageStatus RPC.
+	FleetServiceGetNodeImageStatusProcedure = "/cryptos.fleet.v1.FleetService/GetNodeImageStatus"
+	// FleetServiceStageNodeImageProcedure is the fully-qualified name of the FleetService's
+	// StageNodeImage RPC.
+	FleetServiceStageNodeImageProcedure = "/cryptos.fleet.v1.FleetService/StageNodeImage"
+	// FleetServiceActivateNodeImageProcedure is the fully-qualified name of the FleetService's
+	// ActivateNodeImage RPC.
+	FleetServiceActivateNodeImageProcedure = "/cryptos.fleet.v1.FleetService/ActivateNodeImage"
+	// FleetServiceRollbackNodeImageProcedure is the fully-qualified name of the FleetService's
+	// RollbackNodeImage RPC.
+	FleetServiceRollbackNodeImageProcedure = "/cryptos.fleet.v1.FleetService/RollbackNodeImage"
 	// FleetServiceIssueLeafProcedure is the fully-qualified name of the FleetService's IssueLeaf RPC.
 	FleetServiceIssueLeafProcedure = "/cryptos.fleet.v1.FleetService/IssueLeaf"
 	// FleetServiceRekeyNodeProcedure is the fully-qualified name of the FleetService's RekeyNode RPC.
@@ -308,6 +320,30 @@ type FleetServiceClient interface {
 	// list while its TSA is not running. Readable at viewer level and above; a
 	// read, so it is not audited.
 	ListNodeTsaCertificates(context.Context, *connect.Request[v1.ListNodeTsaCertificatesRequest]) (*connect.Response[v1.ListNodeTsaCertificatesResponse], error)
+	// GetNodeImageStatus reports what CryptOS image a managed node is running,
+	// what it will boot next, and what it could roll back to. Readable at
+	// viewer level and above; a read, so it is not audited.
+	GetNodeImageStatus(context.Context, *connect.Request[v1.GetNodeImageStatusRequest]) (*connect.Response[v1.GetNodeImageStatusResponse], error)
+	// StageNodeImage installs a new CryptOS image on a managed node's spare ESP
+	// slot without touching the one it is running from. The manager fetches
+	// image_url itself (the browser never carries the image), checks the
+	// detached release signature, and streams it to the node the same way
+	// `cryptosctl image stage` does. The node will not boot it until
+	// ActivateNodeImage runs. Admin-gated (an unreviewed image on a trust
+	// anchor) and audited; the node's own refusals (a bad signature, or
+	// FailedPrecondition when another upgrade is already running) are
+	// surfaced unchanged.
+	StageNodeImage(context.Context, *connect.Request[v1.StageNodeImageRequest]) (*connect.Response[v1.StageNodeImageResponse], error)
+	// ActivateNodeImage reboots a managed node so a staged image starts
+	// running. confirm_ca_cn must equal the node's current CA common name, the
+	// same confirmation RebootNode requires, because activating is itself a
+	// reboot. Admin-gated and audited.
+	ActivateNodeImage(context.Context, *connect.Request[v1.ActivateNodeImageRequest]) (*connect.Response[v1.ActivateNodeImageResponse], error)
+	// RollbackNodeImage puts a managed node's previously running image back on
+	// the boot path, for a node that was already activated onto a bad image.
+	// ActivateNodeImage (or a reboot) is still needed to actually boot it.
+	// Admin-gated and audited.
+	RollbackNodeImage(context.Context, *connect.Request[v1.RollbackNodeImageRequest]) (*connect.Response[v1.RollbackNodeImageResponse], error)
 	// IssueLeaf signs a leaf certificate on the named issuing node from a
 	// browser-generated PKCS#10 CSR under a named issuance profile. Only the
 	// CSR crosses the wire; the leaf private key stays in the browser.
@@ -676,6 +712,30 @@ func NewFleetServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(fleetServiceMethods.ByName("ListNodeTsaCertificates")),
 			connect.WithClientOptions(opts...),
 		),
+		getNodeImageStatus: connect.NewClient[v1.GetNodeImageStatusRequest, v1.GetNodeImageStatusResponse](
+			httpClient,
+			baseURL+FleetServiceGetNodeImageStatusProcedure,
+			connect.WithSchema(fleetServiceMethods.ByName("GetNodeImageStatus")),
+			connect.WithClientOptions(opts...),
+		),
+		stageNodeImage: connect.NewClient[v1.StageNodeImageRequest, v1.StageNodeImageResponse](
+			httpClient,
+			baseURL+FleetServiceStageNodeImageProcedure,
+			connect.WithSchema(fleetServiceMethods.ByName("StageNodeImage")),
+			connect.WithClientOptions(opts...),
+		),
+		activateNodeImage: connect.NewClient[v1.ActivateNodeImageRequest, v1.ActivateNodeImageResponse](
+			httpClient,
+			baseURL+FleetServiceActivateNodeImageProcedure,
+			connect.WithSchema(fleetServiceMethods.ByName("ActivateNodeImage")),
+			connect.WithClientOptions(opts...),
+		),
+		rollbackNodeImage: connect.NewClient[v1.RollbackNodeImageRequest, v1.RollbackNodeImageResponse](
+			httpClient,
+			baseURL+FleetServiceRollbackNodeImageProcedure,
+			connect.WithSchema(fleetServiceMethods.ByName("RollbackNodeImage")),
+			connect.WithClientOptions(opts...),
+		),
 		issueLeaf: connect.NewClient[v1.IssueLeafRequest, v1.IssueLeafResponse](
 			httpClient,
 			baseURL+FleetServiceIssueLeafProcedure,
@@ -916,6 +976,10 @@ type fleetServiceClient struct {
 	verifyNodeAuditChain            *connect.Client[v1.VerifyNodeAuditChainRequest, v1.VerifyNodeAuditChainResponse]
 	validateCertificateChain        *connect.Client[v1.ValidateCertificateChainRequest, v1.ValidateCertificateChainResponse]
 	listNodeTsaCertificates         *connect.Client[v1.ListNodeTsaCertificatesRequest, v1.ListNodeTsaCertificatesResponse]
+	getNodeImageStatus              *connect.Client[v1.GetNodeImageStatusRequest, v1.GetNodeImageStatusResponse]
+	stageNodeImage                  *connect.Client[v1.StageNodeImageRequest, v1.StageNodeImageResponse]
+	activateNodeImage               *connect.Client[v1.ActivateNodeImageRequest, v1.ActivateNodeImageResponse]
+	rollbackNodeImage               *connect.Client[v1.RollbackNodeImageRequest, v1.RollbackNodeImageResponse]
 	issueLeaf                       *connect.Client[v1.IssueLeafRequest, v1.IssueLeafResponse]
 	rekeyNode                       *connect.Client[v1.RekeyNodeRequest, v1.RekeyNodeResponse]
 	getNodeConfig                   *connect.Client[v1.GetNodeConfigRequest, v1.GetNodeConfigResponse]
@@ -1076,6 +1140,26 @@ func (c *fleetServiceClient) ValidateCertificateChain(ctx context.Context, req *
 // ListNodeTsaCertificates calls cryptos.fleet.v1.FleetService.ListNodeTsaCertificates.
 func (c *fleetServiceClient) ListNodeTsaCertificates(ctx context.Context, req *connect.Request[v1.ListNodeTsaCertificatesRequest]) (*connect.Response[v1.ListNodeTsaCertificatesResponse], error) {
 	return c.listNodeTsaCertificates.CallUnary(ctx, req)
+}
+
+// GetNodeImageStatus calls cryptos.fleet.v1.FleetService.GetNodeImageStatus.
+func (c *fleetServiceClient) GetNodeImageStatus(ctx context.Context, req *connect.Request[v1.GetNodeImageStatusRequest]) (*connect.Response[v1.GetNodeImageStatusResponse], error) {
+	return c.getNodeImageStatus.CallUnary(ctx, req)
+}
+
+// StageNodeImage calls cryptos.fleet.v1.FleetService.StageNodeImage.
+func (c *fleetServiceClient) StageNodeImage(ctx context.Context, req *connect.Request[v1.StageNodeImageRequest]) (*connect.Response[v1.StageNodeImageResponse], error) {
+	return c.stageNodeImage.CallUnary(ctx, req)
+}
+
+// ActivateNodeImage calls cryptos.fleet.v1.FleetService.ActivateNodeImage.
+func (c *fleetServiceClient) ActivateNodeImage(ctx context.Context, req *connect.Request[v1.ActivateNodeImageRequest]) (*connect.Response[v1.ActivateNodeImageResponse], error) {
+	return c.activateNodeImage.CallUnary(ctx, req)
+}
+
+// RollbackNodeImage calls cryptos.fleet.v1.FleetService.RollbackNodeImage.
+func (c *fleetServiceClient) RollbackNodeImage(ctx context.Context, req *connect.Request[v1.RollbackNodeImageRequest]) (*connect.Response[v1.RollbackNodeImageResponse], error) {
+	return c.rollbackNodeImage.CallUnary(ctx, req)
 }
 
 // IssueLeaf calls cryptos.fleet.v1.FleetService.IssueLeaf.
@@ -1359,6 +1443,30 @@ type FleetServiceHandler interface {
 	// list while its TSA is not running. Readable at viewer level and above; a
 	// read, so it is not audited.
 	ListNodeTsaCertificates(context.Context, *connect.Request[v1.ListNodeTsaCertificatesRequest]) (*connect.Response[v1.ListNodeTsaCertificatesResponse], error)
+	// GetNodeImageStatus reports what CryptOS image a managed node is running,
+	// what it will boot next, and what it could roll back to. Readable at
+	// viewer level and above; a read, so it is not audited.
+	GetNodeImageStatus(context.Context, *connect.Request[v1.GetNodeImageStatusRequest]) (*connect.Response[v1.GetNodeImageStatusResponse], error)
+	// StageNodeImage installs a new CryptOS image on a managed node's spare ESP
+	// slot without touching the one it is running from. The manager fetches
+	// image_url itself (the browser never carries the image), checks the
+	// detached release signature, and streams it to the node the same way
+	// `cryptosctl image stage` does. The node will not boot it until
+	// ActivateNodeImage runs. Admin-gated (an unreviewed image on a trust
+	// anchor) and audited; the node's own refusals (a bad signature, or
+	// FailedPrecondition when another upgrade is already running) are
+	// surfaced unchanged.
+	StageNodeImage(context.Context, *connect.Request[v1.StageNodeImageRequest]) (*connect.Response[v1.StageNodeImageResponse], error)
+	// ActivateNodeImage reboots a managed node so a staged image starts
+	// running. confirm_ca_cn must equal the node's current CA common name, the
+	// same confirmation RebootNode requires, because activating is itself a
+	// reboot. Admin-gated and audited.
+	ActivateNodeImage(context.Context, *connect.Request[v1.ActivateNodeImageRequest]) (*connect.Response[v1.ActivateNodeImageResponse], error)
+	// RollbackNodeImage puts a managed node's previously running image back on
+	// the boot path, for a node that was already activated onto a bad image.
+	// ActivateNodeImage (or a reboot) is still needed to actually boot it.
+	// Admin-gated and audited.
+	RollbackNodeImage(context.Context, *connect.Request[v1.RollbackNodeImageRequest]) (*connect.Response[v1.RollbackNodeImageResponse], error)
 	// IssueLeaf signs a leaf certificate on the named issuing node from a
 	// browser-generated PKCS#10 CSR under a named issuance profile. Only the
 	// CSR crosses the wire; the leaf private key stays in the browser.
@@ -1723,6 +1831,30 @@ func NewFleetServiceHandler(svc FleetServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(fleetServiceMethods.ByName("ListNodeTsaCertificates")),
 		connect.WithHandlerOptions(opts...),
 	)
+	fleetServiceGetNodeImageStatusHandler := connect.NewUnaryHandler(
+		FleetServiceGetNodeImageStatusProcedure,
+		svc.GetNodeImageStatus,
+		connect.WithSchema(fleetServiceMethods.ByName("GetNodeImageStatus")),
+		connect.WithHandlerOptions(opts...),
+	)
+	fleetServiceStageNodeImageHandler := connect.NewUnaryHandler(
+		FleetServiceStageNodeImageProcedure,
+		svc.StageNodeImage,
+		connect.WithSchema(fleetServiceMethods.ByName("StageNodeImage")),
+		connect.WithHandlerOptions(opts...),
+	)
+	fleetServiceActivateNodeImageHandler := connect.NewUnaryHandler(
+		FleetServiceActivateNodeImageProcedure,
+		svc.ActivateNodeImage,
+		connect.WithSchema(fleetServiceMethods.ByName("ActivateNodeImage")),
+		connect.WithHandlerOptions(opts...),
+	)
+	fleetServiceRollbackNodeImageHandler := connect.NewUnaryHandler(
+		FleetServiceRollbackNodeImageProcedure,
+		svc.RollbackNodeImage,
+		connect.WithSchema(fleetServiceMethods.ByName("RollbackNodeImage")),
+		connect.WithHandlerOptions(opts...),
+	)
 	fleetServiceIssueLeafHandler := connect.NewUnaryHandler(
 		FleetServiceIssueLeafProcedure,
 		svc.IssueLeaf,
@@ -1985,6 +2117,14 @@ func NewFleetServiceHandler(svc FleetServiceHandler, opts ...connect.HandlerOpti
 			fleetServiceValidateCertificateChainHandler.ServeHTTP(w, r)
 		case FleetServiceListNodeTsaCertificatesProcedure:
 			fleetServiceListNodeTsaCertificatesHandler.ServeHTTP(w, r)
+		case FleetServiceGetNodeImageStatusProcedure:
+			fleetServiceGetNodeImageStatusHandler.ServeHTTP(w, r)
+		case FleetServiceStageNodeImageProcedure:
+			fleetServiceStageNodeImageHandler.ServeHTTP(w, r)
+		case FleetServiceActivateNodeImageProcedure:
+			fleetServiceActivateNodeImageHandler.ServeHTTP(w, r)
+		case FleetServiceRollbackNodeImageProcedure:
+			fleetServiceRollbackNodeImageHandler.ServeHTTP(w, r)
 		case FleetServiceIssueLeafProcedure:
 			fleetServiceIssueLeafHandler.ServeHTTP(w, r)
 		case FleetServiceRekeyNodeProcedure:
@@ -2162,6 +2302,22 @@ func (UnimplementedFleetServiceHandler) ValidateCertificateChain(context.Context
 
 func (UnimplementedFleetServiceHandler) ListNodeTsaCertificates(context.Context, *connect.Request[v1.ListNodeTsaCertificatesRequest]) (*connect.Response[v1.ListNodeTsaCertificatesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cryptos.fleet.v1.FleetService.ListNodeTsaCertificates is not implemented"))
+}
+
+func (UnimplementedFleetServiceHandler) GetNodeImageStatus(context.Context, *connect.Request[v1.GetNodeImageStatusRequest]) (*connect.Response[v1.GetNodeImageStatusResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cryptos.fleet.v1.FleetService.GetNodeImageStatus is not implemented"))
+}
+
+func (UnimplementedFleetServiceHandler) StageNodeImage(context.Context, *connect.Request[v1.StageNodeImageRequest]) (*connect.Response[v1.StageNodeImageResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cryptos.fleet.v1.FleetService.StageNodeImage is not implemented"))
+}
+
+func (UnimplementedFleetServiceHandler) ActivateNodeImage(context.Context, *connect.Request[v1.ActivateNodeImageRequest]) (*connect.Response[v1.ActivateNodeImageResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cryptos.fleet.v1.FleetService.ActivateNodeImage is not implemented"))
+}
+
+func (UnimplementedFleetServiceHandler) RollbackNodeImage(context.Context, *connect.Request[v1.RollbackNodeImageRequest]) (*connect.Response[v1.RollbackNodeImageResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cryptos.fleet.v1.FleetService.RollbackNodeImage is not implemented"))
 }
 
 func (UnimplementedFleetServiceHandler) IssueLeaf(context.Context, *connect.Request[v1.IssueLeafRequest]) (*connect.Response[v1.IssueLeafResponse], error) {

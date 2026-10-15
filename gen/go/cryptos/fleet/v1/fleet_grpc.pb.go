@@ -44,6 +44,10 @@ const (
 	FleetService_VerifyNodeAuditChain_FullMethodName            = "/cryptos.fleet.v1.FleetService/VerifyNodeAuditChain"
 	FleetService_ValidateCertificateChain_FullMethodName        = "/cryptos.fleet.v1.FleetService/ValidateCertificateChain"
 	FleetService_ListNodeTsaCertificates_FullMethodName         = "/cryptos.fleet.v1.FleetService/ListNodeTsaCertificates"
+	FleetService_GetNodeImageStatus_FullMethodName              = "/cryptos.fleet.v1.FleetService/GetNodeImageStatus"
+	FleetService_StageNodeImage_FullMethodName                  = "/cryptos.fleet.v1.FleetService/StageNodeImage"
+	FleetService_ActivateNodeImage_FullMethodName               = "/cryptos.fleet.v1.FleetService/ActivateNodeImage"
+	FleetService_RollbackNodeImage_FullMethodName               = "/cryptos.fleet.v1.FleetService/RollbackNodeImage"
 	FleetService_IssueLeaf_FullMethodName                       = "/cryptos.fleet.v1.FleetService/IssueLeaf"
 	FleetService_RekeyNode_FullMethodName                       = "/cryptos.fleet.v1.FleetService/RekeyNode"
 	FleetService_GetNodeConfig_FullMethodName                   = "/cryptos.fleet.v1.FleetService/GetNodeConfig"
@@ -191,6 +195,30 @@ type FleetServiceClient interface {
 	// list while its TSA is not running. Readable at viewer level and above; a
 	// read, so it is not audited.
 	ListNodeTsaCertificates(ctx context.Context, in *ListNodeTsaCertificatesRequest, opts ...grpc.CallOption) (*ListNodeTsaCertificatesResponse, error)
+	// GetNodeImageStatus reports what CryptOS image a managed node is running,
+	// what it will boot next, and what it could roll back to. Readable at
+	// viewer level and above; a read, so it is not audited.
+	GetNodeImageStatus(ctx context.Context, in *GetNodeImageStatusRequest, opts ...grpc.CallOption) (*GetNodeImageStatusResponse, error)
+	// StageNodeImage installs a new CryptOS image on a managed node's spare ESP
+	// slot without touching the one it is running from. The manager fetches
+	// image_url itself (the browser never carries the image), checks the
+	// detached release signature, and streams it to the node the same way
+	// `cryptosctl image stage` does. The node will not boot it until
+	// ActivateNodeImage runs. Admin-gated (an unreviewed image on a trust
+	// anchor) and audited; the node's own refusals (a bad signature, or
+	// FailedPrecondition when another upgrade is already running) are
+	// surfaced unchanged.
+	StageNodeImage(ctx context.Context, in *StageNodeImageRequest, opts ...grpc.CallOption) (*StageNodeImageResponse, error)
+	// ActivateNodeImage reboots a managed node so a staged image starts
+	// running. confirm_ca_cn must equal the node's current CA common name, the
+	// same confirmation RebootNode requires, because activating is itself a
+	// reboot. Admin-gated and audited.
+	ActivateNodeImage(ctx context.Context, in *ActivateNodeImageRequest, opts ...grpc.CallOption) (*ActivateNodeImageResponse, error)
+	// RollbackNodeImage puts a managed node's previously running image back on
+	// the boot path, for a node that was already activated onto a bad image.
+	// ActivateNodeImage (or a reboot) is still needed to actually boot it.
+	// Admin-gated and audited.
+	RollbackNodeImage(ctx context.Context, in *RollbackNodeImageRequest, opts ...grpc.CallOption) (*RollbackNodeImageResponse, error)
 	// IssueLeaf signs a leaf certificate on the named issuing node from a
 	// browser-generated PKCS#10 CSR under a named issuance profile. Only the
 	// CSR crosses the wire; the leaf private key stays in the browser.
@@ -650,6 +678,46 @@ func (c *fleetServiceClient) ListNodeTsaCertificates(ctx context.Context, in *Li
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ListNodeTsaCertificatesResponse)
 	err := c.cc.Invoke(ctx, FleetService_ListNodeTsaCertificates_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *fleetServiceClient) GetNodeImageStatus(ctx context.Context, in *GetNodeImageStatusRequest, opts ...grpc.CallOption) (*GetNodeImageStatusResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetNodeImageStatusResponse)
+	err := c.cc.Invoke(ctx, FleetService_GetNodeImageStatus_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *fleetServiceClient) StageNodeImage(ctx context.Context, in *StageNodeImageRequest, opts ...grpc.CallOption) (*StageNodeImageResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(StageNodeImageResponse)
+	err := c.cc.Invoke(ctx, FleetService_StageNodeImage_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *fleetServiceClient) ActivateNodeImage(ctx context.Context, in *ActivateNodeImageRequest, opts ...grpc.CallOption) (*ActivateNodeImageResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ActivateNodeImageResponse)
+	err := c.cc.Invoke(ctx, FleetService_ActivateNodeImage_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *fleetServiceClient) RollbackNodeImage(ctx context.Context, in *RollbackNodeImageRequest, opts ...grpc.CallOption) (*RollbackNodeImageResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RollbackNodeImageResponse)
+	err := c.cc.Invoke(ctx, FleetService_RollbackNodeImage_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1125,6 +1193,30 @@ type FleetServiceServer interface {
 	// list while its TSA is not running. Readable at viewer level and above; a
 	// read, so it is not audited.
 	ListNodeTsaCertificates(context.Context, *ListNodeTsaCertificatesRequest) (*ListNodeTsaCertificatesResponse, error)
+	// GetNodeImageStatus reports what CryptOS image a managed node is running,
+	// what it will boot next, and what it could roll back to. Readable at
+	// viewer level and above; a read, so it is not audited.
+	GetNodeImageStatus(context.Context, *GetNodeImageStatusRequest) (*GetNodeImageStatusResponse, error)
+	// StageNodeImage installs a new CryptOS image on a managed node's spare ESP
+	// slot without touching the one it is running from. The manager fetches
+	// image_url itself (the browser never carries the image), checks the
+	// detached release signature, and streams it to the node the same way
+	// `cryptosctl image stage` does. The node will not boot it until
+	// ActivateNodeImage runs. Admin-gated (an unreviewed image on a trust
+	// anchor) and audited; the node's own refusals (a bad signature, or
+	// FailedPrecondition when another upgrade is already running) are
+	// surfaced unchanged.
+	StageNodeImage(context.Context, *StageNodeImageRequest) (*StageNodeImageResponse, error)
+	// ActivateNodeImage reboots a managed node so a staged image starts
+	// running. confirm_ca_cn must equal the node's current CA common name, the
+	// same confirmation RebootNode requires, because activating is itself a
+	// reboot. Admin-gated and audited.
+	ActivateNodeImage(context.Context, *ActivateNodeImageRequest) (*ActivateNodeImageResponse, error)
+	// RollbackNodeImage puts a managed node's previously running image back on
+	// the boot path, for a node that was already activated onto a bad image.
+	// ActivateNodeImage (or a reboot) is still needed to actually boot it.
+	// Admin-gated and audited.
+	RollbackNodeImage(context.Context, *RollbackNodeImageRequest) (*RollbackNodeImageResponse, error)
 	// IssueLeaf signs a leaf certificate on the named issuing node from a
 	// browser-generated PKCS#10 CSR under a named issuance profile. Only the
 	// CSR crosses the wire; the leaf private key stays in the browser.
@@ -1413,6 +1505,18 @@ func (UnimplementedFleetServiceServer) ValidateCertificateChain(context.Context,
 }
 func (UnimplementedFleetServiceServer) ListNodeTsaCertificates(context.Context, *ListNodeTsaCertificatesRequest) (*ListNodeTsaCertificatesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListNodeTsaCertificates not implemented")
+}
+func (UnimplementedFleetServiceServer) GetNodeImageStatus(context.Context, *GetNodeImageStatusRequest) (*GetNodeImageStatusResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetNodeImageStatus not implemented")
+}
+func (UnimplementedFleetServiceServer) StageNodeImage(context.Context, *StageNodeImageRequest) (*StageNodeImageResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method StageNodeImage not implemented")
+}
+func (UnimplementedFleetServiceServer) ActivateNodeImage(context.Context, *ActivateNodeImageRequest) (*ActivateNodeImageResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ActivateNodeImage not implemented")
+}
+func (UnimplementedFleetServiceServer) RollbackNodeImage(context.Context, *RollbackNodeImageRequest) (*RollbackNodeImageResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RollbackNodeImage not implemented")
 }
 func (UnimplementedFleetServiceServer) IssueLeaf(context.Context, *IssueLeafRequest) (*IssueLeafResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method IssueLeaf not implemented")
@@ -1985,6 +2089,78 @@ func _FleetService_ListNodeTsaCertificates_Handler(srv interface{}, ctx context.
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(FleetServiceServer).ListNodeTsaCertificates(ctx, req.(*ListNodeTsaCertificatesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FleetService_GetNodeImageStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetNodeImageStatusRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FleetServiceServer).GetNodeImageStatus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FleetService_GetNodeImageStatus_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FleetServiceServer).GetNodeImageStatus(ctx, req.(*GetNodeImageStatusRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FleetService_StageNodeImage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(StageNodeImageRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FleetServiceServer).StageNodeImage(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FleetService_StageNodeImage_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FleetServiceServer).StageNodeImage(ctx, req.(*StageNodeImageRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FleetService_ActivateNodeImage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ActivateNodeImageRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FleetServiceServer).ActivateNodeImage(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FleetService_ActivateNodeImage_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FleetServiceServer).ActivateNodeImage(ctx, req.(*ActivateNodeImageRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FleetService_RollbackNodeImage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RollbackNodeImageRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FleetServiceServer).RollbackNodeImage(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FleetService_RollbackNodeImage_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FleetServiceServer).RollbackNodeImage(ctx, req.(*RollbackNodeImageRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -2718,6 +2894,22 @@ var FleetService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListNodeTsaCertificates",
 			Handler:    _FleetService_ListNodeTsaCertificates_Handler,
+		},
+		{
+			MethodName: "GetNodeImageStatus",
+			Handler:    _FleetService_GetNodeImageStatus_Handler,
+		},
+		{
+			MethodName: "StageNodeImage",
+			Handler:    _FleetService_StageNodeImage_Handler,
+		},
+		{
+			MethodName: "ActivateNodeImage",
+			Handler:    _FleetService_ActivateNodeImage_Handler,
+		},
+		{
+			MethodName: "RollbackNodeImage",
+			Handler:    _FleetService_RollbackNodeImage_Handler,
 		},
 		{
 			MethodName: "IssueLeaf",

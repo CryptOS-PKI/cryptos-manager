@@ -22,6 +22,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"errors"
+	"io"
 	"testing"
 
 	connect "connectrpc.com/connect"
@@ -660,6 +661,22 @@ func (r *routingConn) VerifyAuditChain(ctx context.Context) (*nodev1.VerifyAudit
 
 func (r *routingConn) ListTsaCertificates(ctx context.Context) (*nodev1.ListTsaCertificatesResponse, error) {
 	return r.ferry.ListTsaCertificates(ctx)
+}
+
+func (r *routingConn) GetImageStatus(ctx context.Context) (*nodev1.GetImageStatusResponse, error) {
+	return r.ferry.GetImageStatus(ctx)
+}
+
+func (r *routingConn) StageImage(ctx context.Context, signature []byte, sizeBytes uint64, sha256Hex string, body io.Reader) (*nodev1.StageImageResponse, error) {
+	return r.ferry.StageImage(ctx, signature, sizeBytes, sha256Hex, body)
+}
+
+func (r *routingConn) ActivateImage(ctx context.Context, confirmCN string) (*nodev1.ActivateImageResponse, error) {
+	return r.ferry.ActivateImage(ctx, confirmCN)
+}
+
+func (r *routingConn) RollbackImage(ctx context.Context) (*nodev1.RollbackImageResponse, error) {
+	return r.ferry.RollbackImage(ctx)
 }
 
 func (r *routingConn) Close() error {
