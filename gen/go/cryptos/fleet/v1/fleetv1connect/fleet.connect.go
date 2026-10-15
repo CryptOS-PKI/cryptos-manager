@@ -92,6 +92,9 @@ const (
 	// FleetServiceGetCertificateProcedure is the fully-qualified name of the FleetService's
 	// GetCertificate RPC.
 	FleetServiceGetCertificateProcedure = "/cryptos.fleet.v1.FleetService/GetCertificate"
+	// FleetServiceValidateCertificateChainProcedure is the fully-qualified name of the FleetService's
+	// ValidateCertificateChain RPC.
+	FleetServiceValidateCertificateChainProcedure = "/cryptos.fleet.v1.FleetService/ValidateCertificateChain"
 	// FleetServiceListNodeTsaCertificatesProcedure is the fully-qualified name of the FleetService's
 	// ListNodeTsaCertificates RPC.
 	FleetServiceListNodeTsaCertificatesProcedure = "/cryptos.fleet.v1.FleetService/ListNodeTsaCertificates"
@@ -279,6 +282,12 @@ type FleetServiceClient interface {
 	// Readable at viewer level and above; a read, so it is not audited. NotFound
 	// if the node has no certificate with that serial.
 	GetCertificate(context.Context, *connect.Request[v1.GetCertificateRequest]) (*connect.Response[v1.GetCertificateResponse], error)
+	// ValidateCertificateChain checks whether a submitted certificate chains to
+	// a managed node's CA, the check `cryptosctl identity validate` runs
+	// locally against a node's own chain. A certificate that does not chain is
+	// a result, not an RPC error. Operator-gated, since it parses
+	// operator-supplied certificate material; a read, so it is not audited.
+	ValidateCertificateChain(context.Context, *connect.Request[v1.ValidateCertificateChainRequest]) (*connect.Response[v1.ValidateCertificateChainResponse], error)
 	// ListNodeTsaCertificates lists the certificates a managed node's
 	// time-stamp authority has signed tokens with. The node returns an empty
 	// list while its TSA is not running. Readable at viewer level and above; a
@@ -628,6 +637,12 @@ func NewFleetServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(fleetServiceMethods.ByName("GetCertificate")),
 			connect.WithClientOptions(opts...),
 		),
+		validateCertificateChain: connect.NewClient[v1.ValidateCertificateChainRequest, v1.ValidateCertificateChainResponse](
+			httpClient,
+			baseURL+FleetServiceValidateCertificateChainProcedure,
+			connect.WithSchema(fleetServiceMethods.ByName("ValidateCertificateChain")),
+			connect.WithClientOptions(opts...),
+		),
 		listNodeTsaCertificates: connect.NewClient[v1.ListNodeTsaCertificatesRequest, v1.ListNodeTsaCertificatesResponse](
 			httpClient,
 			baseURL+FleetServiceListNodeTsaCertificatesProcedure,
@@ -870,6 +885,7 @@ type fleetServiceClient struct {
 	whoAmI                          *connect.Client[v1.WhoAmIRequest, v1.WhoAmIResponse]
 	revokeCertificate               *connect.Client[v1.RevokeCertificateRequest, v1.RevokeCertificateResponse]
 	getCertificate                  *connect.Client[v1.GetCertificateRequest, v1.GetCertificateResponse]
+	validateCertificateChain        *connect.Client[v1.ValidateCertificateChainRequest, v1.ValidateCertificateChainResponse]
 	listNodeTsaCertificates         *connect.Client[v1.ListNodeTsaCertificatesRequest, v1.ListNodeTsaCertificatesResponse]
 	issueLeaf                       *connect.Client[v1.IssueLeafRequest, v1.IssueLeafResponse]
 	rekeyNode                       *connect.Client[v1.RekeyNodeRequest, v1.RekeyNodeResponse]
@@ -1011,6 +1027,11 @@ func (c *fleetServiceClient) RevokeCertificate(ctx context.Context, req *connect
 // GetCertificate calls cryptos.fleet.v1.FleetService.GetCertificate.
 func (c *fleetServiceClient) GetCertificate(ctx context.Context, req *connect.Request[v1.GetCertificateRequest]) (*connect.Response[v1.GetCertificateResponse], error) {
 	return c.getCertificate.CallUnary(ctx, req)
+}
+
+// ValidateCertificateChain calls cryptos.fleet.v1.FleetService.ValidateCertificateChain.
+func (c *fleetServiceClient) ValidateCertificateChain(ctx context.Context, req *connect.Request[v1.ValidateCertificateChainRequest]) (*connect.Response[v1.ValidateCertificateChainResponse], error) {
+	return c.validateCertificateChain.CallUnary(ctx, req)
 }
 
 // ListNodeTsaCertificates calls cryptos.fleet.v1.FleetService.ListNodeTsaCertificates.
@@ -1279,6 +1300,12 @@ type FleetServiceHandler interface {
 	// Readable at viewer level and above; a read, so it is not audited. NotFound
 	// if the node has no certificate with that serial.
 	GetCertificate(context.Context, *connect.Request[v1.GetCertificateRequest]) (*connect.Response[v1.GetCertificateResponse], error)
+	// ValidateCertificateChain checks whether a submitted certificate chains to
+	// a managed node's CA, the check `cryptosctl identity validate` runs
+	// locally against a node's own chain. A certificate that does not chain is
+	// a result, not an RPC error. Operator-gated, since it parses
+	// operator-supplied certificate material; a read, so it is not audited.
+	ValidateCertificateChain(context.Context, *connect.Request[v1.ValidateCertificateChainRequest]) (*connect.Response[v1.ValidateCertificateChainResponse], error)
 	// ListNodeTsaCertificates lists the certificates a managed node's
 	// time-stamp authority has signed tokens with. The node returns an empty
 	// list while its TSA is not running. Readable at viewer level and above; a
@@ -1624,6 +1651,12 @@ func NewFleetServiceHandler(svc FleetServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(fleetServiceMethods.ByName("GetCertificate")),
 		connect.WithHandlerOptions(opts...),
 	)
+	fleetServiceValidateCertificateChainHandler := connect.NewUnaryHandler(
+		FleetServiceValidateCertificateChainProcedure,
+		svc.ValidateCertificateChain,
+		connect.WithSchema(fleetServiceMethods.ByName("ValidateCertificateChain")),
+		connect.WithHandlerOptions(opts...),
+	)
 	fleetServiceListNodeTsaCertificatesHandler := connect.NewUnaryHandler(
 		FleetServiceListNodeTsaCertificatesProcedure,
 		svc.ListNodeTsaCertificates,
@@ -1884,6 +1917,8 @@ func NewFleetServiceHandler(svc FleetServiceHandler, opts ...connect.HandlerOpti
 			fleetServiceRevokeCertificateHandler.ServeHTTP(w, r)
 		case FleetServiceGetCertificateProcedure:
 			fleetServiceGetCertificateHandler.ServeHTTP(w, r)
+		case FleetServiceValidateCertificateChainProcedure:
+			fleetServiceValidateCertificateChainHandler.ServeHTTP(w, r)
 		case FleetServiceListNodeTsaCertificatesProcedure:
 			fleetServiceListNodeTsaCertificatesHandler.ServeHTTP(w, r)
 		case FleetServiceIssueLeafProcedure:
@@ -2047,6 +2082,10 @@ func (UnimplementedFleetServiceHandler) RevokeCertificate(context.Context, *conn
 
 func (UnimplementedFleetServiceHandler) GetCertificate(context.Context, *connect.Request[v1.GetCertificateRequest]) (*connect.Response[v1.GetCertificateResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cryptos.fleet.v1.FleetService.GetCertificate is not implemented"))
+}
+
+func (UnimplementedFleetServiceHandler) ValidateCertificateChain(context.Context, *connect.Request[v1.ValidateCertificateChainRequest]) (*connect.Response[v1.ValidateCertificateChainResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cryptos.fleet.v1.FleetService.ValidateCertificateChain is not implemented"))
 }
 
 func (UnimplementedFleetServiceHandler) ListNodeTsaCertificates(context.Context, *connect.Request[v1.ListNodeTsaCertificatesRequest]) (*connect.Response[v1.ListNodeTsaCertificatesResponse], error) {
