@@ -13,6 +13,19 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end -}}
 
 {{/*
+The ServiceAccount the pod runs under: serviceAccount.name (or
+fleet-manager.name) when serviceAccount.create is true, the namespace's
+default otherwise.
+*/}}
+{{- define "fleet-manager.serviceAccountName" -}}
+{{- if .Values.serviceAccount.create -}}
+{{ .Values.serviceAccount.name | default (include "fleet-manager.name" .) }}
+{{- else -}}
+default
+{{- end -}}
+{{- end -}}
+
+{{/*
 Where a node's admin credentials Secret is mounted.
 */}}
 {{- define "fleet-manager.nodeAdminDir" -}}

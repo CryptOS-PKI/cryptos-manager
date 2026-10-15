@@ -84,3 +84,45 @@ jobs:
             exit 1
           fi
           grep -q 'mcp.enabled requires database.existingSecret' /tmp/err
+
+      - name: helm lint (serviceAccount.create)
+        run: helm lint chart/fleet-manager --set database.existingSecret=pg-dsn --set serviceAccount.create=true
+
+      - name: helm lint (ingress.enabled)
+        run: |
+          helm lint chart/fleet-manager --set database.existingSecret=pg-dsn --set ingress.enabled=true \
+            --set ingress.className=nginx \
+            --set 'ingress.hosts[0].host=fleetos.example.org' \
+            --set 'ingress.hosts[0].paths[0].path=/' \
+            --set 'ingress.hosts[0].paths[0].pathType=Prefix'
+
+      - name: helm template omits the ServiceAccount and Ingress by default
+        run: |
+          out="$(helm template test chart/fleet-manager --set database.existingSecret=pg-dsn)"
+          echo "$out" | grep -q 'kind: ServiceAccount' && { echo "ServiceAccount rendered with serviceAccount.create: false" >&2; exit 1; }
+          echo "$out" | grep -q 'kind: Ingress' && { echo "Ingress rendered with ingress.enabled: false" >&2; exit 1; }
+          echo "$out" | grep -q 'serviceAccountName: default' || { echo "pod does not explicitly run under the default ServiceAccount" >&2; exit 1; }
+
+      - name: helm template renders a dedicated ServiceAccount with automount off
+        run: |
+          out="$(helm template test chart/fleet-manager --set database.existingSecret=pg-dsn --set serviceAccount.create=true)"
+          echo "$out" | grep -q 'kind: ServiceAccount'
+          echo "$out" | grep -q 'automountServiceAccountToken: false'
+          echo "$out" | grep -q 'serviceAccountName: fleet-manager'
+
+      - name: helm template renders the Ingress with the configured host and class
+        run: |
+          out="$(helm template test chart/fleet-manager --set database.existingSecret=pg-dsn --set ingress.enabled=true \
+            --set ingress.className=nginx \
+            --set 'ingress.hosts[0].host=fleetos.example.org' \
+            --set 'ingress.hosts[0].paths[0].path=/' \
+            --set 'ingress.hosts[0].paths[0].pathType=Prefix')"
+          echo "$out" | grep -q 'kind: Ingress'
+          echo "$out" | grep -q 'ingressClassName: nginx'
+          echo "$out" | grep -q 'host: "fleetos.example.org"'
+
+      - name: helm template binds the memory-store Role to the pod's ServiceAccount
+        run: |
+          out="$(helm template test chart/fleet-manager --set storage.mode=memory --set serviceAccount.create=true)"
+          subject="$(echo "$out" | sed -n '/kind: RoleBinding/,/^---/p' | sed -n '/^subjects:/,$p' | grep -m1 -E '^ +name:' | awk '{print $2}')"
+          [ "$subject" = fleet-manager ] || { echo "RoleBinding binds '$subject', not the dedicated ServiceAccount" >&2; exit 1; }

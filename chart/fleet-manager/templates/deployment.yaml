@@ -36,6 +36,7 @@ spec:
         # this makes it roll the pod so the manager reads the new config.
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
     spec:
+      serviceAccountName: {{ include "fleet-manager.serviceAccountName" . }}
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532
