@@ -155,6 +155,20 @@ service FleetService {
   // read, so it is not audited.
   rpc ListNodeTsaCertificates(ListNodeTsaCertificatesRequest) returns (ListNodeTsaCertificatesResponse);
 
+  // MintNodeScepChallenge mints a one-time SCEP challenge password on a
+  // managed node, for example to enroll a network device via its SCEP
+  // trustpoint. The password is returned once and is never written to the
+  // audit log. Operator-gated and audited (without the password).
+  rpc MintNodeScepChallenge(MintNodeScepChallengeRequest) returns (MintNodeScepChallengeResponse);
+
+  // ListNodeScepChallenges lists a managed node's usable SCEP challenges,
+  // soonest to expire first. Operator-gated; a read, so it is not audited.
+  rpc ListNodeScepChallenges(ListNodeScepChallengesRequest) returns (ListNodeScepChallengesResponse);
+
+  // RevokeNodeScepChallenge withdraws a managed node's SCEP challenge before
+  // it is used or expires. Operator-gated and audited.
+  rpc RevokeNodeScepChallenge(RevokeNodeScepChallengeRequest) returns (RevokeNodeScepChallengeResponse);
+
   // IssueLeaf signs a leaf certificate on the named issuing node from a
   // browser-generated PKCS#10 CSR under a named issuance profile. Only the
   // CSR crosses the wire; the leaf private key stays in the browser.
@@ -1707,4 +1721,65 @@ message VerifyNodeAuditChainResponse {
   // reason says why verification failed at first_broken_sequence; empty when
   // intact.
   string reason = 4;
+}
+
+// NodeScepChallenge describes a one-time SCEP challenge on a managed node,
+// without the challenge itself, which only MintNodeScepChallengeResponse
+// carries.
+message NodeScepChallenge {
+  // id identifies the challenge for listing and revocation.
+  string id = 1;
+  // profile is the node's Scep.profiles entry the enrolment it authorizes
+  // issues from.
+  string profile = 2;
+  // bound_names, when non-empty, are the only names the enrolment may
+  // request.
+  repeated string bound_names = 3;
+  string created_at = 4;
+  // expires_at is when the challenge stops being accepted if still unused.
+  string expires_at = 5;
+  // created_by_cn is the common name of the admin certificate that minted
+  // it.
+  string created_by_cn = 6;
+}
+
+message MintNodeScepChallengeRequest {
+  string node_name = 1;
+  string node_id = 2;
+  // profile names the node's Scep.profiles entry to issue from. May be empty
+  // only when the node has exactly one profile configured.
+  string profile = 3;
+  // ttl_seconds is how long the challenge stays usable. Zero means the
+  // node's default of one hour.
+  uint32 ttl_seconds = 4;
+  // bound_names optionally pins the names the enrolment may request.
+  repeated string bound_names = 5;
+}
+
+message MintNodeScepChallengeResponse {
+  // challenge_password is the challenge to give the device. Returned once
+  // and never again, and never written to the audit log.
+  string challenge_password = 1;
+  NodeScepChallenge challenge = 2;
+}
+
+message ListNodeScepChallengesRequest {
+  string node_name = 1;
+  string node_id = 2;
+}
+
+message ListNodeScepChallengesResponse {
+  // challenges are the usable challenges, soonest to expire first.
+  repeated NodeScepChallenge challenges = 1;
+}
+
+message RevokeNodeScepChallengeRequest {
+  string node_name = 1;
+  string node_id = 2;
+  string id = 3;
+}
+
+message RevokeNodeScepChallengeResponse {
+  // challenge is the withdrawn challenge as it was before revocation.
+  NodeScepChallenge challenge = 1;
 }

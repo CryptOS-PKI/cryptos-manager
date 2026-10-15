@@ -44,6 +44,9 @@ const (
 	FleetService_VerifyNodeAuditChain_FullMethodName            = "/cryptos.fleet.v1.FleetService/VerifyNodeAuditChain"
 	FleetService_ValidateCertificateChain_FullMethodName        = "/cryptos.fleet.v1.FleetService/ValidateCertificateChain"
 	FleetService_ListNodeTsaCertificates_FullMethodName         = "/cryptos.fleet.v1.FleetService/ListNodeTsaCertificates"
+	FleetService_MintNodeScepChallenge_FullMethodName           = "/cryptos.fleet.v1.FleetService/MintNodeScepChallenge"
+	FleetService_ListNodeScepChallenges_FullMethodName          = "/cryptos.fleet.v1.FleetService/ListNodeScepChallenges"
+	FleetService_RevokeNodeScepChallenge_FullMethodName         = "/cryptos.fleet.v1.FleetService/RevokeNodeScepChallenge"
 	FleetService_IssueLeaf_FullMethodName                       = "/cryptos.fleet.v1.FleetService/IssueLeaf"
 	FleetService_RekeyNode_FullMethodName                       = "/cryptos.fleet.v1.FleetService/RekeyNode"
 	FleetService_GetNodeConfig_FullMethodName                   = "/cryptos.fleet.v1.FleetService/GetNodeConfig"
@@ -191,6 +194,17 @@ type FleetServiceClient interface {
 	// list while its TSA is not running. Readable at viewer level and above; a
 	// read, so it is not audited.
 	ListNodeTsaCertificates(ctx context.Context, in *ListNodeTsaCertificatesRequest, opts ...grpc.CallOption) (*ListNodeTsaCertificatesResponse, error)
+	// MintNodeScepChallenge mints a one-time SCEP challenge password on a
+	// managed node, for example to enroll a network device via its SCEP
+	// trustpoint. The password is returned once and is never written to the
+	// audit log. Operator-gated and audited (without the password).
+	MintNodeScepChallenge(ctx context.Context, in *MintNodeScepChallengeRequest, opts ...grpc.CallOption) (*MintNodeScepChallengeResponse, error)
+	// ListNodeScepChallenges lists a managed node's usable SCEP challenges,
+	// soonest to expire first. Operator-gated; a read, so it is not audited.
+	ListNodeScepChallenges(ctx context.Context, in *ListNodeScepChallengesRequest, opts ...grpc.CallOption) (*ListNodeScepChallengesResponse, error)
+	// RevokeNodeScepChallenge withdraws a managed node's SCEP challenge before
+	// it is used or expires. Operator-gated and audited.
+	RevokeNodeScepChallenge(ctx context.Context, in *RevokeNodeScepChallengeRequest, opts ...grpc.CallOption) (*RevokeNodeScepChallengeResponse, error)
 	// IssueLeaf signs a leaf certificate on the named issuing node from a
 	// browser-generated PKCS#10 CSR under a named issuance profile. Only the
 	// CSR crosses the wire; the leaf private key stays in the browser.
@@ -650,6 +664,36 @@ func (c *fleetServiceClient) ListNodeTsaCertificates(ctx context.Context, in *Li
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ListNodeTsaCertificatesResponse)
 	err := c.cc.Invoke(ctx, FleetService_ListNodeTsaCertificates_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *fleetServiceClient) MintNodeScepChallenge(ctx context.Context, in *MintNodeScepChallengeRequest, opts ...grpc.CallOption) (*MintNodeScepChallengeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(MintNodeScepChallengeResponse)
+	err := c.cc.Invoke(ctx, FleetService_MintNodeScepChallenge_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *fleetServiceClient) ListNodeScepChallenges(ctx context.Context, in *ListNodeScepChallengesRequest, opts ...grpc.CallOption) (*ListNodeScepChallengesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListNodeScepChallengesResponse)
+	err := c.cc.Invoke(ctx, FleetService_ListNodeScepChallenges_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *fleetServiceClient) RevokeNodeScepChallenge(ctx context.Context, in *RevokeNodeScepChallengeRequest, opts ...grpc.CallOption) (*RevokeNodeScepChallengeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RevokeNodeScepChallengeResponse)
+	err := c.cc.Invoke(ctx, FleetService_RevokeNodeScepChallenge_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1125,6 +1169,17 @@ type FleetServiceServer interface {
 	// list while its TSA is not running. Readable at viewer level and above; a
 	// read, so it is not audited.
 	ListNodeTsaCertificates(context.Context, *ListNodeTsaCertificatesRequest) (*ListNodeTsaCertificatesResponse, error)
+	// MintNodeScepChallenge mints a one-time SCEP challenge password on a
+	// managed node, for example to enroll a network device via its SCEP
+	// trustpoint. The password is returned once and is never written to the
+	// audit log. Operator-gated and audited (without the password).
+	MintNodeScepChallenge(context.Context, *MintNodeScepChallengeRequest) (*MintNodeScepChallengeResponse, error)
+	// ListNodeScepChallenges lists a managed node's usable SCEP challenges,
+	// soonest to expire first. Operator-gated; a read, so it is not audited.
+	ListNodeScepChallenges(context.Context, *ListNodeScepChallengesRequest) (*ListNodeScepChallengesResponse, error)
+	// RevokeNodeScepChallenge withdraws a managed node's SCEP challenge before
+	// it is used or expires. Operator-gated and audited.
+	RevokeNodeScepChallenge(context.Context, *RevokeNodeScepChallengeRequest) (*RevokeNodeScepChallengeResponse, error)
 	// IssueLeaf signs a leaf certificate on the named issuing node from a
 	// browser-generated PKCS#10 CSR under a named issuance profile. Only the
 	// CSR crosses the wire; the leaf private key stays in the browser.
@@ -1413,6 +1468,15 @@ func (UnimplementedFleetServiceServer) ValidateCertificateChain(context.Context,
 }
 func (UnimplementedFleetServiceServer) ListNodeTsaCertificates(context.Context, *ListNodeTsaCertificatesRequest) (*ListNodeTsaCertificatesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListNodeTsaCertificates not implemented")
+}
+func (UnimplementedFleetServiceServer) MintNodeScepChallenge(context.Context, *MintNodeScepChallengeRequest) (*MintNodeScepChallengeResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method MintNodeScepChallenge not implemented")
+}
+func (UnimplementedFleetServiceServer) ListNodeScepChallenges(context.Context, *ListNodeScepChallengesRequest) (*ListNodeScepChallengesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListNodeScepChallenges not implemented")
+}
+func (UnimplementedFleetServiceServer) RevokeNodeScepChallenge(context.Context, *RevokeNodeScepChallengeRequest) (*RevokeNodeScepChallengeResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RevokeNodeScepChallenge not implemented")
 }
 func (UnimplementedFleetServiceServer) IssueLeaf(context.Context, *IssueLeafRequest) (*IssueLeafResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method IssueLeaf not implemented")
@@ -1985,6 +2049,60 @@ func _FleetService_ListNodeTsaCertificates_Handler(srv interface{}, ctx context.
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(FleetServiceServer).ListNodeTsaCertificates(ctx, req.(*ListNodeTsaCertificatesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FleetService_MintNodeScepChallenge_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MintNodeScepChallengeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FleetServiceServer).MintNodeScepChallenge(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FleetService_MintNodeScepChallenge_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FleetServiceServer).MintNodeScepChallenge(ctx, req.(*MintNodeScepChallengeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FleetService_ListNodeScepChallenges_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListNodeScepChallengesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FleetServiceServer).ListNodeScepChallenges(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FleetService_ListNodeScepChallenges_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FleetServiceServer).ListNodeScepChallenges(ctx, req.(*ListNodeScepChallengesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FleetService_RevokeNodeScepChallenge_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RevokeNodeScepChallengeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FleetServiceServer).RevokeNodeScepChallenge(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FleetService_RevokeNodeScepChallenge_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FleetServiceServer).RevokeNodeScepChallenge(ctx, req.(*RevokeNodeScepChallengeRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -2718,6 +2836,18 @@ var FleetService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListNodeTsaCertificates",
 			Handler:    _FleetService_ListNodeTsaCertificates_Handler,
+		},
+		{
+			MethodName: "MintNodeScepChallenge",
+			Handler:    _FleetService_MintNodeScepChallenge_Handler,
+		},
+		{
+			MethodName: "ListNodeScepChallenges",
+			Handler:    _FleetService_ListNodeScepChallenges_Handler,
+		},
+		{
+			MethodName: "RevokeNodeScepChallenge",
+			Handler:    _FleetService_RevokeNodeScepChallenge_Handler,
 		},
 		{
 			MethodName: "IssueLeaf",

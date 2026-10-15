@@ -125,6 +125,9 @@ var Catalog = []Spec{
 	{Name: "node_audit_verify_chain", RPC: "VerifyNodeAuditChain", Policy: Excluded, Reason: "not yet exposed to agents"},
 	{Name: "certificate_chain_validate", RPC: "ValidateCertificateChain", Policy: Excluded, Reason: "not yet exposed to agents"},
 	{Name: "node_tsa_list", RPC: "ListNodeTsaCertificates", Policy: Excluded, Reason: "not yet exposed to agents"},
+	{Name: "node_scep_challenge_mint", RPC: "MintNodeScepChallenge", Policy: Excluded, Reason: "mints a credential a device will present"},
+	{Name: "node_scep_challenge_list", RPC: "ListNodeScepChallenges", Policy: Excluded, Reason: "not yet exposed to agents"},
+	{Name: "node_scep_challenge_revoke", RPC: "RevokeNodeScepChallenge", Policy: Excluded, Reason: "withdraws a device credential"},
 }
 
 func spec(name string) Spec {

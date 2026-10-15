@@ -662,6 +662,18 @@ func (r *routingConn) ListTsaCertificates(ctx context.Context) (*nodev1.ListTsaC
 	return r.ferry.ListTsaCertificates(ctx)
 }
 
+func (r *routingConn) MintScepChallenge(ctx context.Context, profile string, ttlSeconds uint32, boundNames []string) (*nodev1.MintScepChallengeResponse, error) {
+	return r.ferry.MintScepChallenge(ctx, profile, ttlSeconds, boundNames)
+}
+
+func (r *routingConn) ListScepChallenges(ctx context.Context) (*nodev1.ListScepChallengesResponse, error) {
+	return r.ferry.ListScepChallenges(ctx)
+}
+
+func (r *routingConn) RevokeScepChallenge(ctx context.Context, id string) (*nodev1.RevokeScepChallengeResponse, error) {
+	return r.ferry.RevokeScepChallenge(ctx, id)
+}
+
 func (r *routingConn) Close() error {
 	_ = r.ferry.Close()
 	return r.identity.Close()

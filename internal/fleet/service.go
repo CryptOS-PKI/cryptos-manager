@@ -63,6 +63,9 @@ type NodeConn interface {
 	VerifyAuditChain(ctx context.Context) (*nodev1.VerifyAuditChainResponse, error)
 	ListTsaCertificates(ctx context.Context) (*nodev1.ListTsaCertificatesResponse, error)
 	StartCeremony(ctx context.Context, kind nodev1.CeremonyKind, machineConfigYAML []byte) (nodeclient.CeremonyStream, error)
+	MintScepChallenge(ctx context.Context, profile string, ttlSeconds uint32, boundNames []string) (*nodev1.MintScepChallengeResponse, error)
+	ListScepChallenges(ctx context.Context) (*nodev1.ListScepChallengesResponse, error)
+	RevokeScepChallenge(ctx context.Context, id string) (*nodev1.RevokeScepChallengeResponse, error)
 	Close() error
 }
 

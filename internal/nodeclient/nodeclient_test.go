@@ -109,6 +109,23 @@ func (fakeNodeService) ImportCAKey(_ context.Context, req *nodev1.ImportCAKeyReq
 	}, nil
 }
 
+func (fakeNodeService) MintScepChallenge(_ context.Context, req *nodev1.MintScepChallengeRequest) (*nodev1.MintScepChallengeResponse, error) {
+	return &nodev1.MintScepChallengeResponse{
+		ChallengePassword: "fake-password-test-marker",
+		Challenge:         &nodev1.ScepChallenge{Id: "fake-challenge-id", Profile: req.GetProfile()},
+	}, nil
+}
+
+func (fakeNodeService) ListScepChallenges(context.Context, *nodev1.ListScepChallengesRequest) (*nodev1.ListScepChallengesResponse, error) {
+	return &nodev1.ListScepChallengesResponse{
+		Challenges: []*nodev1.ScepChallenge{{Id: "fake-challenge-id"}},
+	}, nil
+}
+
+func (fakeNodeService) RevokeScepChallenge(_ context.Context, req *nodev1.RevokeScepChallengeRequest) (*nodev1.RevokeScepChallengeResponse, error) {
+	return &nodev1.RevokeScepChallengeResponse{Challenge: &nodev1.ScepChallenge{Id: req.GetId()}}, nil
+}
+
 // testCA is a minimal self-signed CA used to mint both the fake node's
 // server cert and the test admin client cert.
 type testCA struct {
@@ -335,6 +352,30 @@ func TestDial_GetStatus_GetIdentity(t *testing.T) {
 	}
 	if got := importResp.GetIdentity().GetChainPem(); got != "imported:env-bytes:relayed-passphrase" {
 		t.Errorf("ImportCAKey().Identity.ChainPem = %q, want imported:env-bytes:relayed-passphrase (envelope/passphrase not relayed)", got)
+	}
+
+	mintResp, err := client.MintScepChallenge(ctx, "network-device", 3600, []string{"switch-1.example.org"})
+	if err != nil {
+		t.Fatalf("MintScepChallenge() error = %v, want nil", err)
+	}
+	if mintResp.GetChallengePassword() != "fake-password-test-marker" || mintResp.GetChallenge().GetProfile() != "network-device" {
+		t.Errorf("MintScepChallenge() = %+v, want the fake's canned response relayed through", mintResp)
+	}
+
+	listChallengesResp, err := client.ListScepChallenges(ctx)
+	if err != nil {
+		t.Fatalf("ListScepChallenges() error = %v, want nil", err)
+	}
+	if len(listChallengesResp.GetChallenges()) != 1 || listChallengesResp.GetChallenges()[0].GetId() != "fake-challenge-id" {
+		t.Errorf("ListScepChallenges().Challenges = %v, want one fake-challenge-id entry", listChallengesResp.GetChallenges())
+	}
+
+	revokeResp, err := client.RevokeScepChallenge(ctx, "ch-123")
+	if err != nil {
+		t.Fatalf("RevokeScepChallenge() error = %v, want nil", err)
+	}
+	if got := revokeResp.GetChallenge().GetId(); got != "ch-123" {
+		t.Errorf("RevokeScepChallenge().Challenge.Id = %q, want ch-123 (id not relayed)", got)
 	}
 }
 
