@@ -1,8 +1,15 @@
-# Single-host Fleet Manager: the manager plus its Postgres.
+# Single-host FleetOS Manager, with a Postgres you run on the same host for easy
+# upgrades.
 #
 # This is the supported topology for a small fleet. Everything the manager reads
 # lives under /etc/cryptos/fleet on the host and is mounted read-only; see the
 # README and docs/deploying-standalone.md.
+#
+# FleetOS Manager does not supply or manage a database -- it only makes the
+# connection (database_url, below). The postgres service here is a worked
+# example of a Postgres you run and own on this host; point database_url at a
+# Postgres you run elsewhere instead and drop this service if you'd rather not
+# run it here.
 #
 #   docker compose -f deploy/compose.yaml up -d
 #
@@ -61,8 +68,11 @@ services:
       POSTGRES_INITDB_ARGS: "--data-checksums"
     # POSTGRES_PASSWORD only, kept out of this file so the compose file is not
     # a secret. It must match the password in the manager's database_url.
+    # POSTGRES_ENV_FILE overrides the path for `task compose:check` (docker
+    # compose config) in a clean checkout with no /etc/cryptos/fleet; leave it
+    # unset for a real deployment.
     env_file:
-      - /etc/cryptos/fleet/secrets/postgres.env
+      - ${POSTGRES_ENV_FILE:-/etc/cryptos/fleet/secrets/postgres.env}
     volumes:
       # /var/lib/postgresql, NOT /var/lib/postgresql/data. From 18 the image
       # stores data in major-version-specific subdirectories so pg_upgrade can
