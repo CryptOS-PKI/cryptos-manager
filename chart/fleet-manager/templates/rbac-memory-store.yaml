@@ -28,6 +28,6 @@ roleRef:
   name: {{ include "fleet-manager.name" . }}-memory-store
 subjects:
   - kind: ServiceAccount
-    name: default
+    name: {{ include "fleet-manager.serviceAccountName" . }}
     namespace: {{ .Release.Namespace }}
 {{- end }}

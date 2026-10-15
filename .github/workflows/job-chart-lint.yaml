@@ -120,3 +120,9 @@ jobs:
           echo "$out" | grep -q 'kind: Ingress'
           echo "$out" | grep -q 'ingressClassName: nginx'
           echo "$out" | grep -q 'host: "fleetos.example.org"'
+
+      - name: helm template binds the memory-store Role to the pod's ServiceAccount
+        run: |
+          out="$(helm template test chart/fleet-manager --set storage.mode=memory --set serviceAccount.create=true)"
+          subject="$(echo "$out" | sed -n '/kind: RoleBinding/,/^---/p' | sed -n '/^subjects:/,$p' | grep -m1 -E '^ +name:' | awk '{print $2}')"
+          [ "$subject" = fleet-manager ] || { echo "RoleBinding binds '$subject', not the dedicated ServiceAccount" >&2; exit 1; }
