@@ -83,3 +83,20 @@ func TestAdapterNameOfKind(t *testing.T) {
 		t.Errorf("adapterNameOfKind on an empty catalog = %q, want empty", got)
 	}
 }
+
+func TestPickSwitchablePrefersAnEnabledProtocol(t *testing.T) {
+	estOn := &nodev1.Pki{Est: &nodev1.Est{Enabled: true}, Acme: &nodev1.Acme{Enabled: true}}
+	if sw, ok := pickSwitchable(estOn); !ok || sw.kind != "est" {
+		t.Errorf("pickSwitchable(EST and ACME on) = %q, %v; want est", sw.kind, ok)
+	}
+	acmeOnly := &nodev1.Pki{Acme: &nodev1.Acme{Enabled: true}}
+	if sw, ok := pickSwitchable(acmeOnly); !ok || sw.kind != "acme" {
+		t.Errorf("pickSwitchable(ACME on) = %q, %v; want acme", sw.kind, ok)
+	}
+	if _, ok := pickSwitchable(&nodev1.Pki{}); ok {
+		t.Error("pickSwitchable(nothing on) ok = true, want false")
+	}
+	if _, ok := pickSwitchable(nil); ok {
+		t.Error("pickSwitchable(nil) ok = true, want false")
+	}
+}

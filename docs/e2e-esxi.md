@@ -14,7 +14,8 @@ fallback.
 
 Each run exercises, in order: profile create/apply/update/requestable/delete, a SCEP challenge
 mint/list/revoke, a real RFC 8894 SCEP device enrolment through a minted challenge that is approved
-through the manager and a second one that is rejected, an enrolment protocol toggle, issuing and
+through the manager and a second one that is rejected, an enrolment protocol toggle (EST or
+ACME, whichever the node has on, since switching one off drops its stored settings), issuing and
 revoking a leaf certificate, a config-push round trip, the node's own image status and, with a
 signed image, the whole image lifecycle (stage, activate, roll back, activate again, waiting for
 each reboot), re-keying a subordinate CA, exporting an escrowed CA key, linking and rejecting a node
@@ -26,9 +27,7 @@ The SCEP device is a small client in `test/e2e/esxi/scepdevice.go`: it enrols wi
 approved, or a FAILURE once it is rejected. Both outcomes are checked on the node too: the approved
 certificate is in the node's own `ListIssued`, and the rejected enrolment has left its queue.
 
-The SCEP steps run before the protocol toggle, because switching SCEP off drops the node's stored
-`pki.scep` block and the image step's reboots then stop the listener. The image step leaves the node
-on the image it started on.
+The image step leaves the node on the image it started on.
 
 A few of those need a resource this run isn't always handed. The step still runs and says so
 rather than silently passing:

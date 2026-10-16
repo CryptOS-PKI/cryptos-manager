@@ -81,12 +81,10 @@ func (s *scenario) nodeRef(n nodeUnderTest) (id, name string) {
 // image, the SCEP listener's address) report stepSkipped with a clear reason
 // rather than failing.
 //
-// The order matters in three places. The SCEP steps run before the protocol
-// step, because switching SCEP off drops the node's stored pki.scep block,
-// and the image step's reboots then stop the listener. The image step runs
-// after the config steps, so its reboots start from the config they left.
-// The escrow import runs after the enrolment step, because ImportCAKey can
-// only address the spare once that step has linked it.
+// The order matters in two places. The image step runs after the config
+// steps, so its reboots start from the config they left. The escrow import
+// runs after the enrolment step, because ImportCAKey can only address the
+// spare once that step has linked it.
 func (s *scenario) allSteps(cfg config) []step {
 	return []step{
 		s.preflightStep(),
