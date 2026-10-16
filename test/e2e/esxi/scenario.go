@@ -40,6 +40,7 @@ type scenario struct {
 	caKey   *ecdsa.PrivateKey
 	nodeID  map[string]string // node name -> NodeSummary.id, filled by preflight
 	profile string            // the certificate profile the profile/cert/scep steps create and share
+	escrow  *escrowBackup     // the envelope escrowExportStep made, for escrowImportStep
 }
 
 // newScenario splits cfg.Nodes into the statically managed set and the spare.
@@ -77,19 +78,29 @@ func (s *scenario) nodeRef(n nodeUnderTest) (id, name string) {
 
 // allSteps builds the full ordered write-path matrix. Steps that need a
 // resource this run was not given (a spare node, a rekey profile, a signed
-// release image) report stepSkipped with a clear reason rather than failing.
+// image, the SCEP listener's address) report stepSkipped with a clear reason
+// rather than failing.
+//
+// The order matters in three places. The SCEP steps run before the protocol
+// step, because switching SCEP off drops the node's stored pki.scep block,
+// and the image step's reboots then stop the listener. The image step runs
+// after the config steps, so its reboots start from the config they left.
+// The escrow import runs after the enrolment step, because ImportCAKey can
+// only address the spare once that step has linked it.
 func (s *scenario) allSteps(cfg config) []step {
 	return []step{
 		s.preflightStep(),
 		s.profileStep(),
+		s.scepStep(),
+		s.scepEnrolStep(cfg),
 		s.protocolStep(),
 		s.certStep(),
 		s.configPushStep(),
 		s.imageStep(cfg),
-		s.scepStep(),
 		s.rekeyStep(cfg),
-		s.escrowStep(),
+		s.escrowExportStep(cfg),
 		s.enrollmentStep(),
+		s.escrowImportStep(),
 		s.opCredStep(),
 		s.decommissionStep(),
 	}

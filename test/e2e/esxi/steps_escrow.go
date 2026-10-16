@@ -26,18 +26,31 @@ import (
 	fleetv1 "github.com/CryptOS-PKI/cryptos-manager/gen/go/cryptos/fleet/v1"
 )
 
-// escrowStep exercises ExportCAKey against the primary node, always (it does
-// not change the node's own state). ImportCAKey is a restore onto a fresh
-// node, so it only runs onto the spare node when one is configured;
-// otherwise it skips, since there is no node this run may hand a foreign
-// identity to without risking one the gate or another run still depends on.
-func (s *scenario) escrowStep() step {
-	return step{name: "escrow/export-and-import", run: func(ctx context.Context) (string, error) {
-		primary, err := s.primary()
+// escrowSource is the node the escrow export runs against: E2E_ESCROW_NODE
+// when set, else the primary node.
+func (s *scenario) escrowSource(cfg config) (nodeUnderTest, error) {
+	if cfg.EscrowNode != "" {
+		n, ok := s.findNode(cfg.EscrowNode)
+		if !ok {
+			return nodeUnderTest{}, fmt.Errorf("E2E_ESCROW_NODE names %q, which is not in E2E_NODES_FILE", cfg.EscrowNode)
+		}
+		return n, nil
+	}
+	return s.primary()
+}
+
+// escrowExportStep exercises ExportCAKey, always (it does not change the
+// node's own state), against escrowSource: a TPM-held CA key is never
+// exportable, so a run whose primary is a TPM node names a software-key node
+// in E2E_ESCROW_NODE. It keeps the envelope and its throwaway passphrase for
+// escrowImportStep.
+func (s *scenario) escrowExportStep(cfg config) step {
+	return step{name: "escrow/export", run: func(ctx context.Context) (string, error) {
+		source, err := s.escrowSource(cfg)
 		if err != nil {
 			return "", err
 		}
-		id, name := s.nodeRef(primary)
+		id, name := s.nodeRef(source)
 
 		passphrase := make([]byte, 32)
 		if _, err := rand.Read(passphrase); err != nil {
@@ -49,15 +62,32 @@ func (s *scenario) escrowStep() step {
 		}
 		envelope := exported.Msg.GetEnvelope()
 		if len(envelope) == 0 {
-			return "", fmt.Errorf("ExportCAKey on %s returned an empty envelope", primary.Name)
+			return "", fmt.Errorf("ExportCAKey on %s returned an empty envelope", source.Name)
 		}
+		s.escrow = &escrowBackup{from: source.Name, envelope: envelope, passphrase: passphrase}
+		return fmt.Sprintf("exported %s's CA key (%d-byte envelope)", source.Name, len(envelope)), nil
+	}}
+}
 
+// escrowImportStep exercises ImportCAKey: a restore onto a fresh node, so it
+// only runs onto the spare node, and only once enrollmentStep has linked it
+// (ImportCAKey addresses a node in the manager's inventory). Otherwise it
+// skips, since there is no node this run may hand a foreign identity to
+// without risking one the gate or another run still depends on.
+func (s *scenario) escrowImportStep() step {
+	return step{name: "escrow/import-onto-spare", run: func(ctx context.Context) (string, error) {
 		if s.spare == nil {
-			return "", skip(fmt.Sprintf("exported %s's CA key (%d-byte envelope); no spare node configured to import it onto", primary.Name, len(envelope)))
+			return "", skip("no spare node configured to import the escrowed key onto")
 		}
-		spareID, spareName := s.nodeRef(*s.spare)
+		if s.escrow == nil {
+			return "", skip("no escrow envelope to import (the export step did not succeed)")
+		}
+		spareID, ok := s.nodeID[s.spare.Name]
+		if !ok {
+			return "", skip("the spare node was never linked (the enrollment step did not run or did not succeed), so the manager cannot address it")
+		}
 		imported, err := s.fleet.ImportCAKey(ctx, connect.NewRequest(&fleetv1.ImportCAKeyRequest{
-			NodeId: spareID, NodeName: spareName, Envelope: envelope, Passphrase: passphrase,
+			NodeId: spareID, Envelope: s.escrow.envelope, Passphrase: s.escrow.passphrase,
 		}))
 		if err != nil {
 			return "", fmt.Errorf("ImportCAKey onto %s: %w", s.spare.Name, err)
@@ -75,6 +105,13 @@ func (s *scenario) escrowStep() step {
 		if identity.GetIdentity().GetChainPem() == "" {
 			return "", fmt.Errorf("%s has no identity chain after ImportCAKey", s.spare.Name)
 		}
-		return fmt.Sprintf("exported %s's CA key and restored it onto %s (now %s)", primary.Name, s.spare.Name, imported.Msg.GetSubjectCn()), nil
+		return fmt.Sprintf("restored %s's escrowed CA key onto %s (now %s)", s.escrow.from, s.spare.Name, imported.Msg.GetSubjectCn()), nil
 	}}
+}
+
+// escrowBackup is what escrowExportStep hands escrowImportStep.
+type escrowBackup struct {
+	from       string
+	envelope   []byte
+	passphrase []byte
 }

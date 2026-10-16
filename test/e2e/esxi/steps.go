@@ -18,8 +18,10 @@ limitations under the License.
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"time"
 )
 
@@ -121,4 +123,26 @@ func summary(results []stepResult) string {
 		out += fmt.Sprintf("%-5s %-28s %s\n", r.status, r.name, r.detail)
 	}
 	return out
+}
+
+// resultRecord is one step result as writeResults records it.
+type resultRecord struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
+	Detail string `json:"detail"`
+}
+
+// writeResults writes results to path as a JSON array, in run order, with
+// each detail redacted the same way this script's own output is, so a
+// harness can report every step on its own without parsing the log.
+func writeResults(path string, results []stepResult, red *redactor) error {
+	records := make([]resultRecord, 0, len(results))
+	for _, r := range results {
+		records = append(records, resultRecord{Name: r.name, Status: r.status.String(), Detail: red.line(r.detail)})
+	}
+	data, err := json.MarshalIndent(records, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(data, '\n'), 0o600)
 }

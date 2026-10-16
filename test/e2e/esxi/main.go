@@ -46,12 +46,6 @@ func printf(w io.Writer, format string, args ...any) {
 	_, _ = fmt.Fprintf(w, format, args...)
 }
 
-// managerListen is the loopback address the throwaway manager binds for the
-// run. The port is fixed rather than chosen dynamically because nothing else
-// on this box's loopback should be using it during a run that owns its own
-// tmpfs work directory and exits when it's done.
-const managerListen = "127.0.0.1:18443"
-
 // managerStopTimeout bounds how long this script waits for a clean manager
 // shutdown before killing it.
 const managerStopTimeout = 5 * time.Second
@@ -88,7 +82,7 @@ func run(ctx context.Context) error {
 	}
 	defer mp.stop(managerStopTimeout)
 
-	baseURL := "https://" + managerListen
+	baseURL := "https://" + cfg.ManagerListen
 	healthCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	err = waitHealthy(healthCtx, baseURL)
 	cancel()
@@ -112,6 +106,11 @@ func run(ctx context.Context) error {
 		printf(out, "%-5s %-40s %s\n", r.status, r.name, r.detail)
 	})
 	printf(out, "%s", summary(results))
+	if cfg.ResultsFile != "" {
+		if err := writeResults(cfg.ResultsFile, results, red); err != nil {
+			return fmt.Errorf("writing E2E_RESULTS_FILE: %w", err)
+		}
+	}
 
 	if anyFailed(results) {
 		return fmt.Errorf("one or more write paths failed; see the step results above")
@@ -130,7 +129,7 @@ func run(ctx context.Context) error {
 // enrollment step, the live write path this run is there to prove.
 func writeManagerConfig(cfg config) (string, error) {
 	mc := mgrconfig.Config{
-		Listen:      managerListen,
+		Listen:      cfg.ManagerListen,
 		AuthBypass:  false,
 		DatabaseURL: cfg.DatabaseURL,
 	}

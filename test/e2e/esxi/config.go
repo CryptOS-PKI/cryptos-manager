@@ -69,6 +69,20 @@ type config struct {
 	// explicit target.
 	RekeyNode    string
 	RekeyProfile string
+	// ScepURL is the primary node's SCEP listener as this script reaches it
+	// (http://host:port/scep). It opts the device enrolment step in; empty
+	// skips it, since the listener's address is not something the node's
+	// own API reports.
+	ScepURL string
+	// EscrowNode names the node the escrow export runs against. Empty means
+	// the primary node. A TPM-held CA key is never exportable, so a run whose
+	// primary is a TPM node points this at a software-key node instead.
+	EscrowNode string
+	// ManagerListen is the loopback address the throwaway manager binds.
+	ManagerListen string
+	// ResultsFile, when set, is where the step results are written as JSON
+	// once the run ends, for a harness that reports them on its own.
+	ResultsFile string
 }
 
 // requiredEnv names the environment variables loadConfig refuses to start
@@ -81,6 +95,11 @@ var requiredEnv = []string{
 }
 
 const defaultStepTimeout = 2 * time.Minute
+
+// defaultManagerListen is the loopback address the throwaway manager binds
+// unless E2E_MANAGER_LISTEN names another, for a host where something else
+// already holds the port.
+const defaultManagerListen = "127.0.0.1:18443"
 
 // loadConfig reads the run's configuration from the environment, using
 // getenv so tests never touch the real process environment. readFile loads
@@ -99,16 +118,23 @@ func loadConfig(getenv func(string) string, readFile func(string) ([]byte, error
 	}
 
 	cfg := config{
-		ManagerBin:   getenv("E2E_MANAGER_BIN"),
-		DatabaseURL:  getenv("E2E_DATABASE_URL"),
-		AdminEmail:   getenv("E2E_ADMIN_EMAIL"),
-		WorkDir:      getenv("E2E_WORKDIR"),
-		ImageURL:     getenv("E2E_IMAGE_URL"),
-		ImageSigPath: getenv("E2E_IMAGE_SIGNATURE_PATH"),
-		ImageSHA256:  getenv("E2E_IMAGE_SHA256"),
-		RekeyNode:    getenv("E2E_REKEY_NODE"),
-		RekeyProfile: getenv("E2E_REKEY_PROFILE"),
-		StepTimeout:  defaultStepTimeout,
+		ManagerBin:    getenv("E2E_MANAGER_BIN"),
+		DatabaseURL:   getenv("E2E_DATABASE_URL"),
+		AdminEmail:    getenv("E2E_ADMIN_EMAIL"),
+		WorkDir:       getenv("E2E_WORKDIR"),
+		ImageURL:      getenv("E2E_IMAGE_URL"),
+		ImageSigPath:  getenv("E2E_IMAGE_SIGNATURE_PATH"),
+		ImageSHA256:   getenv("E2E_IMAGE_SHA256"),
+		RekeyNode:     getenv("E2E_REKEY_NODE"),
+		RekeyProfile:  getenv("E2E_REKEY_PROFILE"),
+		ScepURL:       getenv("E2E_SCEP_URL"),
+		EscrowNode:    getenv("E2E_ESCROW_NODE"),
+		ManagerListen: getenv("E2E_MANAGER_LISTEN"),
+		ResultsFile:   getenv("E2E_RESULTS_FILE"),
+		StepTimeout:   defaultStepTimeout,
+	}
+	if cfg.ManagerListen == "" {
+		cfg.ManagerListen = defaultManagerListen
 	}
 	if cfg.WorkDir == "" {
 		return config{}, fmt.Errorf("E2E_WORKDIR is required: a tmpfs directory for the run's throwaway config and keys")
@@ -146,6 +172,11 @@ func loadConfig(getenv func(string) string, readFile func(string) ([]byte, error
 		return config{}, fmt.Errorf("E2E_NODES_FILE: only one node may be marked spare, got %d", spares)
 	}
 	cfg.Nodes = nf.Nodes
+	if cfg.EscrowNode != "" {
+		if _, ok := cfg.findNode(cfg.EscrowNode); !ok {
+			return config{}, fmt.Errorf("E2E_ESCROW_NODE names %q, which is not in E2E_NODES_FILE", cfg.EscrowNode)
+		}
+	}
 	return cfg, nil
 }
 
@@ -160,11 +191,21 @@ func (c config) spareNode() (nodeUnderTest, bool) {
 	return nodeUnderTest{}, false
 }
 
+// findNode returns the configured node named name.
+func (c config) findNode(name string) (nodeUnderTest, bool) {
+	for _, n := range c.Nodes {
+		if n.Name == name {
+			return n, true
+		}
+	}
+	return nodeUnderTest{}, false
+}
+
 // secretsToRedact lists every value from cfg that must never reach this
 // script's own stdout/stderr unredacted: each node's endpoint and credential
-// paths, and the database URL (which carries a password).
+// paths, the database URL (which carries a password) and the SCEP URL.
 func (c config) secretsToRedact() []string {
-	out := []string{c.DatabaseURL}
+	out := []string{c.DatabaseURL, c.ScepURL}
 	for _, n := range c.Nodes {
 		out = append(out, n.Endpoint, n.AdminCertPath, n.AdminKeyPath, n.CACertPath)
 	}
