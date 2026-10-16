@@ -1,4 +1,4 @@
-# 🧪 The ESXi write-path exercise
+# 🧪 The live write-path exercise
 
 `test/e2e/esxi` (`task e2e:esxi`) is a scripted, live proof that every write path the Fleet
 Manager's public API exposes actually works against a real CryptOS node, not just against a fake
@@ -12,27 +12,37 @@ fallback.
 
 ## ⚙️ What it proves, and what it doesn't yet
 
-Each run exercises, in order: profile create/apply/update/requestable/delete, an enrolment
-protocol toggle, issuing and revoking a leaf certificate, a config-push round trip, the node's own
-image status (stage/activate/rollback need a signed release image, below), a SCEP challenge
-mint/list/revoke, re-keying a subordinate CA, exporting and importing an escrowed CA key, linking
-and rejecting a node enrolment, the full operator-credential request/record/revoke/cancel cycle,
-and decommissioning a node this run linked itself.
+Each run exercises, in order: profile create/apply/update/requestable/delete, a SCEP challenge
+mint/list/revoke, a real RFC 8894 SCEP device enrolment through a minted challenge that is approved
+through the manager and a second one that is rejected, an enrolment protocol toggle (EST or
+ACME, whichever the node has on, since switching one off drops its stored settings), issuing and
+revoking a leaf certificate, a config-push round trip, the node's own image status and, with a
+signed image, the whole image lifecycle (stage, activate, roll back, activate again, waiting for
+each reboot), re-keying a subordinate CA, exporting an escrowed CA key, linking and rejecting a node
+enrolment, importing the escrowed key onto the linked node, the full operator-credential
+request/record/revoke/cancel cycle, and decommissioning a node this run linked itself.
 
-A few of those need a lab resource this run isn't always handed. The step still runs and says so
+The SCEP device is a small client in `test/e2e/esxi/scepdevice.go`: it enrols with a fresh RSA
+3072 identity, waits PENDING, and collects its certificate with CertPoll once the enrolment is
+approved, or a FAILURE once it is rejected. Both outcomes are checked on the node too: the approved
+certificate is in the node's own `ListIssued`, and the rejected enrolment has left its queue.
+
+The image step leaves the node on the image it started on.
+
+A few of those need a resource this run isn't always handed. The step still runs and says so
 rather than silently passing:
 
 | Needs | Without it |
 | --- | --- |
 | A spare node (`spare: true`, not in the manager's own static inventory) | Enrolment, escrow import and decommission report skipped |
 | `E2E_REKEY_NODE` / `E2E_REKEY_PROFILE` | Re-key reports skipped: it is destructive to whatever node it targets, so it never runs without an explicit target |
-| `E2E_IMAGE_URL` / `E2E_IMAGE_SIGNATURE_PATH` | Only `GetNodeImageStatus` runs; staging a real image needs a signed CryptOS release image and its detached signature, release-pipeline material this script isn't hard-coded to fetch |
+| `E2E_IMAGE_URL` / `E2E_IMAGE_SIGNATURE_PATH` | Only `GetNodeImageStatus` runs; staging needs an image signed by the key the node's running image trusts, and the detached signature over it |
+| `E2E_SCEP_URL`, and a `pki.scep.profiles` entry with `require_approval` on the primary node | The device enrolment reports skipped; the challenge mint/list/revoke still runs when the node has any SCEP profile |
+| A software-key node for the escrow export (the primary, or the node `E2E_ESCROW_NODE` names) | The export fails: a TPM-held CA key is never exportable |
 
-> [!NOTE]
-> Driving an actual SCEP device enrolment through a minted challenge (`ApproveNodeScepEnrollment`
-> / `RejectNodeScepEnrollment`) needs a real RFC 8894 SCEP client talking to the node. This script
-> proves challenge minting, listing and revocation; the enrolment-approval half is tracked as a
-> follow-up (see the issue this change files alongside it).
+The nodes don't have to be on ESXi: the script only needs each node's management endpoint and its
+admin credential. cryptos-appliance's QEMU full-image suite runs it on CI against its live Root and
+Intermediate on every suite run, as one step group of that suite.
 
 ## Before you start
 
@@ -92,7 +102,11 @@ docker run -d --rm --name e2e-esxi-pg -e POSTGRES_PASSWORD=throwaway -p 15432:54
 | `E2E_MANAGER_BIN` | yes, unless run through `task` | path to a built manager binary; `task e2e:esxi` builds and sets this for you |
 | `E2E_STEP_TIMEOUT` | no | per-step timeout, a Go duration (default `2m`) |
 | `E2E_REKEY_NODE` / `E2E_REKEY_PROFILE` | no | opts the re-key step in, against the named node under the named parent-signed profile |
-| `E2E_IMAGE_URL` / `E2E_IMAGE_SIGNATURE_PATH` / `E2E_IMAGE_SHA256` | no | opts the image stage/activate/rollback steps in |
+| `E2E_IMAGE_URL` / `E2E_IMAGE_SIGNATURE_PATH` / `E2E_IMAGE_SHA256` | no | opts the image stage/activate/rollback steps in; the image must differ from the one the primary node is running |
+| `E2E_SCEP_URL` | no | the primary node's SCEP listener as this script reaches it, for example `http://pki-intermediate.example.org/scep`; opts the device enrolment in |
+| `E2E_ESCROW_NODE` | no | the node the escrow export runs against (default the primary); name a software-key node when the primary holds its CA key in a TPM |
+| `E2E_MANAGER_LISTEN` | no | the loopback address the throwaway manager binds (default `127.0.0.1:18443`) |
+| `E2E_RESULTS_FILE` | no | where to write the step results as a JSON array (`name`, `status`, `detail`, details redacted) for a harness to report |
 
 None of these values, or any node endpoint or address, ever reach this script's own stdout
 unredacted: it redacts the same way the release gate does (`cryptos-appliance/test/gate/lib.sh`),
@@ -112,6 +126,6 @@ throwaway operator CA's private key existed only in memory and under `E2E_WORKDI
 
 ## ⚠️ Scope
 
-No CI wiring yet: running this from a workflow needs runner-group access to the lab network for
-`cryptos-manager`, a separate decision from this script existing. Run it by hand from this box
-until that lands.
+On CI it runs only inside cryptos-appliance's QEMU full-image suite, which builds the manager
+from the pinned commit in `release/pins.yaml`. By hand it runs against any lab nodes you can reach.
+Lab only either way: never production nodes or FleetOS.

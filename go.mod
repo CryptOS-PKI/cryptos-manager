@@ -15,6 +15,8 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/modelcontextprotocol/go-sdk v1.8.0
+	github.com/smallstep/pkcs7 v0.2.3
+	github.com/smallstep/scep v0.0.0-20261014185058-63893dadfda8
 	golang.org/x/crypto v0.55.0
 	golang.org/x/sync v0.22.0
 	golang.org/x/time v0.15.0

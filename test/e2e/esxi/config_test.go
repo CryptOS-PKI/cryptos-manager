@@ -169,3 +169,67 @@ func TestConfigSecretsToRedactNamesNothingByAccident(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadConfigOptionalSettings(t *testing.T) {
+	env := validEnv()
+	env["E2E_SCEP_URL"] = "http://scep.example.org:8080/scep"
+	env["E2E_ESCROW_NODE"] = "pki-root"
+	env["E2E_MANAGER_LISTEN"] = "127.0.0.1:28443"
+	env["E2E_RESULTS_FILE"] = "/work/results.json"
+	files := map[string]string{"/work/nodes.yaml": validNodesYAML}
+	cfg, err := loadConfig(fakeEnv(env), fakeReadFile(files))
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if cfg.ScepURL != "http://scep.example.org:8080/scep" {
+		t.Errorf("ScepURL = %q", cfg.ScepURL)
+	}
+	if cfg.EscrowNode != "pki-root" {
+		t.Errorf("EscrowNode = %q", cfg.EscrowNode)
+	}
+	if cfg.ManagerListen != "127.0.0.1:28443" {
+		t.Errorf("ManagerListen = %q", cfg.ManagerListen)
+	}
+	if cfg.ResultsFile != "/work/results.json" {
+		t.Errorf("ResultsFile = %q", cfg.ResultsFile)
+	}
+}
+
+func TestLoadConfigManagerListenDefault(t *testing.T) {
+	files := map[string]string{"/work/nodes.yaml": validNodesYAML}
+	cfg, err := loadConfig(fakeEnv(validEnv()), fakeReadFile(files))
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if cfg.ManagerListen != defaultManagerListen {
+		t.Errorf("ManagerListen = %q, want the default %q", cfg.ManagerListen, defaultManagerListen)
+	}
+}
+
+func TestLoadConfigRejectsUnknownEscrowNode(t *testing.T) {
+	env := validEnv()
+	env["E2E_ESCROW_NODE"] = "no-such-node"
+	files := map[string]string{"/work/nodes.yaml": validNodesYAML}
+	if _, err := loadConfig(fakeEnv(env), fakeReadFile(files)); err == nil {
+		t.Fatal("loadConfig: want an error for an E2E_ESCROW_NODE that is not in the nodes file")
+	}
+}
+
+func TestSecretsToRedactCarriesTheSCEPURL(t *testing.T) {
+	env := validEnv()
+	env["E2E_SCEP_URL"] = "http://scep.example.org:8080/scep"
+	files := map[string]string{"/work/nodes.yaml": validNodesYAML}
+	cfg, err := loadConfig(fakeEnv(env), fakeReadFile(files))
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	found := false
+	for _, s := range cfg.secretsToRedact() {
+		if s == env["E2E_SCEP_URL"] {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("secretsToRedact does not carry E2E_SCEP_URL")
+	}
+}

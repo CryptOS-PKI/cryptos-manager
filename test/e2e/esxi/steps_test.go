@@ -18,8 +18,11 @@ limitations under the License.
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -109,5 +112,55 @@ func TestAnyFailed(t *testing.T) {
 	withFail := []stepResult{{status: stepOK}, {status: stepFailed}}
 	if !anyFailed(withFail) {
 		t.Error("anyFailed(with a failure) = false, want true")
+	}
+}
+
+func TestWriteResultsRecordsEveryStepRedacted(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "results.json")
+	results := []stepResult{
+		{name: "a", status: stepOK, detail: "did a on 10.1.2.3"},
+		{name: "b", status: stepSkipped, detail: "no spare node configured"},
+		{name: "c", status: stepFailed, detail: "dial node.example.org:4443: refused"},
+	}
+	if err := writeResults(path, results, newRedactor("node.example.org:4443")); err != nil {
+		t.Fatalf("writeResults: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read results: %v", err)
+	}
+	var got []resultRecord
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("results are not JSON: %v\n%s", err, data)
+	}
+	want := []resultRecord{
+		{Name: "a", Status: "ok", Detail: "did a on [ipv4]"},
+		{Name: "b", Status: "skip", Detail: "no spare node configured"},
+		{Name: "c", Status: "FAIL", Detail: "dial [redacted]: refused"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %d records, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("record %d = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+}
+
+func TestEscrowSourceDefaultsToThePrimary(t *testing.T) {
+	cfg := config{Nodes: []nodeUnderTest{{Name: "int"}, {Name: "root"}}}
+	s := newScenario(nil, cfg, nil, nil)
+	got, err := s.escrowSource(cfg)
+	if err != nil || got.Name != "int" {
+		t.Errorf("escrowSource = %q, %v; want the primary int", got.Name, err)
+	}
+	cfg.EscrowNode = "root"
+	if got, err := s.escrowSource(cfg); err != nil || got.Name != "root" {
+		t.Errorf("escrowSource with E2E_ESCROW_NODE = %q, %v; want root", got.Name, err)
+	}
+	cfg.EscrowNode = "missing"
+	if _, err := s.escrowSource(cfg); err == nil {
+		t.Error("escrowSource with an unknown E2E_ESCROW_NODE: want an error")
 	}
 }
