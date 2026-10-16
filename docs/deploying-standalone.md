@@ -127,40 +127,44 @@ operator CA (as above) rather than reusing the fleet intermediate, so the set of
 certs that can open a TLS session to the management plane stays exactly the set
 you minted for operators.
 
-### The level extension in OpenSSL form
+### The level extension comes from the manager, not by hand
 
-`go run ./cmd/opext` prints the level extension as a byte sequence
-(`[19, 5, 97, 100, 109, 105, 110]`). An OpenSSL operator CA needs the same DER
-in `-extfile` form. These are identical bytes — `0x13` is ASN.1
-`PrintableString`, `0x05` its length:
+Every operator certificate carries its access level in the extension
+`1.3.6.1.4.1.59999.1.1`. Nobody hand-builds that DER or copies it from a table —
+the manager derives it from the one codec (`internal/authz.MarshalLevelValue`)
+and hands you a ready-to-use OpenSSL section:
+
+- **The very first admin certificate**, before any admin exists to call the
+  API, comes from first run: `RegisterOperatorCA`'s preview response includes
+  `admin_extfile`, the `[ op_admin ]` section below. See
+  [first-run.md](first-run.md).
+- **Every credential after that** comes from `CreateOperatorCredentialRequest`,
+  whose response includes `extfile_section` for the level requested (`viewer`,
+  `operator` or `admin`) and the `openssl ca` command that signs it with that
+  section. See [operator-credentials.md](operator-credentials.md).
+
+Save the section the API gave you, for example as `op-admin.ext`:
 
 ```ini
-# op-admin.ext
-extendedKeyUsage = clientAuth
-keyUsage = critical, digitalSignature
-basicConstraints = critical, CA:FALSE
-1.3.6.1.4.1.59999.1.1 = DER:13:05:61:64:6D:69:6E
+# op-admin.ext (from admin_extfile / extfile_section)
+[ op_admin ]
+basicConstraints       = critical, CA:FALSE
+keyUsage               = critical, digitalSignature
+extendedKeyUsage       = clientAuth
+subjectKeyIdentifier   = hash
+authorityKeyIdentifier = keyid
+1.3.6.1.4.1.59999.1.1  = DER:13:05:61:64:6D:69:6E
 ```
 
-`basicConstraints` matters: without it `openssl x509 -req -extfile` emits a v3
-certificate carrying **no** basic constraints extension at all, which is not what the
-cryptos profile path produces for a leaf and not what you want an operator credential to
-look like. Pin it to `CA:FALSE` explicitly.
-
-| Level | DER | `opext` bytes |
-| --- | --- | --- |
-| `viewer` | `DER:13:06:76:69:65:77:65:72` | `[19, 6, 118, 105, 101, 119, 101, 114]` |
-| `operator` | `DER:13:08:6F:70:65:72:61:74:6F:72` | `[19, 8, 111, 112, 101, 114, 97, 116, 111, 114]` |
-| `admin` | `DER:13:05:61:64:6D:69:6E` | `[19, 5, 97, 100, 109, 105, 110]` |
-
-Mint and verify an operator certificate:
+Then mint and verify the operator certificate:
 
 ```sh
 openssl ecparam -name secp384r1 -genkey -noout -out operator-admin.key
 chmod 600 operator-admin.key
 openssl req -new -key operator-admin.key -subj "/CN=you@acme.example" -out operator-admin.csr
 openssl x509 -req -in operator-admin.csr -CA operator-ca.crt -CAkey operator-ca.key \
-  -CAcreateserial -days 365 -sha384 -extfile op-admin.ext -out operator-admin.crt
+  -CAcreateserial -days 365 -sha384 -extfile op-admin.ext -extensions op_admin \
+  -out operator-admin.crt
 
 openssl x509 -in operator-admin.crt -text -noout | grep -A2 '59999.1.1'   # ..admin
 openssl verify -CAfile operator-ca.crt operator-admin.crt                 # OK

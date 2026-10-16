@@ -205,16 +205,12 @@ people.
 
 An operator certificate carries its access level in the extension
 `1.3.6.1.4.1.59999.1.1` (`authz.AccessLevelOID`): the DER of an ASN.1
-PrintableString of `viewer`, `operator` or `admin`.
-
-| Level | OpenSSL `DER:` value | `opext` bytes |
-| --- | --- | --- |
-| `viewer` | `DER:13:06:76:69:65:77:65:72` | `[19, 6, 118, 105, 101, 119, 101, 114]` |
-| `operator` | `DER:13:08:6F:70:65:72:61:74:6F:72` | `[19, 8, 111, 112, 101, 114, 97, 116, 111, 114]` |
-| `admin` | `DER:13:05:61:64:6D:69:6E` | `[19, 5, 97, 100, 109, 105, 110]` |
-
-`go run ./cmd/opext -level <level>` prints the byte form from the same encoding
-the manager reads.
+PrintableString of `viewer`, `operator` or `admin`. `internal/authz.MarshalLevelValue`
+is the single place that encodes it. `CreateOperatorCredentialRequest`'s
+`extfile_section` above, and first run's `admin_extfile`
+([first-run.md](first-run.md)), both come from that same codec
+(`internal/operatorca.ExtfileSection`), so nothing hand-builds the DER bytes or
+copies them from a table.
 
 > [!NOTE]
 > `1.3.6.1.4.1.59999.1.1` is a placeholder arc. An IANA Private Enterprise

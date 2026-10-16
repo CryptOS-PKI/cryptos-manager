@@ -84,10 +84,9 @@ func MarshalLevelValue(l Level) ([]byte, error) {
 
 // MarshalLevelExtension returns the dotted OID and DER value of the
 // access-level extension for the given level token. It is the single encoding
-// used by both cmd/opext (which prints the value for a profile's
-// extra_extensions) and the operator-CA profile setup that stamps an
-// operator-<level> profile with the level extension. It errors if level is not
-// one of viewer|operator|admin.
+// used by the operator-CA profile setup (internal/operatorca.ExtfileSection)
+// that builds the op_<level> extfile section a CA operator signs an operator
+// credential with. It errors if level is not one of viewer|operator|admin.
 func MarshalLevelExtension(level string) (oid string, der []byte, err error) {
 	l, err := LevelFromToken(level)
 	if err != nil {
