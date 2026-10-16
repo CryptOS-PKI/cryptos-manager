@@ -12,7 +12,18 @@ name: Release Drafter
 on:
   push:
     branches: [main]
+  # cryptos-manager and cryptos-web are versioned in lockstep, but each repo
+  # resolves its next version from its own labels, so the two drafts can come
+  # out different. Dispatching with a version (no leading "v", e.g.
+  # 0.1.0-rc.2) sets this repo's draft to it. Both drafts must carry the same
+  # version before either is published; the merge freeze keeps a later push
+  # from resolving it again.
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Draft this version instead of the one resolved from labels (no leading v, e.g. 0.1.0-rc.2)"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -44,3 +55,4 @@ jobs:
           first-version: 0.1.0
           prerelease: true
           prerelease-identifier: rc
+          version: ${{ inputs.version }}
