@@ -205,9 +205,12 @@ func (c config) findNode(name string) (nodeUnderTest, bool) {
 // script's own stdout/stderr unredacted: each node's endpoint and credential
 // paths, the database URL (which carries a password) and the SCEP URL.
 func (c config) secretsToRedact() []string {
-	out := []string{c.DatabaseURL, c.ScepURL}
+	out := []string{c.DatabaseURL}
 	for _, n := range c.Nodes {
 		out = append(out, n.Endpoint, n.AdminCertPath, n.AdminKeyPath, n.CACertPath)
+	}
+	if c.ScepURL != "" {
+		out = append(out, c.ScepURL)
 	}
 	return out
 }

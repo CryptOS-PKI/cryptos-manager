@@ -116,7 +116,7 @@ func (s *scenario) activateAndWait(ctx context.Context, id, name, confirmCN, wan
 	})); err != nil {
 		return fmt.Errorf("ActivateNodeImage: %w", err)
 	}
-	last := "no answer yet"
+	var last string
 	for {
 		resp, err := s.fleet.GetNodeImageStatus(ctx, connect.NewRequest(&fleetv1.GetNodeImageStatusRequest{NodeId: id, NodeName: name}))
 		if err == nil {
