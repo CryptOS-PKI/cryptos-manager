@@ -76,7 +76,7 @@ func newFixture(t *testing.T) *fixture {
 }
 
 func (f *fixture) operatorCert(serial int64, level authz.Level) *x509.Certificate {
-	value, _ := asn1.Marshal(level.Token())
+	value, _ := authz.MarshalLevelValue(level)
 	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	tmpl := &x509.Certificate{
 		SerialNumber: big.NewInt(serial), Subject: pkix.Name{CommonName: "operator@example.org"},

@@ -72,7 +72,7 @@ func (ca testCA) pool() *x509.CertPool {
 // notBefore to notAfter.
 func (ca testCA) operatorCert(t *testing.T, serial int64, level authz.Level, notBefore, notAfter time.Time) *x509.Certificate {
 	t.Helper()
-	value, err := asn1.Marshal(level.Token())
+	value, err := authz.MarshalLevelValue(level)
 	if err != nil {
 		t.Fatal(err)
 	}

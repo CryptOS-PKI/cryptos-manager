@@ -45,7 +45,7 @@ import (
 // self-signed operator certificate at level with the given serial.
 func certCtx(t *testing.T, serial int64, level authz.Level) context.Context {
 	t.Helper()
-	value, _ := asn1.Marshal(level.Token())
+	value, _ := authz.MarshalLevelValue(level)
 	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	tmpl := &x509.Certificate{
 		SerialNumber:    big.NewInt(serial),

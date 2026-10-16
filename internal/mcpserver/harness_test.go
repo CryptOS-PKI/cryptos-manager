@@ -231,7 +231,7 @@ func (noneRevoked) CheckMCP(string, string) error { return nil }
 // key mints a key for a fresh operator certificate at level with ceiling.
 func (h *harness) key(level authz.Level, ceiling string) string {
 	h.t.Helper()
-	value, _ := asn1.Marshal(level.Token())
+	value, _ := authz.MarshalLevelValue(level)
 	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	serial, _ := rand.Int(rand.Reader, big.NewInt(1<<62))
 	tmpl := &x509.Certificate{
