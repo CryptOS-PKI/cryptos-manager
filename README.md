@@ -348,13 +348,17 @@ After a stacked pull request is retargeted onto `main`, CI starts on its next pu
 
 ## 📦 Releasing
 
-Nothing tags automatically. On push to `main`, release-drafter categorises the merged conventional-commit PRs into the draft release notes. The maintainer then publishes the GitHub Release by hand, which creates the `vX.Y.Z` tag. That tag triggers `job-release-image.yaml`, which builds the container image from the pinned web ref with BuildKit, runs it read-only against the health check, and — only once that passes — pushes `ghcr.io/cryptos-pki/cryptos-manager:vX.Y.Z` and packages and pushes the chart to `oci://ghcr.io/cryptos-pki/charts/fleet-manager` at the same version. `latest` moves only on a stable tag (no `-` prerelease suffix); an rc publishes its own tag but never `latest`. Neither push carries any provenance, SBOM or other attestation. The node ISO ships from [`cryptos-appliance`](https://github.com/CryptOS-PKI/cryptos-appliance), source only. Adopters who want something other than the published image or chart build and push their own from the tagged source (see [*Building the image yourself*](#building-the-image-yourself)). (The repo's own release/governance tooling — release-drafter, golic — is the maintainer's; adopters don't need it.)
+Nothing tags automatically. On push to `main`, release-drafter categorises the merged conventional-commit PRs into the draft release notes. The maintainer then publishes the GitHub Release by hand, which creates the `vX.Y.Z` tag. That tag triggers `job-release-image.yaml`, which builds the container image with BuildKit, with the web console from `cryptos-web`'s tag of the same name, runs it read-only against the health check, and — only once that passes — pushes `ghcr.io/cryptos-pki/cryptos-manager:vX.Y.Z` and packages and pushes the chart to `oci://ghcr.io/cryptos-pki/charts/fleet-manager` at the same version. `latest` moves only on a stable tag (no `-` prerelease suffix); an rc publishes its own tag but never `latest`. Neither push carries any provenance, SBOM or other attestation. The node ISO ships from [`cryptos-appliance`](https://github.com/CryptOS-PKI/cryptos-appliance), source only. Adopters who want something other than the published image or chart build and push their own from the tagged source (see [*Building the image yourself*](#building-the-image-yourself)). (The repo's own release/governance tooling — release-drafter, golic — is the maintainer's; adopters don't need it.)
 
 The release image is meant to be rebuildable from its tag. Every base image in the
 `Dockerfile` is pinned by digest, the build date is the tagged commit's time rather than
-the clock, and the release refuses to build until the `WEB_RELEASE_REF` repository
-variable pins the `web` checkout to a tag or commit (falling back to `web`'s `main` would
-embed whatever was there that day). A pull request that touches the image runs
+the clock, and the `web` checkout is `cryptos-web`'s tag of the same name. The two repos are
+versioned in lockstep: `vX.Y.Z` of the manager embeds `vX.Y.Z` of the web console, so
+`cryptos-web`'s release is published first, and the image workflow fails with a clear error
+when `cryptos-web` has no published release at that tag. Each repo's Release Drafter resolves
+its next version from its own labels, so the two drafts can differ; before either is
+published both must carry the same version. Dispatch the Release Drafter workflow with a
+`version` input (for example `0.1.0-rc.2`) to set one to match. A pull request that touches the image runs
 `.github/workflows/ci-image.yaml`, which builds it without pushing, runs it read-only with
 every capability dropped against a Postgres container, and checks that it turns healthy,
 that the node-creds volume is owned by 65532, and that `/healthz` answers 503 once the

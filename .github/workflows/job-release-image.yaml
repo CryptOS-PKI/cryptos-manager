@@ -1,7 +1,8 @@
 name: "🚀 Release image"
 
-# A v* tag publishes the manager image and its Helm chart: build from the
-# pinned web ref, prove the image with the read-only health check, then push
+# A v* tag publishes the manager image and its Helm chart: build with the
+# web console from cryptos-web's tag of the same name (the two repos are
+# versioned in lockstep), prove the image with the read-only health check, then push
 # only if that check passes. `latest` moves only on a stable tag (no "-"
 # prerelease suffix); an rc tag publishes its own tag but never latest. The
 # chart version always matches the tag (without its leading "v"). The node
@@ -29,29 +30,32 @@ jobs:
       NET: fleet-release-check
       REGISTRY_IMAGE: ghcr.io/cryptos-pki/cryptos-manager
     steps:
-      # A tagged image has to be rebuildable from the tag. Falling back to
-      # web's main would embed whatever web happened to be at build time, so
-      # the release refuses to build until the web ref is pinned.
-      - name: Require a pinned web ref
+      # cryptos-manager and cryptos-web are versioned in lockstep: the image
+      # for vX.Y.Z embeds the web console from cryptos-web's vX.Y.Z. That
+      # release has to be published first; the releases/tags endpoint only
+      # returns published releases, so a draft or a missing tag fails here.
+      - name: Require the matching cryptos-web release
         env:
-          WEB_RELEASE_REF: ${{ vars.WEB_RELEASE_REF }}
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
         run: |
-          if [ -z "$WEB_RELEASE_REF" ]; then
-            echo "::error::Set the WEB_RELEASE_REF repository variable to a web tag or commit SHA before cutting a release."
+          set -euo pipefail
+          if ! draft="$(gh api "repos/CryptOS-PKI/cryptos-web/releases/tags/$TAG" -q .draft 2>/dev/null)" || [ "$draft" != "false" ]; then
+            echo "::error::cryptos-web has no published release at $TAG. The two repos are versioned in lockstep: publish cryptos-web's $TAG draft first (with the same version), then re-run this workflow."
             exit 1
           fi
-          echo "web ref: $WEB_RELEASE_REF"
+          echo "web release: $TAG"
 
       - name: Checkout manager
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           path: manager
 
-      - name: Checkout web (pinned)
+      - name: Checkout web (same tag)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           repository: CryptOS-PKI/cryptos-web
-          ref: ${{ vars.WEB_RELEASE_REF }}
+          ref: refs/tags/${{ github.ref_name }}
           path: web
 
       # Resolve what is actually being built, so the image can report it (#81).
