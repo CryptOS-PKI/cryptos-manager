@@ -67,3 +67,19 @@ func TestFindScepEnrollmentPrefersTheTransactionID(t *testing.T) {
 		t.Errorf("findScepEnrollment for a device with no enrolment = %q, want empty", got)
 	}
 }
+
+func TestAdapterNameOfKind(t *testing.T) {
+	items := []*fleetv1.EnrollmentAdapter{
+		{Kind: "acme", Name: "ACME (RFC 8555)"},
+		{Kind: "scep", Name: "SCEP (RFC 8894)"},
+	}
+	if got := adapterNameOfKind(items, "scep"); got != "SCEP (RFC 8894)" {
+		t.Errorf("adapterNameOfKind(scep) = %q", got)
+	}
+	if got := adapterNameOfKind(items, "est"); got != "" {
+		t.Errorf("adapterNameOfKind(est) = %q, want empty", got)
+	}
+	if got := adapterNameOfKind(nil, "scep"); got != "" {
+		t.Errorf("adapterNameOfKind on an empty catalog = %q, want empty", got)
+	}
+}

@@ -29,6 +29,9 @@ import (
 // protocolStep exercises SetAdapterEnabled (the manager's adapter catalog)
 // and SetNodeProtocol (one node's own stored SCEP switch), toggling SCEP on
 // and back off and checking the node's own stored config both times. The
+// catalog matches adapters by name and a fresh manager's catalog is empty,
+// so SetAdapterEnabled runs against the catalog's SCEP adapter when there is
+// one, found by its kind, and the result says when there was none. The
 // protocol only starts answering requests at the node's next boot
 // (NodeSummary.reboot_required), which this script does not force by
 // rebooting a shared root or intermediate node; it checks what was stored,
@@ -40,8 +43,16 @@ func (s *scenario) protocolStep() step {
 			return "", err
 		}
 
-		if _, err := s.fleet.SetAdapterEnabled(ctx, connect.NewRequest(&fleetv1.SetAdapterEnabledRequest{Name: "scep", Enabled: true})); err != nil {
-			return "", fmt.Errorf("SetAdapterEnabled(scep, true): %w", err)
+		adapters, err := s.fleet.ListAdapters(ctx, connect.NewRequest(&fleetv1.ListAdaptersRequest{}))
+		if err != nil {
+			return "", fmt.Errorf("ListAdapters: %w", err)
+		}
+		adapterNote := "the catalog has no SCEP adapter, so SetAdapterEnabled was not exercised"
+		if name := adapterNameOfKind(adapters.Msg.GetItems(), "scep"); name != "" {
+			if _, err := s.fleet.SetAdapterEnabled(ctx, connect.NewRequest(&fleetv1.SetAdapterEnabledRequest{Name: name, Enabled: true})); err != nil {
+				return "", fmt.Errorf("SetAdapterEnabled(%s, true): %w", name, err)
+			}
+			adapterNote = "enabled the catalog's SCEP adapter " + name
 		}
 
 		// SetNodeProtocolRequest, unlike every other node-addressed message in
@@ -64,7 +75,7 @@ func (s *scenario) protocolStep() step {
 		if err := s.checkNodeScepEnabled(primary, false); err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("enabled the scep adapter and toggled %s's stored SCEP switch on then off", primary.Name), nil
+		return fmt.Sprintf("toggled %s's stored SCEP switch on then off; %s", primary.Name, adapterNote), nil
 	}}
 }
 
@@ -83,4 +94,15 @@ func (s *scenario) checkNodeScepEnabled(n nodeUnderTest, want bool) error {
 		return fmt.Errorf("%s's stored scep.enabled is %v, want %v", n.Name, got, want)
 	}
 	return nil
+}
+
+// adapterNameOfKind returns the name of the first catalog adapter of kind,
+// or "" when the catalog has none.
+func adapterNameOfKind(items []*fleetv1.EnrollmentAdapter, kind string) string {
+	for _, a := range items {
+		if a.GetKind() == kind {
+			return a.GetName()
+		}
+	}
+	return ""
 }
