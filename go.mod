@@ -3,14 +3,14 @@ module github.com/CryptOS-PKI/cryptos-manager
 go 1.26.8
 
 require (
-	google.golang.org/grpc v1.83.2
+	google.golang.org/grpc v1.84.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
 	connectrpc.com/connect v1.20.0
-	github.com/Bugs5382/go-apperr v1.0.0
-	github.com/Bugs5382/go-log v1.3.0
+	github.com/Bugs5382/go-apperr v1.2.1
+	github.com/Bugs5382/go-log v1.4.0
 	github.com/Bugs5382/go-redis v1.4.0
 	github.com/CryptOS-PKI/cryptos-node v0.0.0-20261001205107-8d8b52d5bafd
 	github.com/google/uuid v1.6.0
@@ -47,6 +47,6 @@ require (
 	golang.org/x/net v0.58.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.41.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260803160001-6ac0973c030d // indirect
-	google.golang.org/protobuf v1.36.11
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260928230214-8a89bd6388cc // indirect
+	google.golang.org/protobuf v1.36.12
 )
