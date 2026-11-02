@@ -15,7 +15,7 @@ vars:
   # protoc-gen-go formats its output with the go/format it was compiled with,
   # so the toolchain that builds the plugins is pinned too. Kept at the go
   # directive in go.mod.
-  PLUGIN_GO_TOOLCHAIN: go1.26.8
+  PLUGIN_GO_TOOLCHAIN: go1.26.10
   TOOLS_BIN: '{{.ROOT_DIR}}/.bin'
   NODE_PROTO_DIR: '{{.ROOT_DIR}}/.deps/cryptos-node/proto'
   # The baseline `buf breaking` compares against. Override it to compare
