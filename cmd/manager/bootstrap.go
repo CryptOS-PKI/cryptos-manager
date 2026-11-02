@@ -58,7 +58,7 @@ func ocspProbe(rev *operatorca.Revocations) bootstrap.OCSPProbe {
 // trust, prints the first token when first run is open, and returns the
 // route that mounts it. main mounts it on the TLS server only, never on the
 // plaintext bypass listener, and outside the certificate middleware. bs is
-// nil without Postgres, which leaves first run unavailable.
+// nil without a durable store, which leaves first run unavailable.
 func setupBootstrap(ctx context.Context, cfg config.Config, st store.Store, bs bootstrap.Store, trust *operatorTrust, base *tls.Config, logf func(string, ...any)) (*bootstrap.Service, func(*http.ServeMux), error) {
 	var server bootstrap.ServerInfo
 	if len(base.Certificates) > 0 && base.Certificates[0].Leaf != nil {

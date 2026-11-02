@@ -27,29 +27,48 @@ import (
 
 	"github.com/CryptOS-PKI/cryptos-manager/internal/bootstrap"
 	"github.com/CryptOS-PKI/cryptos-manager/internal/config"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
+	"github.com/CryptOS-PKI/cryptos-manager/internal/store/kv"
 	"github.com/CryptOS-PKI/cryptos-manager/internal/store/postgres"
 )
+
+// resetStore is what the break-glass reset needs, from either durable store.
+type resetStore interface {
+	bootstrap.Store
+	store.Store
+}
 
 // runResetFirstRun is -reset-first-run: the offline break-glass reset.
 // Access to the host and the database is the authority, so it asks for
 // nothing else.
 func runResetFirstRun(ctx context.Context, cfg config.Config, out io.Writer) error {
-	if cfg.DatabaseURL == "" {
-		return errors.New("first run is kept in Postgres and no database_url is configured, so there is nothing to reset")
+	if !cfg.Durable() {
+		return errors.New("first run is kept in the durable store and no database_url or storage.mode: kv is configured, so there is nothing to reset")
 	}
-	pg, err := postgres.New(ctx, cfg.DatabaseURL)
-	if err != nil {
-		return err
+	var st resetStore
+	if cfg.Storage.Mode == config.StorageModeKV {
+		s, err := kv.New(ctx, kv.Options{URL: cfg.Storage.KV.URL, CAFile: cfg.Storage.KV.CAFile})
+		if err != nil {
+			return err
+		}
+		defer s.Close()
+		st = s
+	} else {
+		pg, err := postgres.New(ctx, cfg.DatabaseURL)
+		if err != nil {
+			return err
+		}
+		defer pg.Close()
+		st = pg
 	}
-	defer pg.Close()
 
 	host, err := os.Hostname()
 	if err != nil {
 		host = "unknown"
 	}
 	return bootstrap.Reset(ctx, bootstrap.ResetOptions{
-		Store:            pg,
-		Audit:            pg,
+		Store:            st,
+		Audit:            st,
 		Live:             func(ctx context.Context) bool { return managerAnswers(ctx, cfg) },
 		FileSource:       cfg.OperatorCAPath != "",
 		FirstRunDisabled: cfg.FirstRun == config.FirstRunDisabled,

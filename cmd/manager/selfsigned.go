@@ -48,8 +48,8 @@ const bootstrapCertRenewBefore = 7 * 24 * time.Hour
 // so two replicas starting together don't each store their own.
 const bootstrapCertLock = "fleetos.bootstrap_cert"
 
-// serverCertStore keeps the bootstrap certificate in Postgres so every
-// replica serves the same one. nil means no Postgres: generate per start.
+// serverCertStore keeps the bootstrap certificate in the durable store so every
+// replica serves the same one. nil means memory mode: generate per start.
 type serverCertStore interface {
 	WithAdvisoryLock(ctx context.Context, name string, fn func(context.Context) error) error
 	BootstrapServerCert(ctx context.Context) (store.ServerCert, bool, error)

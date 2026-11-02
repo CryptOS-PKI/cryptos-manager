@@ -11,10 +11,12 @@ require (
 	connectrpc.com/connect v1.20.0
 	github.com/Bugs5382/go-apperr v1.0.0
 	github.com/Bugs5382/go-log v1.3.0
+	github.com/Bugs5382/go-redis v1.4.0
 	github.com/CryptOS-PKI/cryptos-node v0.0.0-20261001205107-8d8b52d5bafd
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/modelcontextprotocol/go-sdk v1.8.0
+	github.com/redis/go-redis/v9 v9.22.0
 	github.com/smallstep/pkcs7 v0.2.3
 	github.com/smallstep/scep v0.0.0-20261014185058-63893dadfda8
 	golang.org/x/crypto v0.55.0
@@ -37,6 +39,7 @@ require (
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	go.opentelemetry.io/otel v1.45.0 // indirect
 	go.opentelemetry.io/otel/trace v1.45.0 // indirect
+	go.uber.org/atomic v1.11.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
 )
 
