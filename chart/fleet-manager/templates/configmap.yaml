@@ -46,5 +46,12 @@ data:
     {{- if eq .Values.storage.mode "memory" }}
     storage:
       mode: memory
+    {{- else if eq .Values.storage.mode "kv" }}
+    storage:
+      mode: kv
+      {{- with .Values.storage.kv.caConfigMap }}
+      kv:
+        caFile: /etc/cryptos/fleet/kv-ca/{{ $.Values.storage.kv.caKey }}
+      {{- end }}
     {{- end }}
     nodes: {{ include "fleet-manager.nodes" . }}

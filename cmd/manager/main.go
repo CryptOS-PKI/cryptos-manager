@@ -157,6 +157,19 @@ func main() {
 		st, trustStore = mem, mem
 		health = storeHealth{Mode: config.StorageModeMemory}
 		log.Printf("manager: WARNING storage.mode=memory: operator registrations and the manager's own audit log are lost on restart; the CA nodes keep their own audit chains (docs/storage.md)")
+	case config.StorageModeKV:
+		ctx := context.Background()
+		kvs, err := openKV(ctx, cfg, log.Printf)
+		if err != nil {
+			log.Fatalf("manager: storage.mode=kv: %v", err)
+		}
+		defer kvs.Close()
+		if err := kvs.SeedIfEmpty(ctx, nodes); err != nil {
+			log.Fatalf("manager: seed kv store: %v", err)
+		}
+		st, trustStore, bootStore, certStore = kvs, kvs, kvs, kvs
+		health = kvHealth(kvs)
+		log.Printf("manager: using kv store")
 	default:
 		ctx := context.Background()
 		// Wait for Postgres rather than exiting if it is not up yet: a
