@@ -5,8 +5,11 @@ name: Image CI
 # node-creds volume, and reports health from its own /healthz, including a 503
 # when its database goes away. Also checks that deploy/compose.yaml still
 # renders (docker compose config), so the compose topology in the README and
-# docs/deploying-standalone.md doesn't silently break. Nothing is pushed;
-# publishing happens only on a v* tag (job-release-image.yaml).
+# docs/deploying-standalone.md doesn't silently break. Both platforms the
+# release publishes (linux/amd64, linux/arm64) run the whole proof natively on
+# their own runner, so a change that breaks only arm64 fails here and not at
+# the tag. Nothing is pushed; publishing happens only on a v* tag
+# (job-release-image.yaml).
 #
 # Pull requests only, and not while the PR is a draft. Unlike the other PR
 # workflows this one is path-filtered, because the image build compiles the
@@ -32,9 +35,17 @@ permissions:
   contents: read
 jobs:
   image:
-    name: 🐳 Image CI (build, run read-only, health)
+    name: 🐳 Image CI (build, run read-only, health, ${{ matrix.arch }})
     if: github.event.pull_request.draft == false
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     env:
       IMAGE: manager:ci
@@ -68,6 +79,7 @@ jobs:
         with:
           context: .
           file: manager/Dockerfile
+          platforms: linux/${{ matrix.arch }}
           push: false
           load: true
           provenance: false
@@ -76,8 +88,8 @@ jobs:
           build-args: |
             VERSION=ci
             COMMIT=${{ github.event.pull_request.head.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=image-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=image-${{ matrix.arch }}
 
       - name: 🔎 Image runs as nonroot with a health check
         run: |
