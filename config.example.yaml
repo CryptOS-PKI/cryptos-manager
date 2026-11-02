@@ -29,7 +29,7 @@ authBypass: true
 # storage:
 #   mode: kv
 #   kv:
-#     url: "redis://:secret@localhost:6379/0"
+#     url: "redis://fleet-manager:secret@localhost:6379/0"
 storage:
   mode: memory
 # mcp serves the Model Context Protocol endpoint for AI agents at /mcp (see

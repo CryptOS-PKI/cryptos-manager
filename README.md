@@ -323,7 +323,7 @@ Setup, the tool list and key management are in [`docs/mcp.md`](docs/mcp.md).
 The manager keeps its state in Postgres, on a Valkey or Redis server, or in memory, and refuses to start with none configured — naming the ways to fix it, rather than silently falling back to memory the way earlier builds did.
 
 - **`database_url` (the default).** The manager applies its schema (a small idempotent migrator runs on every startup), seeds the catalog into an empty database on first run, and persists enrollments and the hash-chained audit log. Restarts keep pending enrollments and the audit trail; the seed is a no-op once any table has rows, so live data is never clobbered. That makes `nodes[]` in `config.yaml` bootstrap-only: once the database holds the inventory, a node renamed in the web UI keeps its new name across restarts, and editing the file no longer changes it. Every node has a stable ID, a UUIDv7 assigned when it joins, that never changes; the name is an editable label. An admin removes a node that is gone with `RemoveNode`, which drops it from the inventory without contacting it and keeps its audit history.
-- **`storage.mode: kv`.** Valkey first, plus Redis, on a server you run with persistence on: AOF is the supported setup, RDB alone is reported as degraded, and with neither the manager refuses to start. It supports first run, MCP and several replicas. The audit log is an append-only stream with a hash chain, and the manager refuses an account that could delete from it.
+- **`storage.mode: kv`.** Valkey first, plus Redis, on a server you run with persistence on: AOF is the supported setup, RDB alone is reported as degraded, and with neither the manager refuses to start. It supports first run, MCP and several replicas. The audit log is an append-only stream with a hash chain, and the manager refuses an account that could delete from it. The URL names the manager's own ACL user (`rediss://fleet-manager:secret@...`); leave the user out to sign in as `default`.
 - **`storage.mode: memory`.** For a home lab or single-box install: nothing persists, the manager runs single-replica only (enforced by the chart and by the manager itself), and it rebuilds its view from the configured nodes on restart.
 
 ```yaml
@@ -333,7 +333,7 @@ database_url: "postgres://manager:secret@db:5432/manager"
 storage:
   mode: kv
   kv:
-    url: "rediss://:secret@valkey:6380/0"
+    url: "rediss://fleet-manager:secret@valkey:6380/0"
 # or
 storage:
   mode: memory
@@ -351,7 +351,7 @@ For a bare-host deployment without a container runtime — systemd unit, the
 verify the listener without a browser — see
 [`docs/deploying-standalone.md`](docs/deploying-standalone.md).
 
-The KV store's tests run against a real Valkey, gated the same way on `MANAGER_TEST_KV_URL` (for example `redis://localhost:6379/0`, on a server you can spare: they change its ACL and persistence settings and put them back).
+The KV store's tests run against a real Valkey, gated the same way on `MANAGER_TEST_KV_URL` (for example `redis://localhost:6379/0`, on a server you can spare: they add and remove a named ACL user and change its persistence settings and put them back).
 
 The Postgres integration tests are gated on the `MANAGER_TEST_DATABASE_URL` env var and **skip** when it is unset, so `task ci` stays green without a database. To run them against a throwaway Postgres:
 

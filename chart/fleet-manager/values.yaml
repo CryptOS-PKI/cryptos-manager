@@ -125,9 +125,10 @@ storage:
   mode: ""
   kv:
     # A Secret in the release namespace whose secretKey holds the server URL,
-    # redis://:<password>@valkey:6379/0 or rediss:// for TLS. It reaches the
-    # manager as MANAGER_KV_URL, so the password never lands in the rendered
-    # config.
+    # redis://<user>:<password>@valkey:6379/0 or rediss:// for TLS, where
+    # <user> is the manager's ACL user (leave it out for the default user).
+    # It reaches the manager as MANAGER_KV_URL, so the password never lands
+    # in the rendered config.
     existingSecret: ""
     secretKey: "kv-url"
     # A ConfigMap holding the CA that signed a rediss:// server's certificate.
