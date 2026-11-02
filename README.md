@@ -54,7 +54,8 @@ Or start from nothing: with Postgres and no `operatorCAPath`, the manager serves
 ### Docker
 
 A release tag publishes `ghcr.io/cryptos-pki/cryptos-manager:vX.Y.Z` (and `:latest` for
-a stable tag — not an rc). Pull it directly, or build your own (see
+a stable tag — not an rc) as one multi-arch image for `linux/amd64` and `linux/arm64`, so the
+same tag runs on an x86 host or an ARM board. Pull it directly, or build your own (see
 [*Building the image yourself*](#building-the-image-yourself)) and swap the tag below for
 that.
 
@@ -348,7 +349,7 @@ After a stacked pull request is retargeted onto `main`, CI starts on its next pu
 
 ## 📦 Releasing
 
-Nothing tags automatically. On push to `main`, release-drafter categorises the merged conventional-commit PRs into the draft release notes. The maintainer then publishes the GitHub Release by hand, which creates the `vX.Y.Z` tag. That tag triggers `job-release-image.yaml`, which builds the container image with BuildKit, with the web console from `cryptos-web`'s tag of the same name, runs it read-only against the health check, and — only once that passes — pushes `ghcr.io/cryptos-pki/cryptos-manager:vX.Y.Z` and packages and pushes the chart to `oci://ghcr.io/cryptos-pki/charts/fleet-manager` at the same version. `latest` moves only on a stable tag (no `-` prerelease suffix); an rc publishes its own tag but never `latest`. Neither push carries any provenance, SBOM or other attestation. The node ISO ships from [`cryptos-appliance`](https://github.com/CryptOS-PKI/cryptos-appliance), source only. Adopters who want something other than the published image or chart build and push their own from the tagged source (see [*Building the image yourself*](#building-the-image-yourself)). (The repo's own release/governance tooling — release-drafter, golic — is the maintainer's; adopters don't need it.)
+Nothing tags automatically. On push to `main`, release-drafter categorises the merged conventional-commit PRs into the draft release notes. The maintainer then publishes the GitHub Release by hand, which creates the `vX.Y.Z` tag. That tag triggers `job-release-image.yaml`, which builds the container image with BuildKit natively for `linux/amd64` and `linux/arm64`, with the web console from `cryptos-web`'s tag of the same name, runs each one read-only against the health check, and — only once both pass — publishes them as one manifest list at `ghcr.io/cryptos-pki/cryptos-manager:vX.Y.Z` and packages and pushes the chart to `oci://ghcr.io/cryptos-pki/charts/fleet-manager` at the same version. `latest` moves only on a stable tag (no `-` prerelease suffix); an rc publishes its own tag but never `latest`. Neither push carries any provenance, SBOM or other attestation. The node ISO ships from [`cryptos-appliance`](https://github.com/CryptOS-PKI/cryptos-appliance), source only. Adopters who want something other than the published image or chart build and push their own from the tagged source (see [*Building the image yourself*](#building-the-image-yourself)). (The repo's own release/governance tooling — release-drafter, golic — is the maintainer's; adopters don't need it.)
 
 The release image is meant to be rebuildable from its tag. Every base image in the
 `Dockerfile` is pinned by digest, the build date is the tagged commit's time rather than
@@ -359,8 +360,8 @@ when `cryptos-web` has no published release at that tag. Each repo's Release Dra
 its next version from its own labels, so the two drafts can differ; before either is
 published both must carry the same version. Dispatch the Release Drafter workflow with a
 `version` input (for example `0.1.0-rc.2`) to set one to match. A pull request that touches the image runs
-`.github/workflows/ci-image.yaml`, which builds it without pushing, runs it read-only with
-every capability dropped against a Postgres container, and checks that it turns healthy,
+`.github/workflows/ci-image.yaml`, which builds it without pushing for both `linux/amd64` and `linux/arm64`, each natively on its own
+runner, runs it read-only with every capability dropped against a Postgres container, and checks that it turns healthy,
 that the node-creds volume is owned by 65532, and that `/healthz` answers 503 once the
 database is stopped.
 
