@@ -276,6 +276,25 @@ The MCP endpoint is off in the chart too. `mcp.enabled` and `mcp.publicURL` turn
 
 Setting `CRYPTOS_DEV_UI_ISSUE_COPY=true` adds a `<meta name="cryptos-dev-ui-issue-copy" content="true">` tag to the served index page, which lets a development console build show its "Copy for UI issue" button. Off by default; a release console build has no such button regardless of this setting.
 
+## 🖥️ cryptos-managerctl
+
+`cryptos-managerctl` is the operator CLI: it scripts from a workstation what the web console does by hand, the way `cryptosctl` scripts a node. It signs in with the same operator certificate. Each release attaches builds for Linux, macOS and Windows on amd64 and arm64, with a `SHA256SUMS` file; `task ctl` builds one for this machine.
+
+```bash
+export CRYPTOS_MANAGER_SERVER=https://fleetos.example.org
+export CRYPTOS_MANAGER_CERT=operator.crt CRYPTOS_MANAGER_KEY=operator.key
+export CRYPTOS_MANAGER_CA=fleetos-ca.pem   # leave unset for a publicly trusted server
+
+cryptos-managerctl whoami
+cryptos-managerctl nodes list
+cryptos-managerctl certs issue --node issuing-1 --profile web-server --csr www.csr > www.crt
+cryptos-managerctl certs revoke --node issuing-1 --serial 0a0b --reason 1 --yes
+cryptos-managerctl enrollments list
+cryptos-managerctl approvals approve <id>
+```
+
+Every command takes `-o json` or `-o yaml`. The private key for a certificate stays with you: `certs issue` sends only the CSR. There's no flag to skip checking the manager's certificate.
+
 ## 🔌 MCP endpoint
 
 The manager can serve a [Model Context Protocol](https://modelcontextprotocol.io) endpoint at `/mcp` for AI agents. It is off by default.
@@ -358,7 +377,7 @@ After a stacked pull request is retargeted onto `main`, CI starts on its next pu
 
 ## 📦 Releasing
 
-Nothing tags automatically. On push to `main`, release-drafter categorises the merged conventional-commit PRs into the draft release notes. The maintainer then publishes the GitHub Release by hand, which creates the `vX.Y.Z` tag. That tag triggers `job-release-image.yaml`, which builds the container image with BuildKit natively for `linux/amd64` and `linux/arm64`, with the web console from `cryptos-web`'s tag of the same name, runs each one read-only against the health check, and — only once both pass — publishes them as one manifest list at `ghcr.io/cryptos-pki/cryptos-manager:vX.Y.Z` and packages and pushes the chart to `oci://ghcr.io/cryptos-pki/charts/fleet-manager` at the same version. `latest` moves only on a stable tag (no `-` prerelease suffix); an rc publishes its own tag but never `latest`. Neither push carries any provenance, SBOM or other attestation. The node ISO ships from [`cryptos-appliance`](https://github.com/CryptOS-PKI/cryptos-appliance), source only. Adopters who want something other than the published image or chart build and push their own from the tagged source (see [*Building the image yourself*](#building-the-image-yourself)). (The repo's own release/governance tooling — release-drafter, golic — is the maintainer's; adopters don't need it.)
+Nothing tags automatically. On push to `main`, release-drafter categorises the merged conventional-commit PRs into the draft release notes. The maintainer then publishes the GitHub Release by hand, which creates the `vX.Y.Z` tag. That tag triggers `job-release-image.yaml`, which builds the container image with BuildKit natively for `linux/amd64` and `linux/arm64`, with the web console from `cryptos-web`'s tag of the same name, runs each one read-only against the health check, and — only once both pass — publishes them as one manifest list at `ghcr.io/cryptos-pki/cryptos-manager:vX.Y.Z`, attaches the `cryptos-managerctl` binaries to the release, and packages and pushes the chart to `oci://ghcr.io/cryptos-pki/charts/fleet-manager` at the same version. `latest` moves only on a stable tag (no `-` prerelease suffix); an rc publishes its own tag but never `latest`. Neither push carries any provenance, SBOM or other attestation. The node ISO ships from [`cryptos-appliance`](https://github.com/CryptOS-PKI/cryptos-appliance), source only. Adopters who want something other than the published image or chart build and push their own from the tagged source (see [*Building the image yourself*](#building-the-image-yourself)). (The repo's own release/governance tooling — release-drafter, golic — is the maintainer's; adopters don't need it.)
 
 The release image is meant to be rebuildable from its tag. Every base image in the
 `Dockerfile` is pinned by digest, the build date is the tagged commit's time rather than

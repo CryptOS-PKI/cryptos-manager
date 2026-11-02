@@ -1,6 +1,7 @@
 name: "🚀 Release image"
 
-# A v* tag publishes the manager image and its Helm chart: build with the
+# A v* tag publishes the manager image and its Helm chart, and attaches the
+# cryptos-managerctl binaries to the release: build with the
 # web console from cryptos-web's tag of the same name (the two repos are
 # versioned in lockstep), prove the image with the read-only health check, then push
 # only if that check passes. Each platform (linux/amd64, linux/arm64) builds
@@ -265,6 +266,31 @@ jobs:
             | jq -r '[.manifests[].platform | .os + "/" + .architecture] | unique | join(",")')"
           echo "platforms: $platforms"
           [ "$platforms" = "linux/amd64,linux/arm64" ]
+
+  cli:
+    name: "Attach the cryptos-managerctl binaries"
+    needs: publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16  # v6.5.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Cross-build
+        run: deploy/build-ctl.sh "$RUNNER_TEMP/ctl" "$GITHUB_REF_NAME" "$GITHUB_SHA"
+
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" "$RUNNER_TEMP"/ctl/* --clobber
 
   chart:
     name: "Package and publish the Helm chart"
