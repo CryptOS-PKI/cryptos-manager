@@ -123,6 +123,10 @@ jobs:
         if: ${{ !cancelled() && steps.tools.outcome == 'success' }}
         run: task build
 
+      - name: 🌍 Cross-build cryptos-managerctl
+        if: ${{ !cancelled() && steps.tools.outcome == 'success' }}
+        run: task ctl:cross
+
       - name: 🧪 go test (with Postgres)
         if: ${{ !cancelled() && steps.tools.outcome == 'success' }}
         run: task test

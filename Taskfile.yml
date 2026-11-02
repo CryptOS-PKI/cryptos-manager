@@ -106,6 +106,14 @@ tasks:
           git --no-pager diff gen/ >&2
           exit 1
         fi
+  ctl:
+    desc: Build cryptos-managerctl for this machine into .bin/
+    cmds:
+      - CGO_ENABLED=0 go build -o .bin/cryptos-managerctl ./cmd/cryptos-managerctl
+  ctl:cross:
+    desc: Cross-build cryptos-managerctl for every release platform into .bin/ctl/
+    cmds:
+      - deploy/build-ctl.sh .bin/ctl
   ci:
     desc: The full pre-push gate (gofmt, proto lint, generated-code check, vet, golangci-lint, test); mirrors the git pre-push hook.
     cmds:
