@@ -25,7 +25,6 @@ import (
 
 	redis "github.com/Bugs5382/go-redis"
 	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
-	upstream "github.com/redis/go-redis/v9"
 )
 
 // ErrAuditChainBroken is returned when the audit stream doesn't verify: an
@@ -63,8 +62,8 @@ func (s *Store) AddAuditEvent(e store.AuditEvent) store.AuditEvent {
 		if err != nil {
 			return fmt.Errorf("kv: encode audit event: %w", err)
 		}
-		x.writes = append(x.writes, func(p upstream.Pipeliner) {
-			p.XAdd(ctx, &upstream.XAddArgs{
+		x.writes = append(x.writes, func(p redis.Pipeliner) {
+			p.XAdd(ctx, &redis.XAddArgs{
 				Stream: s.auditKey(),
 				ID:     "*",
 				Values: map[string]any{fieldPrevHash: prev, fieldHash: e.Hash, fieldEvent: b},
@@ -78,12 +77,12 @@ func (s *Store) AddAuditEvent(e store.AuditEvent) store.AuditEvent {
 
 // readChain reads the stream and the head in one step, so a concurrent append
 // can't look like a break.
-func (s *Store) readChain(ctx context.Context) ([]upstream.XMessage, string, error) {
+func (s *Store) readChain(ctx context.Context) ([]redis.XMessage, string, error) {
 	var (
-		msgs *upstream.XMessageSliceCmd
-		head *upstream.StringCmd
+		msgs *redis.XMessageSliceCmd
+		head *redis.StringCmd
 	)
-	_, err := s.rdb.TxPipelined(ctx, func(p upstream.Pipeliner) error {
+	_, err := s.rdb.TxPipelined(ctx, func(p redis.Pipeliner) error {
 		msgs = p.XRange(ctx, s.auditKey(), "-", "+")
 		head = p.Get(ctx, s.key(keyAuditHead))
 		return nil
@@ -105,7 +104,7 @@ func (s *Store) readChain(ctx context.Context) ([]upstream.XMessage, string, err
 	return msgs.Val(), want, nil
 }
 
-func text(m upstream.XMessage, field string) string {
+func text(m redis.XMessage, field string) string {
 	v, _ := m.Values[field].(string)
 	return v
 }
@@ -113,7 +112,7 @@ func text(m upstream.XMessage, field string) string {
 // verifyChain walks the entries. It returns every event it could decode, and
 // ErrAuditChainBroken, naming the first entry that fails, if the chain doesn't
 // hold from the first entry through to the head.
-func verifyChain(msgs []upstream.XMessage, head string) ([]store.AuditEvent, error) {
+func verifyChain(msgs []redis.XMessage, head string) ([]store.AuditEvent, error) {
 	out := make([]store.AuditEvent, 0, len(msgs))
 	var broken error
 	fail := func(id, why string) {

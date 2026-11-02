@@ -48,16 +48,16 @@ run or manage it.
 storage:
   mode: kv
   kv:
-    url: "rediss://:secret@valkey.example.org:6380/0"
+    url: "rediss://fleet-manager:secret@valkey.example.org:6380/0"
     caFile: /etc/cryptos/fleet/kv-ca/ca.crt  # only for a private CA
 ```
 
-`url` is `redis://` or `rediss://` (TLS), then an optional `:password@`, the
-host, an optional port and an optional database number. A non-empty
-`MANAGER_KV_URL` environment variable overrides it, so the password can come
-from a secret store. A URL that names a user is refused: the client library
-authenticates with a password only, so the manager's account is the server's
-`default` user, and your admin account is a named one.
+`url` is `redis://` or `rediss://` (TLS), then an optional `user:password@`,
+the host, an optional port and an optional database number. The user is the
+ACL user the manager signs in as; leave it out (`:password@`) to sign in as the
+server's `default` user. A non-empty `MANAGER_KV_URL` environment variable
+overrides it, so the password can come from a secret store. Give the manager a
+named user of its own and keep `default` and your admin account apart from it.
 
 ### Set up the server
 
@@ -67,17 +67,21 @@ authenticates with a password only, so the manager's account is the server's
    appendonly yes
    ```
 
-2. Give the `default` user the manager's ACL, and make a separate admin. In the
-   server's ACL file (`aclfile`), with your own passwords:
+2. Make a named user for the manager with its ACL, and a separate admin. In
+   the server's ACL file (`aclfile`), with your own passwords:
 
    ```
+   user default off
    user admin on >ADMIN_PASSWORD ~* &* +@all
-   user default on >MANAGER_PASSWORD ~{fleet}:state:* -@all +ping +hello +client|setname +client|setinfo +info +config|get +select +hget +hset +hdel +hvals +hkeys +hlen +get +mget +set +del +incr +pexpire +watch +unwatch +multi +exec +discard +eval +evalsha (~{fleet}:audit +xadd +xrange +xlen)
+   user fleet-manager on >MANAGER_PASSWORD ~{fleet}:state:* -@all +ping +hello +client|setname +client|setinfo +info +config|get +select +hget +hset +hdel +hvals +hkeys +hlen +get +mget +set +del +incr +pexpire +watch +unwatch +multi +exec +discard +eval +evalsha (~{fleet}:audit +xadd +xrange +xlen)
    ```
 
    The second selector, in brackets, is the only grant on the audit stream: the
    account can append to it and read it, and can't `XDEL`, `XTRIM`, `DEL`,
    `SET` or expire it. Selectors need Valkey 7.2 or later, or Redis 7 or later.
+   `user default off` stops anyone signing in without a user name; leave it
+   out if something else on the server still uses `default`. The URL then names
+   the manager's user: `rediss://fleet-manager:MANAGER_PASSWORD@valkey:6380/0`.
 
 3. Put the URL in a Secret. For the chart, set `storage.mode: kv` and
    `storage.kv.existingSecret`; the Secret's `kv-url` key holds the URL. A

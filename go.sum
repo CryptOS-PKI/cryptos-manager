@@ -4,8 +4,8 @@ github.com/Bugs5382/go-apperr v1.2.1 h1:+IFP+LQWu4BTPDX2ezkjEhfvn5HTvBHirL2b77EX
 github.com/Bugs5382/go-apperr v1.2.1/go.mod h1:IX+TmCj35CSUNK/JU16pPTn4L4qpDreVOc7i4Q3dxy4=
 github.com/Bugs5382/go-log v1.4.0 h1:6AKDyc8PSxjW/dkkL0zCy9tKz3ce7c16f4PXQAsWYFI=
 github.com/Bugs5382/go-log v1.4.0/go.mod h1:OGgIWWKKNg2AXVJlbVJZb/s8dnqqsrKwWznYXik547E=
-github.com/Bugs5382/go-redis v1.4.0 h1:TOOHphxmCfRgvoVD8YmtecUwOuqjY2NL2Zub0D91G5k=
-github.com/Bugs5382/go-redis v1.4.0/go.mod h1:yyz0EuremryinY7TqW49ViZZX/Vbdvjvri1w1n9vthY=
+github.com/Bugs5382/go-redis v1.5.0 h1:U9AIS+jt0z3XYN0eFRi4mPQJxYqtL7iTJx5lkj7HDBg=
+github.com/Bugs5382/go-redis v1.5.0/go.mod h1:yyz0EuremryinY7TqW49ViZZX/Vbdvjvri1w1n9vthY=
 github.com/CryptOS-PKI/cryptos-node v0.0.0-20261001205107-8d8b52d5bafd h1:MISwlaVuPbVYdA+Rh1HQiSxiZMsGAX1ALbFmvqkuQLI=
 github.com/CryptOS-PKI/cryptos-node v0.0.0-20261001205107-8d8b52d5bafd/go.mod h1:c3usodsgeF++zA6efQNclo0d1U3utURi3ylyGFAYw0Y=
 github.com/alicebob/miniredis/v2 v2.38.0 h1:nZAzCR+Lj+Vxk4ZXzm2NuKq2O33RXj1XxJ2e2uP9jiw=

@@ -42,7 +42,6 @@ import (
 	"time"
 
 	redis "github.com/Bugs5382/go-redis"
-	upstream "github.com/redis/go-redis/v9"
 )
 
 // defaultNamespace is the hash tag every key carries, which keeps them in one
@@ -59,7 +58,9 @@ const (
 
 // Options says how to reach the server.
 type Options struct {
-	// URL is redis://[:password@]host[:port][/db], or rediss:// for TLS.
+	// URL is redis://[user][:password@]host[:port][/db], or rediss:// for
+	// TLS. A user signs in as that ACL user; without one the server's
+	// default user is used.
 	URL string
 	// CAFile is a PEM bundle to verify the server against, instead of the
 	// system roots. Only meaningful with rediss://.
@@ -69,6 +70,7 @@ type Options struct {
 // target is a parsed Options.URL.
 type target struct {
 	addr     string
+	user     string
 	password string
 	db       int
 	tls      bool
@@ -103,10 +105,7 @@ func parseURL(raw string) (target, error) {
 	}
 	t.addr = net.JoinHostPort(t.host, port)
 	if u.User != nil {
-		// go-redis v1.4.0 can only authenticate as the default user.
-		if name := u.User.Username(); name != "" && name != "default" {
-			return target{}, errors.New("kv: the server URL can't name a user: put the manager's ACL on the server's default user (docs/storage.md)")
-		}
+		t.user = u.User.Username()
 		t.password, _ = u.User.Password()
 	}
 	if p := strings.TrimPrefix(u.Path, "/"); p != "" {
@@ -153,28 +152,48 @@ func New(ctx context.Context, o Options) (*Store, error) {
 	return open(ctx, o, defaultNamespace)
 }
 
-func open(ctx context.Context, o Options, ns string) (*Store, error) {
-	t, err := parseURL(o.URL)
-	if err != nil {
-		return nil, err
-	}
+// clientOptions turns a parsed URL into the client's options.
+func clientOptions(t target, caFile string) ([]redis.Option, error) {
 	opts := []redis.Option{redis.WithAddr(t.addr), redis.WithDB(t.db)}
+	if t.user != "" {
+		opts = append(opts, redis.WithUsername(t.user))
+	}
 	if t.password != "" {
 		opts = append(opts, redis.WithPassword(t.password))
 	}
 	if t.tls {
-		cfg, err := tlsConfig(t, o.CAFile)
+		cfg, err := tlsConfig(t, caFile)
 		if err != nil {
 			return nil, err
 		}
 		opts = append(opts, redis.WithTLS(cfg))
 	}
-	log.Printf("kv: connecting to %s (db %d, tls %v)", t.addr, t.db, t.tls)
+	return opts, nil
+}
+
+// account names the ACL user for the logs; the password is never logged.
+func (t target) account() string {
+	if t.user == "" {
+		return "default"
+	}
+	return t.user
+}
+
+func open(ctx context.Context, o Options, ns string) (*Store, error) {
+	t, err := parseURL(o.URL)
+	if err != nil {
+		return nil, err
+	}
+	opts, err := clientOptions(t, o.CAFile)
+	if err != nil {
+		return nil, err
+	}
+	log.Printf("kv: connecting to %s as user %q (db %d, tls %v)", t.addr, t.account(), t.db, t.tls)
 	c, err := redis.Connect(ctx, opts...)
 	if err != nil {
-		return nil, fmt.Errorf("kv: connect to %s: %w", t.addr, err)
+		return nil, fmt.Errorf("kv: connect to %s as user %q: %w", t.addr, t.account(), err)
 	}
-	log.Printf("kv: connected to %s", t.addr)
+	log.Printf("kv: connected to %s as user %q", t.addr, t.account())
 	return &Store{client: c, rdb: c.Redis(), ns: ns}, nil
 }
 
@@ -251,7 +270,7 @@ func (s *Store) update(ctx context.Context, fn func(*txn) error, names ...string
 		keys[i] = s.key(n)
 	}
 	for attempt := 1; ; attempt++ {
-		err := s.rdb.Watch(ctx, func(t *upstream.Tx) error {
+		err := s.rdb.Watch(ctx, func(t *redis.Tx) error {
 			x := &txn{ctx: ctx, s: s, t: t}
 			if err := fn(x); err != nil {
 				return err
@@ -259,7 +278,7 @@ func (s *Store) update(ctx context.Context, fn func(*txn) error, names ...string
 			if len(x.writes) == 0 {
 				return nil
 			}
-			_, err := t.TxPipelined(ctx, func(p upstream.Pipeliner) error {
+			_, err := t.TxPipelined(ctx, func(p redis.Pipeliner) error {
 				for _, w := range x.writes {
 					w(p)
 				}
@@ -267,7 +286,7 @@ func (s *Store) update(ctx context.Context, fn func(*txn) error, names ...string
 			})
 			return err
 		}, keys...)
-		if !errors.Is(err, upstream.TxFailedErr) {
+		if !errors.Is(err, redis.TxFailedErr) {
 			return err
 		}
 		if attempt >= maxTxAttempts {
@@ -288,8 +307,8 @@ func (s *Store) update(ctx context.Context, fn func(*txn) error, names ...string
 type txn struct {
 	ctx    context.Context
 	s      *Store
-	t      *upstream.Tx
-	writes []func(upstream.Pipeliner)
+	t      *redis.Tx
+	writes []func(redis.Pipeliner)
 }
 
 // put queues field = v in hash name.
@@ -299,14 +318,14 @@ func (x *txn) put(name, field string, v any) error {
 		return fmt.Errorf("kv: encode %s/%s: %w", name, field, err)
 	}
 	key := x.s.key(name)
-	x.writes = append(x.writes, func(p upstream.Pipeliner) { p.HSet(x.ctx, key, field, b) })
+	x.writes = append(x.writes, func(p redis.Pipeliner) { p.HSet(x.ctx, key, field, b) })
 	return nil
 }
 
 // del queues removing field from hash name.
 func (x *txn) del(name, field string) {
 	key := x.s.key(name)
-	x.writes = append(x.writes, func(p upstream.Pipeliner) { p.HDel(x.ctx, key, field) })
+	x.writes = append(x.writes, func(p redis.Pipeliner) { p.HDel(x.ctx, key, field) })
 }
 
 // putValue queues the single value at name.
@@ -316,14 +335,14 @@ func (x *txn) putValue(name string, v any) error {
 		return fmt.Errorf("kv: encode %s: %w", name, err)
 	}
 	key := x.s.key(name)
-	x.writes = append(x.writes, func(p upstream.Pipeliner) { p.Set(x.ctx, key, b, 0) })
+	x.writes = append(x.writes, func(p redis.Pipeliner) { p.Set(x.ctx, key, b, 0) })
 	return nil
 }
 
 // bump queues adding one to the counter at name.
 func (x *txn) bump(name string) {
 	key := x.s.key(name)
-	x.writes = append(x.writes, func(p upstream.Pipeliner) { p.Incr(x.ctx, key) })
+	x.writes = append(x.writes, func(p redis.Pipeliner) { p.Incr(x.ctx, key) })
 }
 
 // seq takes the next value of the store-wide sequence, which orders rows the

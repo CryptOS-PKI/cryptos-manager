@@ -22,15 +22,16 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	redis "github.com/Bugs5382/go-redis"
 	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
 	"github.com/CryptOS-PKI/cryptos-manager/internal/store/storetest"
-	upstream "github.com/redis/go-redis/v9"
 )
 
 // testURLEnv gates the integration tests, which run against a real Valkey.
@@ -59,9 +60,15 @@ func testNamespace(t *testing.T) string {
 // testStoreIn opens a store on namespace ns; two of them are two replicas.
 func testStoreIn(t *testing.T, ns string) *Store {
 	t.Helper()
+	return testStoreAt(t, testURL(t), ns)
+}
+
+// testStoreAt opens a store on namespace ns through the server URL raw.
+func testStoreAt(t *testing.T, raw, ns string) *Store {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	s, err := open(ctx, Options{URL: testURL(t)}, ns)
+	s, err := open(ctx, Options{URL: raw}, ns)
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
@@ -69,22 +76,42 @@ func testStoreIn(t *testing.T, ns string) *Store {
 	return s
 }
 
+// withUser is the test server's URL signed in as user with password pass.
+func withUser(t *testing.T, user, pass string) string {
+	t.Helper()
+	u, err := url.Parse(testURL(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	u.User = url.UserPassword(user, pass)
+	return u.String()
+}
+
 func testStore(t *testing.T) *Store {
 	t.Helper()
 	return testStoreIn(t, testNamespace(t))
 }
 
-// adminClient talks to the test server directly, for what the store's own
-// account must not be able to do.
-func adminClient(t *testing.T) *upstream.Client {
+// adminClient talks to the test server directly, as the account in the test
+// URL, for what the store's own account must not be able to do.
+func adminClient(t *testing.T) redis.UniversalClient {
 	t.Helper()
-	o, err := upstream.ParseURL(testURL(t))
+	tg, err := parseURL(testURL(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := upstream.NewClient(o)
+	opts, err := clientOptions(tg, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	c, err := redis.Connect(ctx, opts...)
+	if err != nil {
+		t.Fatalf("connect the admin client: %v", err)
+	}
 	t.Cleanup(func() { _ = c.Close() })
-	return c
+	return c.Redis()
 }
 
 func runSuites(t *testing.T, newStore func(t *testing.T) *Store) {
@@ -113,39 +140,37 @@ func TestConformance(t *testing.T) {
 // TestConformanceUnderTheDocumentedACL runs the same suites on the account
 // the docs tell an operator to create, so the recipe can't drift from what
 // the store actually calls. The namespace is fixed for the whole run because
-// the ACL names its keys. go-redis authenticates with a password only, so
-// the restricted account is the server's default user, and admin is a named
-// user made first so the rules can be put back.
+// the ACL names its keys. The store signs in as a named ACL user, named in its
+// URL, and the test URL's own account stays the admin.
 func TestConformanceUnderTheDocumentedACL(t *testing.T) {
 	ctx := context.Background()
-	root := adminClient(t)
-	const adminUser, adminPass = "kv-test-admin", "kv-test-admin-password"
-	if err := root.Do(ctx, "ACL", "SETUSER", adminUser, "on", ">"+adminPass, "~*", "&*", "+@all").Err(); err != nil {
-		t.Fatalf("create the admin user: %v", err)
-	}
-	o, err := upstream.ParseURL(testURL(t))
-	if err != nil {
-		t.Fatal(err)
-	}
-	o.Username, o.Password = adminUser, adminPass
-	admin := upstream.NewClient(o)
-	t.Cleanup(func() { _ = admin.Close() })
+	admin := adminClient(t)
 
 	ns := testNamespace(t)
-	args := []any{"ACL", "SETUSER", "default", "reset", "on", "nopass"}
+	const managerUser, managerPass = "kv-test-manager", "kv-test-manager-password"
+	args := []any{"ACL", "SETUSER", managerUser, "reset", "on", ">" + managerPass}
 	for _, r := range ACLRules(ns) {
 		args = append(args, r)
 	}
 	if err := admin.Do(ctx, args...).Err(); err != nil {
-		t.Fatalf("apply the documented ACL: %v", err)
+		t.Fatalf("create the manager user with the documented ACL: %v", err)
 	}
 	t.Cleanup(func() {
-		if err := admin.Do(context.Background(), "ACL", "SETUSER", "default", "reset", "on", "nopass", "~*", "&*", "+@all").Err(); err != nil {
-			t.Errorf("restore the default user: %v", err)
+		if err := admin.Do(context.Background(), "ACL", "DELUSER", managerUser).Err(); err != nil {
+			t.Errorf("remove the manager user: %v", err)
 		}
 	})
+	managerURL := withUser(t, managerUser, managerPass)
 
-	s := testStoreIn(t, ns)
+	who, err := testStoreAt(t, managerURL, ns).rdb.Do(ctx, "ACL", "WHOAMI").Text()
+	if err == nil || !isNoPerm(err) {
+		t.Fatalf("ACL WHOAMI as the manager = %q, %v; want NOPERM", who, err)
+	}
+	if _, err := open(ctx, Options{URL: withUser(t, managerUser, "wrong")}, ns); err == nil {
+		t.Fatal("open with the wrong password succeeded")
+	}
+
+	s := testStoreAt(t, managerURL, ns)
 	if err := s.CheckAuditACL(ctx); err != nil {
 		t.Fatalf("CheckAuditACL: %v", err)
 	}
@@ -156,7 +181,7 @@ func TestConformanceUnderTheDocumentedACL(t *testing.T) {
 	// Each subtest gets an empty store, like every other run of the suites.
 	newStore := func(t *testing.T) *Store {
 		t.Helper()
-		clean := testStoreIn(t, ns)
+		clean := testStoreAt(t, managerURL, ns)
 		if err := admin.Do(ctx, "EVAL", `for _, k in ipairs(redis.call('KEYS', ARGV[1])) do redis.call('DEL', k) end return 0`, 0, "{"+ns+"}:*").Err(); err != nil {
 			t.Fatalf("empty the namespace: %v", err)
 		}
@@ -253,6 +278,7 @@ func TestParseURL(t *testing.T) {
 	for name, tc := range map[string]struct {
 		url     string
 		addr    string
+		user    string
 		pass    string
 		db      int
 		tls     bool
@@ -261,8 +287,9 @@ func TestParseURL(t *testing.T) {
 		"plain":        {url: "redis://valkey:6379", addr: "valkey:6379"},
 		"default port": {url: "redis://valkey", addr: "valkey:6379"},
 		"tls and db":   {url: "rediss://:s3cret@valkey:6380/2", addr: "valkey:6380", pass: "s3cret", db: 2, tls: true},
-		"default user": {url: "redis://default:s3cret@valkey", addr: "valkey:6379", pass: "s3cret"},
-		"named user":   {url: "redis://manager:s3cret@valkey", wantErr: true},
+		"default user": {url: "redis://default:s3cret@valkey", addr: "valkey:6379", user: "default", pass: "s3cret"},
+		"named user":   {url: "redis://manager:s3cret@valkey:6380/1", addr: "valkey:6380", user: "manager", pass: "s3cret", db: 1},
+		"user, no pw":  {url: "redis://manager@valkey", addr: "valkey:6379", user: "manager"},
 		"wrong scheme": {url: "http://valkey", wantErr: true},
 		"bad db":       {url: "redis://valkey/x", wantErr: true},
 		"no host":      {url: "redis://", wantErr: true},
@@ -276,7 +303,7 @@ func TestParseURL(t *testing.T) {
 			if tc.wantErr {
 				return
 			}
-			if got.addr != tc.addr || got.password != tc.pass || got.db != tc.db || got.tls != tc.tls {
+			if got.addr != tc.addr || got.user != tc.user || got.password != tc.pass || got.db != tc.db || got.tls != tc.tls {
 				t.Fatalf("parseURL = %+v", got)
 			}
 		})
@@ -284,7 +311,7 @@ func TestParseURL(t *testing.T) {
 }
 
 func TestParseURLErrorHidesThePassword(t *testing.T) {
-	_, err := parseURL("redis://manager:hunter2@valkey")
+	_, err := parseURL("redis://manager:hunter2@valkey/x")
 	if err == nil {
 		t.Fatal("want an error")
 	}
@@ -346,7 +373,7 @@ func TestAuditChainReportsTampering(t *testing.T) {
 	ctx := context.Background()
 	admin := adminClient(t)
 
-	fill := func(t *testing.T) (*Store, []upstream.XMessage) {
+	fill := func(t *testing.T) (*Store, []redis.XMessage) {
 		t.Helper()
 		s := testStore(t)
 		for i := range 4 {
@@ -396,7 +423,7 @@ func TestAuditChainReportsTampering(t *testing.T) {
 		}
 		v := msgs[3].Values
 		v["event"] = `{"ID":"3","Kind":"forged"}`
-		if err := admin.XAdd(ctx, &upstream.XAddArgs{Stream: s.auditKey(), ID: "*", Values: v}).Err(); err != nil {
+		if err := admin.XAdd(ctx, &redis.XAddArgs{Stream: s.auditKey(), ID: "*", Values: v}).Err(); err != nil {
 			t.Fatal(err)
 		}
 		expectBroken(t, s)

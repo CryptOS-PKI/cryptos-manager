@@ -11,12 +11,11 @@ require (
 	connectrpc.com/connect v1.20.0
 	github.com/Bugs5382/go-apperr v1.2.1
 	github.com/Bugs5382/go-log v1.4.0
-	github.com/Bugs5382/go-redis v1.4.0
+	github.com/Bugs5382/go-redis v1.5.0
 	github.com/CryptOS-PKI/cryptos-node v0.0.0-20261001205107-8d8b52d5bafd
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/modelcontextprotocol/go-sdk v1.8.0
-	github.com/redis/go-redis/v9 v9.22.0
 	github.com/smallstep/pkcs7 v0.2.3
 	github.com/smallstep/scep v0.0.0-20261014185058-63893dadfda8
 	github.com/spf13/cobra v1.10.2
@@ -34,6 +33,7 @@ require (
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
+	github.com/redis/go-redis/v9 v9.22.0 // indirect
 	github.com/rogpeppe/go-internal v1.15.0 // indirect
 	github.com/rs/zerolog v1.35.1 // indirect
 	github.com/segmentio/asm v1.1.3 // indirect
