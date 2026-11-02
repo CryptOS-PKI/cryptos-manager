@@ -7,14 +7,17 @@ metadata:
 {{- if and (gt (int .Values.replicaCount) 1) (not $rwx) }}
 {{- fail "replicaCount > 1 needs nodeCreds.accessModes to include ReadWriteMany: every pod must hold every adopted node's admin key" }}
 {{- end }}
-{{- if not (has .Values.storage.mode (list "" "memory")) }}
-{{- fail (printf "storage.mode must be empty or \"memory\", not %q" .Values.storage.mode) }}
+{{- if not (has .Values.storage.mode (list "" "memory" "kv")) }}
+{{- fail (printf "storage.mode must be empty, \"memory\" or \"kv\", not %q" .Values.storage.mode) }}
 {{- end }}
-{{- if and .Values.database.existingSecret (eq .Values.storage.mode "memory") }}
-{{- fail "database.existingSecret and storage.mode: memory are mutually exclusive: choose one durable store" }}
+{{- if and .Values.database.existingSecret .Values.storage.mode }}
+{{- fail (printf "database.existingSecret and storage.mode: %s are mutually exclusive: choose one durable store" .Values.storage.mode) }}
 {{- end }}
-{{- if and (not .Values.database.existingSecret) (ne .Values.storage.mode "memory") }}
-{{- fail "either database.existingSecret or storage.mode: memory must be set: the chart no longer falls back to an undeclared in-memory store (see docs/storage.md)" }}
+{{- if and (not .Values.database.existingSecret) (not .Values.storage.mode) }}
+{{- fail "either database.existingSecret or storage.mode (kv or memory) must be set: the chart no longer falls back to an undeclared in-memory store (see docs/storage.md)" }}
+{{- end }}
+{{- if and (eq .Values.storage.mode "kv") (not .Values.storage.kv.existingSecret) }}
+{{- fail "storage.mode: kv requires storage.kv.existingSecret: a Secret holding the server URL (see docs/storage.md)" }}
 {{- end }}
 {{- if and (eq .Values.storage.mode "memory") (gt (int .Values.replicaCount) 1) }}
 {{- fail "storage.mode: memory supports replicaCount: 1 only: the fleet nodes are the durable record, and two replicas would each hold a different view of them" }}
@@ -66,6 +69,13 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.database.existingSecret | quote }}
                   key: {{ .Values.database.secretKey | quote }}
+          {{- else if eq .Values.storage.mode "kv" }}
+          env:
+            - name: MANAGER_KV_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.storage.kv.existingSecret | quote }}
+                  key: {{ .Values.storage.kv.secretKey | quote }}
           {{- else if eq .Values.storage.mode "memory" }}
           env:
             # Names the single-replica guard's Lease. Every resource in this
@@ -76,14 +86,14 @@ spec:
             - name: MANAGER_REPLICA_LOCK_NAME
               value: {{ printf "%s-memory-store" (include "fleet-manager.name" .) | quote }}
           {{- end }}
-          # The manager waits up to 90s for Postgres before it listens.
+          # The manager waits up to 90s for its store before it listens.
           startupProbe:
             tcpSocket:
               port: https
             periodSeconds: 10
             failureThreshold: 12
           # Liveness only asks whether the process still accepts connections:
-          # /healthz also checks Postgres, and a database outage should take
+          # /healthz also checks the store, and a store outage should take
           # the pods out of the Service, not restart them.
           livenessProbe:
             tcpSocket:
@@ -131,7 +141,17 @@ spec:
               mountPath: {{ include "fleet-manager.operatorCRLDir" . }}
               readOnly: true
             {{- end }}
+            {{- if and (eq .Values.storage.mode "kv") .Values.storage.kv.caConfigMap }}
+            - name: kv-ca
+              mountPath: /etc/cryptos/fleet/kv-ca
+              readOnly: true
+            {{- end }}
       volumes:
+        {{- if and (eq .Values.storage.mode "kv") .Values.storage.kv.caConfigMap }}
+        - name: kv-ca
+          configMap:
+            name: {{ .Values.storage.kv.caConfigMap | quote }}
+        {{- end }}
         - name: config
           configMap:
             name: {{ include "fleet-manager.name" . }}-config

@@ -109,19 +109,37 @@ type Config struct {
 }
 
 // StorageConfig selects the manager's storage mode. Mode is empty (Postgres,
-// via DatabaseURL) or StorageModeMemory: an explicit, single-replica,
-// non-durable mode for home labs and single-box installs, where the fleet
-// nodes are the durable record and the manager only caches its view of them.
-// Setting neither DatabaseURL nor Mode refuses to load, rather than silently
+// via DatabaseURL), StorageModeKV (a persistent Redis-protocol server, via
+// KV), or StorageModeMemory: an explicit, single-replica, non-durable mode for
+// home labs and single-box installs, where the fleet nodes are the durable
+// record and the manager only caches its view of them. Setting neither
+// DatabaseURL nor Mode refuses to load, rather than silently
 // falling back to memory: a production install that forgot its database
 // secret used to come up looking healthy and lose its state on the next
 // restart. See docs/storage.md.
 type StorageConfig struct {
-	Mode string `yaml:"mode"`
+	Mode string   `yaml:"mode"`
+	KV   KVConfig `yaml:"kv"`
 }
 
-// StorageModeMemory is the only accepted StorageConfig.Mode value.
-const StorageModeMemory = "memory"
+// KVConfig is how to reach the server in storage mode kv. The manager only
+// connects: the server, its persistence and its ACL are the operator's. See
+// docs/storage.md.
+type KVConfig struct {
+	// URL is redis://[:password@]host[:port][/db], or rediss:// for TLS. A
+	// non-empty MANAGER_KV_URL (KVURLEnv) overrides it, so the password can
+	// stay out of this file.
+	URL string `yaml:"url"`
+	// CAFile verifies a rediss:// server against this PEM bundle instead of
+	// the system roots.
+	CAFile string `yaml:"caFile"`
+}
+
+// The accepted StorageConfig.Mode values.
+const (
+	StorageModeMemory = "memory"
+	StorageModeKV     = "kv"
+)
 
 // CRLSource is one operatorCRL entry: an http or https URL, or a file path,
 // never both.
@@ -191,6 +209,10 @@ const OperatorCANodeMigration = "operator_ca_node is no longer supported: CryptO
 // config.yaml.
 const DatabaseURLEnv = "MANAGER_DATABASE_URL"
 
+// KVURLEnv overrides storage.kv.url when set and non-empty, for the same
+// reason as DatabaseURLEnv.
+const KVURLEnv = "MANAGER_KV_URL"
+
 // Load reads the YAML file at path and returns the parsed Config, or an
 // error if the file cannot be read, the YAML is malformed, or validation
 // fails.
@@ -211,6 +233,9 @@ func Load(path string) (Config, error) {
 	cfg.MCP.PublicURL = strings.TrimRight(cfg.MCP.PublicURL, "/")
 	if v := os.Getenv(DatabaseURLEnv); v != "" {
 		cfg.DatabaseURL = v
+	}
+	if v := os.Getenv(KVURLEnv); v != "" {
+		cfg.Storage.KV.URL = v
 	}
 
 	if err := cfg.validate(); err != nil {
@@ -275,25 +300,37 @@ func (c *Config) validate() error {
 	return nil
 }
 
+// Durable reports whether the manager keeps its state across a restart, in
+// Postgres or on a KV server. First run, MCP and everything else that needs a
+// shared, lasting store asks this rather than which store it is.
+func (c Config) Durable() bool {
+	return c.DatabaseURL != "" || c.Storage.Mode == StorageModeKV
+}
+
 // validateStorage refuses a config that names no durable store (neither
-// database_url nor storage.mode: memory), names both, or sets an unknown
+// database_url nor a storage.mode), names two, or sets an unknown
 // storage.mode. PostgreSQL remains the default: it is selected by setting
 // database_url and leaving storage.mode unset.
 func (c Config) validateStorage() error {
 	switch c.Storage.Mode {
-	case "", StorageModeMemory:
+	case "", StorageModeMemory, StorageModeKV:
 	default:
-		return fmt.Errorf("storage.mode must be unset or %q, not %q", StorageModeMemory, c.Storage.Mode)
+		return fmt.Errorf("storage.mode must be unset, %q or %q, not %q", StorageModeMemory, StorageModeKV, c.Storage.Mode)
 	}
 
 	switch {
-	case c.DatabaseURL == "" && c.Storage.Mode != StorageModeMemory:
+	case c.DatabaseURL == "" && c.Storage.Mode == "":
 		return fmt.Errorf(
 			"no durable store configured: set database_url to a PostgreSQL connection, " +
+				"storage.mode: kv for a Valkey or Redis server, " +
 				"or storage.mode: memory for a single-replica install with no persistent inventory (docs/storage.md)",
 		)
-	case c.DatabaseURL != "" && c.Storage.Mode == StorageModeMemory:
-		return fmt.Errorf("database_url and storage.mode: memory are mutually exclusive: choose one durable store")
+	case c.DatabaseURL != "" && c.Storage.Mode != "":
+		return fmt.Errorf("database_url and storage.mode: %s are mutually exclusive: choose one durable store", c.Storage.Mode)
+	case c.Storage.Mode == StorageModeKV && c.Storage.KV.URL == "":
+		return fmt.Errorf("storage.mode: kv needs storage.kv.url or %s", KVURLEnv)
+	case c.Storage.Mode != StorageModeKV && c.Storage.KV != (KVConfig{}):
+		return fmt.Errorf("storage.kv is set but storage.mode isn't kv")
 	}
 
 	return nil
@@ -302,15 +339,15 @@ func (c Config) validateStorage() error {
 // validateMCP refuses any configuration in which an MCP key could not be
 // re-validated live on every request. Each key stands for an operator
 // certificate: under authBypass there is no certificate at all, and without
-// Postgres there is no denylist, registered operator CA or revocation epoch
+// a durable store there is no denylist, registered operator CA or revocation epoch
 // to check it against. Whether the certificate's operator CA has a fresh CRL
 // is checked per call, so MCP can be enabled before the CRL is set up.
 func (c Config) validateMCP() error {
 	if c.AuthBypass {
 		return fmt.Errorf("mcp.enabled requires authBypass to be false: MCP keys are bound to operator certificates")
 	}
-	if c.DatabaseURL == "" {
-		return fmt.Errorf("mcp.enabled requires database_url: the operator denylist, operator CAs and revocation epoch MCP keys are checked against live in Postgres")
+	if !c.Durable() {
+		return fmt.Errorf("mcp.enabled requires database_url or storage.mode: kv: the operator denylist, operator CAs and revocation epoch MCP keys are checked against live in the durable store")
 	}
 	u, err := url.Parse(c.MCP.PublicURL)
 	if err != nil || u.Scheme != "https" || u.Host == "" || u.Path != "" || u.RawQuery != "" || u.Fragment != "" {

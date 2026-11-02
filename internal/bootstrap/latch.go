@@ -33,7 +33,7 @@ import (
 
 // LatchOptions configures a Latch.
 type LatchOptions struct {
-	// Store is nil without Postgres; the latch then never closes, because
+	// Store is nil without a durable store; the latch then never closes, because
 	// there is no first run to close.
 	Store store.Bootstrap
 	Audit store.Store

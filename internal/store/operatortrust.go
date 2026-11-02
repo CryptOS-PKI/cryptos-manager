@@ -59,9 +59,9 @@ const (
 	OperatorCredentialObserved   = "observed"
 )
 
-// ErrDatabaseRequired is returned by operations only the Postgres store
-// supports, such as the denylist and registered operator CAs.
-var ErrDatabaseRequired = errors.New("store: this needs the Postgres store")
+// ErrDatabaseRequired is returned by operations only the durable stores
+// support, such as the denylist and registered operator CAs.
+var ErrDatabaseRequired = errors.New("store: this needs a durable store")
 
 // ErrOperatorCANotFound is returned when no operator CA has the requested
 // fingerprint.

@@ -17,17 +17,24 @@
 listen: "127.0.0.1:8080"
 corsOrigins: ["http://localhost:5173", "http://127.0.0.1:5173"]
 authBypass: true
-# The manager refuses to start with neither database_url nor storage.mode:
-# memory set (see docs/storage.md). This example uses memory mode for offline
+# The manager refuses to start with neither database_url nor a storage.mode
+# (memory or kv) set (see docs/storage.md). This example uses memory mode for offline
 # dev: nothing persists across a restart. Set database_url instead for durable
 # Postgres state; the manager then applies the schema, seeds the catalog into
 # an empty database on first run, and persists enrollments and the audit chain.
 # database_url: "postgres://manager:secret@localhost:5432/manager"
+#
+# storage.mode: kv keeps the same state on a Valkey or Redis server you run, with
+# persistence on and the ACL from docs/storage.md:
+# storage:
+#   mode: kv
+#   kv:
+#     url: "redis://:secret@localhost:6379/0"
 storage:
   mode: memory
 # mcp serves the Model Context Protocol endpoint for AI agents at /mcp (see
 # docs/mcp.md). Off by default. Enabling it requires authBypass: false and
-# database_url, or the manager refuses to start.
+# database_url or storage.mode: kv, or the manager refuses to start.
 # mcp:
 #   enabled: true
 #   public_url: "https://fleetos.example.org"

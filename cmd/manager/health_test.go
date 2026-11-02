@@ -220,3 +220,55 @@ func TestProbeHealth(t *testing.T) {
 		t.Error("nothing listening: want an error")
 	}
 }
+
+func decodeHealth(t *testing.T, sh storeHealth) (int, healthStatus) {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	healthHandler(sh).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, healthPath, nil))
+	var got healthStatus
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	return rec.Code, got
+}
+
+func TestHealthHandler_KVReportsVersionAndPersistence(t *testing.T) {
+	code, got := decodeHealth(t, storeHealth{
+		Mode:    config.StorageModeKV,
+		Check:   func(context.Context) error { return nil },
+		Version: func(context.Context) (string, error) { return "valkey 8.1.0", nil },
+		Detail:  func(context.Context) storageDetail { return storageDetail{Persistence: "aof"} },
+	})
+	if code != http.StatusOK || got.Status != "ok" || got.Storage.State != storageStateOK {
+		t.Fatalf("code %d, %+v", code, got)
+	}
+	if got.Storage.Version != "valkey 8.1.0" || got.Storage.Persistence != "aof" {
+		t.Fatalf("storage = %+v", got.Storage)
+	}
+}
+
+func TestHealthHandler_KVWeakerSetupsAreDegradedNotFailed(t *testing.T) {
+	code, got := decodeHealth(t, storeHealth{
+		Mode:   config.StorageModeKV,
+		Check:  func(context.Context) error { return nil },
+		Detail: func(context.Context) storageDetail { return storageDetail{Persistence: "rdb-only", Degraded: true} },
+	})
+	if code != http.StatusOK || got.Status != storageStateDegraded || got.Storage.State != storageStateDegraded {
+		t.Fatalf("code %d, %+v", code, got)
+	}
+}
+
+func TestHealthHandler_KVFailsReadinessWhileUnreachable(t *testing.T) {
+	detail := false
+	code, got := decodeHealth(t, storeHealth{
+		Mode:   config.StorageModeKV,
+		Check:  func(context.Context) error { return errors.New("dial valkey:6379: refused") },
+		Detail: func(context.Context) storageDetail { detail = true; return storageDetail{} },
+	})
+	if code != http.StatusServiceUnavailable || got.Storage.State != storageStateUnavailable {
+		t.Fatalf("code %d, %+v", code, got)
+	}
+	if detail {
+		t.Fatal("asked an unreachable server for its details")
+	}
+}

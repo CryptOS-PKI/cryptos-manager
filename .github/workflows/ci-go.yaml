@@ -17,6 +17,10 @@ name: Go CI
 # merges, so nothing reruns on push to main. No paths-ignore: a filtered-out
 # workflow never reports, which would leave a required check pending forever
 # on a docs-only PR.
+#
+# Valkey runs the same way for internal/store/kv, started by hand in a step
+# because a service container can't be given the --appendonly flag. With
+# MANAGER_TEST_KV_URL set, those tests fail rather than skip without a server.
 on:
   pull_request:
     branches: [main]
@@ -48,6 +52,7 @@ jobs:
           --health-retries 10
     env:
       MANAGER_TEST_DATABASE_URL: postgres://postgres:test@localhost:5432/postgres?sslmode=disable
+      MANAGER_TEST_KV_URL: redis://localhost:6379/0
     steps:
       - name: 📥 Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6.1.0
@@ -100,6 +105,16 @@ jobs:
           "$bin/golangci-lint" version
           "$bin/buf" --version
 
+      - name: 🗝️ Start Valkey
+        run: |
+          set -euo pipefail
+          docker run -d --name valkey -p 6379:6379 valkey/valkey:8-alpine --appendonly yes
+          for _ in $(seq 1 30); do
+            docker exec valkey valkey-cli ping | grep -q PONG && exit 0
+            sleep 1
+          done
+          exit 1
+
       - name: 🧼 gofmt
         run: task fmt
 
@@ -127,6 +142,6 @@ jobs:
         if: ${{ !cancelled() && steps.tools.outcome == 'success' }}
         run: task ctl:cross
 
-      - name: 🧪 go test (with Postgres)
+      - name: 🧪 go test (with Postgres and Valkey)
         if: ${{ !cancelled() && steps.tools.outcome == 'success' }}
         run: task test

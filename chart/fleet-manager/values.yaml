@@ -99,8 +99,8 @@ mcp:
 # The chart only connects: it never creates the database, user or role (see
 # docs/storage.md for the setup).
 #
-# Required unless storage.mode is memory. With neither set, the chart refuses
-# to render and names this field.
+# Required unless storage.mode is set. With neither set, the chart refuses to
+# render and names this field.
 database:
   existingSecret: ""
   secretKey: "database-url"
@@ -115,8 +115,25 @@ database:
 # Kubernetes Lease in this release's namespace) independent of the chart, so
 # running it outside Helm (a hand-edited manifest, kubectl scale) is still
 # refused. See docs/storage.md.
+#
+# storage.mode: kv keeps the state on a Valkey or Redis server you run, with
+# persistence on and the manager's ACL set up (the manager checks both and
+# refuses to start otherwise). It supports several replicas, like Postgres, and
+# is mutually exclusive with database.existingSecret. The chart only connects:
+# it never creates the server or its users.
 storage:
   mode: ""
+  kv:
+    # A Secret in the release namespace whose secretKey holds the server URL,
+    # redis://:<password>@valkey:6379/0 or rediss:// for TLS. It reaches the
+    # manager as MANAGER_KV_URL, so the password never lands in the rendered
+    # config.
+    existingSecret: ""
+    secretKey: "kv-url"
+    # A ConfigMap holding the CA that signed a rediss:// server's certificate.
+    # Leave it empty to verify against the system roots.
+    caConfigMap: ""
+    caKey: "ca.crt"
 
 # The admin key the manager mints for every node it adopts, at
 # /var/lib/cryptos-manager/node-creds. An adopted node trusts only that key,

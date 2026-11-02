@@ -57,6 +57,18 @@ type storageStatus struct {
 	Mode    string `json:"mode"`
 	State   string `json:"state"`
 	Version string `json:"version,omitempty"`
+	// Persistence and AuditChain are storage mode kv's: how the server keeps
+	// data across a restart, and whether the audit stream last verified.
+	Persistence string `json:"persistence,omitempty"`
+	AuditChain  string `json:"auditChain,omitempty"`
+}
+
+// storageDetail is what a store adds to the health body once it has answered.
+// Degraded flags a store that works but falls short of the supported setup.
+type storageDetail struct {
+	Persistence string
+	AuditChain  string
+	Degraded    bool
 }
 
 // Storage states reported in storageStatus.State.
@@ -73,6 +85,7 @@ type storeHealth struct {
 	Mode    string
 	Check   func(context.Context) error
 	Version func(context.Context) (string, error)
+	Detail  func(context.Context) storageDetail
 }
 
 // healthHandler reports whether the manager can serve: it is up, and its
@@ -106,6 +119,13 @@ func healthHandler(sh storeHealth) http.Handler {
 			} else if sh.Version != nil {
 				if v, err := sh.Version(ctx); err == nil {
 					storage.Version = v
+				}
+			}
+			if storage.State == storageStateOK && sh.Detail != nil {
+				d := sh.Detail(ctx)
+				storage.Persistence, storage.AuditChain = d.Persistence, d.AuditChain
+				if d.Degraded {
+					storage.State, status = storageStateDegraded, storageStateDegraded
 				}
 			}
 		}
