@@ -75,7 +75,7 @@ func Resolve(ctx context.Context, cfg config.Config, st store.OperatorTrust, nod
 		return Source{Kind: KindDev, Policy: policy}, nil
 	case cfg.OperatorCAPath != "":
 		return resolveFile(ctx, cfg, st, nodeCAs, policy, logf)
-	case cfg.DatabaseURL == "" || cfg.FirstRun == config.FirstRunDisabled:
+	case !cfg.Durable() || cfg.FirstRun == config.FirstRunDisabled:
 		return Source{Kind: KindNone, Policy: policy}, nil
 	}
 

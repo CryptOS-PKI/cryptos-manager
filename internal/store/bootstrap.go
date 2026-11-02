@@ -86,8 +86,8 @@ type FirstRunReset struct {
 
 // Bootstrap is the storage behind first run: the latch, the token and
 // session hashes, first-run operator CA registration and the first admin's
-// credential record. Only the Postgres store implements it; without
-// Postgres first run is unavailable.
+// credential record. Only the durable stores implement it; in memory mode
+// first run is unavailable.
 type Bootstrap interface {
 	// BootstrapState returns the latch.
 	BootstrapState(ctx context.Context) (BootstrapState, error)

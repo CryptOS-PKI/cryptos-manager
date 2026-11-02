@@ -78,9 +78,9 @@ func setupOperatorTrust(ctx context.Context, cfg config.Config, st store.Store, 
 		web      authz.PeerAuthorizer = auth
 		observed *operatorca.ObservedRecorder
 	)
-	// Observed credentials are rows in Postgres; the in-memory store has
-	// nowhere to keep them.
-	if cs, ok := st.(store.OperatorCredentialStore); ok && cfg.DatabaseURL != "" {
+	// Observed credentials are rows in the durable store; the in-memory store
+	// has nowhere to keep them.
+	if cs, ok := st.(store.OperatorCredentialStore); ok && cfg.Durable() {
 		observed = operatorca.NewObservedRecorder(operatorca.ObservedOptions{Store: cs, Logf: logf})
 		web = observed.Authorizer(auth)
 	}

@@ -568,3 +568,61 @@ storage:
 		t.Fatalf("Load() error = %v, want a refusal naming storage.mode", err)
 	}
 }
+
+func writeKVConfig(t *testing.T, body string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("listen: \"0.0.0.0:8443\"\nauthBypass: true\n"+body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestLoad_StorageModeKV(t *testing.T) {
+	cfg, err := Load(writeKVConfig(t, "storage:\n  mode: kv\n  kv:\n    url: \"redis://valkey:6379\"\n    caFile: /etc/ca.pem\n"))
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Storage.Mode != StorageModeKV || cfg.Storage.KV.URL != "redis://valkey:6379" || cfg.Storage.KV.CAFile != "/etc/ca.pem" {
+		t.Fatalf("Storage = %+v", cfg.Storage)
+	}
+	if !cfg.Durable() {
+		t.Fatal("Durable() = false for kv mode")
+	}
+}
+
+func TestLoad_StorageModeKVTakesItsURLFromTheEnvironment(t *testing.T) {
+	t.Setenv(KVURLEnv, "rediss://:pw@valkey:6380")
+	cfg, err := Load(writeKVConfig(t, "storage:\n  mode: kv\n"))
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Storage.KV.URL != "rediss://:pw@valkey:6380" {
+		t.Fatalf("URL = %q", cfg.Storage.KV.URL)
+	}
+}
+
+func TestLoad_StorageModeKVRefusals(t *testing.T) {
+	for name, tc := range map[string]struct{ body, want string }{
+		"no url":        {"storage:\n  mode: kv\n", "storage.kv.url"},
+		"with postgres": {"database_url: \"postgres://x\"\nstorage:\n  mode: kv\n  kv:\n    url: \"redis://v\"\n", "mutually exclusive"},
+		"url alone":     {"database_url: \"postgres://x\"\nstorage:\n  kv:\n    url: \"redis://v\"\n", "storage.kv is set"},
+		"url on memory": {"storage:\n  mode: memory\n  kv:\n    url: \"redis://v\"\n", "storage.kv is set"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := Load(writeKVConfig(t, tc.body))
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("Load() error = %v, want it to contain %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestDurable(t *testing.T) {
+	if (Config{Storage: StorageConfig{Mode: StorageModeMemory}}).Durable() {
+		t.Fatal("memory mode reported durable")
+	}
+	if !(Config{DatabaseURL: "postgres://x"}).Durable() {
+		t.Fatal("Postgres reported not durable")
+	}
+}

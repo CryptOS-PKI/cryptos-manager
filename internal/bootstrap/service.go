@@ -6,7 +6,7 @@
 //
 // BootstrapService is served over HTTPS only, outside the client-certificate
 // middleware. Tokens and session secrets are kept only as SHA-256 hashes in
-// Postgres; without Postgres first run is unavailable.
+// a durable store; without one first run is unavailable.
 package bootstrap
 
 /*
@@ -98,7 +98,7 @@ type ServerInfo struct {
 
 // Options configures a Service.
 type Options struct {
-	// Store is nil without Postgres, which makes first run unavailable.
+	// Store is nil without a durable store, which makes first run unavailable.
 	Store Store
 	// Audit is the audit chain.
 	Audit store.Store

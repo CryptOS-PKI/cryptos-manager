@@ -47,7 +47,7 @@ jobs:
             echo "expected a render failure with no database and no storage.mode" >&2
             exit 1
           fi
-          grep -q 'either database.existingSecret or storage.mode: memory must be set' /tmp/err
+          grep -q 'either database.existingSecret or storage.mode' /tmp/err
 
       - name: helm template refuses database and storage.mode memory together
         run: |
@@ -68,13 +68,46 @@ jobs:
           fi
           grep -q 'storage.mode: memory supports replicaCount: 1 only' /tmp/err
 
+      - name: helm lint (storage.mode kv)
+        run: helm lint chart/fleet-manager --set storage.mode=kv --set storage.kv.existingSecret=kv-url
+
+      - name: helm template renders storage.mode kv with several replicas
+        run: |
+          helm template test chart/fleet-manager --set storage.mode=kv --set storage.kv.existingSecret=kv-url \
+            --set storage.kv.caConfigMap=kv-ca --set replicaCount=2 \
+            --set 'nodeCreds.accessModes[0]=ReadWriteMany' > /tmp/kv.yaml
+          grep -q 'MANAGER_KV_URL' /tmp/kv.yaml
+          grep -q 'mode: kv' /tmp/kv.yaml
+          grep -q 'caFile: /etc/cryptos/fleet/kv-ca/ca.crt' /tmp/kv.yaml
+          if grep -q 'memory-store' /tmp/kv.yaml; then
+            echo "storage.mode kv rendered the memory-mode guard" >&2
+            exit 1
+          fi
+
+      - name: helm template refuses storage.mode kv with no server Secret
+        run: |
+          if helm template test chart/fleet-manager --set storage.mode=kv 2>/tmp/err; then
+            echo "expected a render failure for storage.mode kv with no existingSecret" >&2
+            exit 1
+          fi
+          grep -q 'storage.mode: kv requires storage.kv.existingSecret' /tmp/err
+
+      - name: helm template refuses database and storage.mode kv together
+        run: |
+          if helm template test chart/fleet-manager --set database.existingSecret=pg-dsn \
+              --set storage.mode=kv --set storage.kv.existingSecret=kv-url 2>/tmp/err; then
+            echo "expected a render failure for database and storage.mode kv together" >&2
+            exit 1
+          fi
+          grep -q 'are mutually exclusive' /tmp/err
+
       - name: helm template refuses an unknown storage.mode
         run: |
           if helm template test chart/fleet-manager --set storage.mode=demo 2>/tmp/err; then
             echo "expected a render failure for an unknown storage.mode" >&2
             exit 1
           fi
-          grep -q 'storage.mode must be empty or "memory"' /tmp/err
+          grep -q 'storage.mode must be empty, "memory" or "kv"' /tmp/err
 
       - name: helm template refuses MCP with storage.mode memory
         run: |
