@@ -111,7 +111,9 @@ func registerStepUpTools(s *mcp.Server, t *tools) {
 	addStepUp(s, t, "profile_apply_to_node", "Push a catalog certificate profile onto a node's configuration."+stepUpNote,
 		t.summarizeApplyProfile,
 		func(ctx context.Context, in applyProfileArgs) (string, error) {
-			return call(ctx, t.svc.ApplyProfileToNode, &fleetv1.ApplyProfileToNodeRequest{ProfileName: in.Profile, NodeName: in.Node})
+			// The MCP tool is addressed by node name; the service resolves it, so
+			// the deprecated field is the caller's only handle here (#230).
+			return call(ctx, t.svc.ApplyProfileToNode, &fleetv1.ApplyProfileToNodeRequest{ProfileName: in.Profile, NodeName: in.Node}) //nolint:staticcheck // SA1019: the tool takes a name, not an id
 		})
 	addStepUp(s, t, "adapter_set_enabled", "Enable or disable an enrollment protocol adapter (ACME, SCEP, EST, ...)."+stepUpNote,
 		t.summarizeAdapter,

@@ -293,7 +293,7 @@ func TestApplyProfileToNode_OperatorDenied_NoDialNoAudit(t *testing.T) {
 
 	ctx := operatorCtx("op@acme.example", authz.LevelOperator)
 	_, err := svc.ApplyProfileToNode(ctx, connect.NewRequest(&fleetv1.ApplyProfileToNodeRequest{
-		NodeName: "A", ProfileName: "web",
+		NodeId: nodeID(t, st, "A"), ProfileName: "web",
 	}))
 	requireConnectCode(t, err, connect.CodePermissionDenied)
 
@@ -311,7 +311,7 @@ func TestApplyProfileToNode_UnknownProfile_NotFound(t *testing.T) {
 
 	ctx := operatorCtx("admin@acme.example", authz.LevelAdmin)
 	_, err := svc.ApplyProfileToNode(ctx, connect.NewRequest(&fleetv1.ApplyProfileToNodeRequest{
-		NodeName: "A", ProfileName: "missing",
+		NodeId: nodeID(t, st, "A"), ProfileName: "missing",
 	}))
 	requireConnectCode(t, err, connect.CodeNotFound)
 }
@@ -322,7 +322,7 @@ func TestApplyProfileToNode_UnknownNode_NotFound(t *testing.T) {
 
 	ctx := operatorCtx("admin@acme.example", authz.LevelAdmin)
 	_, err := svc.ApplyProfileToNode(ctx, connect.NewRequest(&fleetv1.ApplyProfileToNodeRequest{
-		NodeName: "missing", ProfileName: "web",
+		NodeName: "missing", ProfileName: "web", //nolint:staticcheck // SA1019: the legacy name path stays covered until node_name is removed (#230)
 	}))
 	requireConnectCode(t, err, connect.CodeNotFound)
 }
@@ -357,7 +357,7 @@ func TestApplyProfileToNode_Admin_PreservesWholeConfig(t *testing.T) {
 
 	ctx := operatorCtx("admin@acme.example", authz.LevelAdmin)
 	resp, err := svc.ApplyProfileToNode(ctx, connect.NewRequest(&fleetv1.ApplyProfileToNodeRequest{
-		NodeName: "A", ProfileName: "web",
+		NodeId: nodeID(t, st, "A"), ProfileName: "web",
 	}))
 	if err != nil {
 		t.Fatalf("ApplyProfileToNode(admin) error = %v, want nil", err)
@@ -420,7 +420,7 @@ func TestApplyProfileToNode_ReplacesSameName(t *testing.T) {
 
 	ctx := operatorCtx("admin@acme.example", authz.LevelAdmin)
 	if _, err := svc.ApplyProfileToNode(ctx, connect.NewRequest(&fleetv1.ApplyProfileToNodeRequest{
-		NodeName: "A", ProfileName: "web",
+		NodeId: nodeID(t, st, "A"), ProfileName: "web",
 	})); err != nil {
 		t.Fatalf("ApplyProfileToNode error = %v", err)
 	}
@@ -442,7 +442,7 @@ func TestApplyProfileToNode_NodeError_MappedNoAudit(t *testing.T) {
 
 	ctx := operatorCtx("admin@acme.example", authz.LevelAdmin)
 	_, err := svc.ApplyProfileToNode(ctx, connect.NewRequest(&fleetv1.ApplyProfileToNodeRequest{
-		NodeName: "A", ProfileName: "web",
+		NodeId: nodeID(t, st, "A"), ProfileName: "web",
 	}))
 	requireConnectCode(t, err, connect.CodeInternal)
 

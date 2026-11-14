@@ -321,7 +321,7 @@ func TestNodeRequests_IDAndNameDisagree_InvalidArgument(t *testing.T) {
 			return err
 		},
 		"ApplyProfileToNode": func() error {
-			_, err := svc.ApplyProfileToNode(ctx, connect.NewRequest(&fleetv1.ApplyProfileToNodeRequest{NodeId: a, NodeName: "B", ProfileName: "p1"}))
+			_, err := svc.ApplyProfileToNode(ctx, connect.NewRequest(&fleetv1.ApplyProfileToNodeRequest{NodeId: a, NodeName: "B", ProfileName: "p1"})) //nolint:staticcheck // SA1019: the test sets both fields to prove node_id wins (#230)
 			return err
 		},
 		"RevokeCertificate": func() error {
@@ -353,7 +353,7 @@ func TestNodeRequests_IDAndNameDisagree_InvalidArgument(t *testing.T) {
 			return err
 		},
 		"DecommissionNode": func() error {
-			_, err := svc.DecommissionNode(ctx, connect.NewRequest(&fleetv1.DecommissionNodeRequest{NodeId: a, NodeName: "B", ConfirmCommonName: "x"}))
+			_, err := svc.DecommissionNode(ctx, connect.NewRequest(&fleetv1.DecommissionNodeRequest{NodeId: a, NodeName: "B", ConfirmCommonName: "x"})) //nolint:staticcheck // SA1019: the test sets both fields to prove node_id wins (#230)
 			return err
 		},
 		"CreateEnrollment": func() error {

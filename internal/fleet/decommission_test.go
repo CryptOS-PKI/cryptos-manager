@@ -36,7 +36,7 @@ func TestDecommissionNode_Admin_ResetsAndAudits(t *testing.T) {
 
 	ctx := operatorCtx("admin@acme.example", authz.LevelAdmin)
 	resp, err := svc.DecommissionNode(ctx, connect.NewRequest(&fleetv1.DecommissionNodeRequest{
-		NodeName: "A", ConfirmCommonName: "Root CA A",
+		NodeId: nodeID(t, st, "A"), ConfirmCommonName: "Root CA A",
 	}))
 	if err != nil {
 		t.Fatalf("DecommissionNode(admin) error = %v", err)
@@ -67,7 +67,7 @@ func TestDecommissionNode_ViewerDenied_NoDialNoAudit(t *testing.T) {
 
 	ctx := operatorCtx("viewer@acme.example", authz.LevelViewer)
 	_, err := svc.DecommissionNode(ctx, connect.NewRequest(&fleetv1.DecommissionNodeRequest{
-		NodeName: "A", ConfirmCommonName: "Root CA A",
+		NodeId: nodeID(t, st, "A"), ConfirmCommonName: "Root CA A",
 	}))
 	requireConnectCode(t, err, connect.CodePermissionDenied)
 	if conn.gotRemoteResetCN != "" || conn.closed {
@@ -84,7 +84,7 @@ func TestDecommissionNode_UnknownNode_NotFound(t *testing.T) {
 
 	ctx := operatorCtx("admin@acme.example", authz.LevelAdmin)
 	_, err := svc.DecommissionNode(ctx, connect.NewRequest(&fleetv1.DecommissionNodeRequest{
-		NodeName: "missing", ConfirmCommonName: "x",
+		NodeName: "missing", ConfirmCommonName: "x", //nolint:staticcheck // SA1019: the legacy name path stays covered until node_name is removed (#230)
 	}))
 	requireConnectCode(t, err, connect.CodeNotFound)
 	if len(st.Audit()) != 0 {
@@ -100,7 +100,7 @@ func TestDecommissionNode_CNMismatch_MappedToPermissionDenied_NoAudit(t *testing
 
 	ctx := operatorCtx("admin@acme.example", authz.LevelAdmin)
 	_, err := svc.DecommissionNode(ctx, connect.NewRequest(&fleetv1.DecommissionNodeRequest{
-		NodeName: "A", ConfirmCommonName: "wrong CN",
+		NodeId: nodeID(t, st, "A"), ConfirmCommonName: "wrong CN",
 	}))
 	requireConnectCode(t, err, connect.CodePermissionDenied)
 
@@ -118,6 +118,6 @@ func TestDecommissionNode_MissingConfirmCN_InvalidArgument(t *testing.T) {
 	st := certsTestStore()
 	svc := New(st, dialFor(map[string]*fakeConn{"A": {}}))
 	ctx := operatorCtx("admin@acme.example", authz.LevelAdmin)
-	_, err := svc.DecommissionNode(ctx, connect.NewRequest(&fleetv1.DecommissionNodeRequest{NodeName: "A"}))
+	_, err := svc.DecommissionNode(ctx, connect.NewRequest(&fleetv1.DecommissionNodeRequest{NodeId: nodeID(t, st, "A")}))
 	requireConnectCode(t, err, connect.CodeInvalidArgument)
 }

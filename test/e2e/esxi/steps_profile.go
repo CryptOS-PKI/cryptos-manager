@@ -52,12 +52,12 @@ func (s *scenario) profileStep() step {
 		if err != nil {
 			return "", err
 		}
-		id, name := s.nodeRef(primary)
+		id, _ := s.nodeRef(primary)
 
 		if _, err := s.fleet.CreateProfile(ctx, connect.NewRequest(&fleetv1.CreateProfileRequest{Profile: leafProfile(s.profile, 30)})); err != nil {
 			return "", fmt.Errorf("CreateProfile: %w", err)
 		}
-		if _, err := s.fleet.ApplyProfileToNode(ctx, connect.NewRequest(&fleetv1.ApplyProfileToNodeRequest{NodeId: id, NodeName: name, ProfileName: s.profile})); err != nil {
+		if _, err := s.fleet.ApplyProfileToNode(ctx, connect.NewRequest(&fleetv1.ApplyProfileToNodeRequest{NodeId: id, ProfileName: s.profile})); err != nil {
 			return "", fmt.Errorf("ApplyProfileToNode: %w", err)
 		}
 		if err := s.checkNodeHasProfile(primary, s.profile, 30); err != nil {
@@ -67,7 +67,7 @@ func (s *scenario) profileStep() step {
 		if _, err := s.fleet.UpdateProfile(ctx, connect.NewRequest(&fleetv1.UpdateProfileRequest{Profile: leafProfile(s.profile, 60)})); err != nil {
 			return "", fmt.Errorf("UpdateProfile: %w", err)
 		}
-		if _, err := s.fleet.ApplyProfileToNode(ctx, connect.NewRequest(&fleetv1.ApplyProfileToNodeRequest{NodeId: id, NodeName: name, ProfileName: s.profile})); err != nil {
+		if _, err := s.fleet.ApplyProfileToNode(ctx, connect.NewRequest(&fleetv1.ApplyProfileToNodeRequest{NodeId: id, ProfileName: s.profile})); err != nil {
 			return "", fmt.Errorf("ApplyProfileToNode (update): %w", err)
 		}
 		if err := s.checkNodeHasProfile(primary, s.profile, 60); err != nil {
