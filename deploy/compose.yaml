@@ -88,11 +88,14 @@ services:
 
   manager:
     # Set MANAGER_VERSION to a published tag, with its leading "v" (for
-    # example v0.1.0-rc.1). There is no default: a release rc never moves
-    # latest, so a default of latest would not pull. To run an image you built
-    # yourself, build it with deploy/build-image.sh (so /version reports it)
-    # and set MANAGER_IMAGE to its tag instead.
-    image: ${MANAGER_IMAGE:-ghcr.io/cryptos-pki/cryptos-manager:${MANAGER_VERSION:?set MANAGER_VERSION to a published tag such as v0.1.0-rc.1, or MANAGER_IMAGE to your own image}}
+    # example v0.1.0-rc.1). There is no real default: a release rc never moves
+    # latest, so a default of latest would not pull. Compose evaluates a
+    # required-variable check eagerly, which would stop MANAGER_IMAGE from
+    # overriding it, so an unset version resolves to a tag that names the fix
+    # and the pull fails with it. To run an image you built yourself, build it
+    # with deploy/build-image.sh (so /version reports it) and set MANAGER_IMAGE
+    # to its tag instead.
+    image: ${MANAGER_IMAGE:-ghcr.io/cryptos-pki/cryptos-manager:${MANAGER_VERSION:-set-MANAGER_VERSION-to-a-published-tag}}
     restart: unless-stopped
     # Nothing in the image is written at runtime except the node-creds volume
     # below, so the root filesystem is read-only and a stray write fails
