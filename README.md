@@ -137,8 +137,12 @@ example and [`deploy/config.example.yaml`](deploy/config.example.yaml) the confi
 goes with it:
 
 ```sh
-docker compose -f deploy/compose.yaml up -d
+MANAGER_VERSION=vX.Y.Z docker compose -f deploy/compose.yaml up -d
 ```
+
+`MANAGER_VERSION` has no usable default (unset, the image tag reads `set-MANAGER_VERSION-to-a-published-tag` and the pull fails): set it to a published tag with its
+leading `v` (an rc never moves `latest`, so a default of `latest` would not pull), or set
+`MANAGER_IMAGE` to an image you built yourself.
 
 FleetOS Manager does not supply or manage a database — it only makes the connection
 (`database_url`). The `postgres` service in the compose file is a worked example of a

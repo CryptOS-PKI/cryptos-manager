@@ -135,7 +135,7 @@ tasks:
         tmp="$(mktemp -d)"
         trap 'rm -rf "$tmp"' EXIT
         printf 'POSTGRES_PASSWORD=test\n' > "$tmp/postgres.env"
-        POSTGRES_ENV_FILE="$tmp/postgres.env" docker compose -f deploy/compose.yaml config >/dev/null
+        MANAGER_VERSION=v0.0.0-check POSTGRES_ENV_FILE="$tmp/postgres.env" docker compose -f deploy/compose.yaml config >/dev/null
   run:
     desc: Run the manager server against config.yaml.
     env:

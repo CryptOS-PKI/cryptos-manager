@@ -62,7 +62,13 @@ jobs:
           set -euo pipefail
           tmp="$(mktemp -d)"
           printf 'POSTGRES_PASSWORD=ci\n' > "$tmp/postgres.env"
-          POSTGRES_ENV_FILE="$tmp/postgres.env" docker compose -f deploy/compose.yaml config >/dev/null
+          export POSTGRES_ENV_FILE="$tmp/postgres.env"
+          # The image tag has no real default: a release rc never moves latest.
+          # With neither variable set the tag names the fix, so the pull fails
+          # with a readable reference instead of pulling :latest.
+          docker compose -f deploy/compose.yaml config | grep -q 'image: ghcr.io/cryptos-pki/cryptos-manager:set-MANAGER_VERSION-to-a-published-tag'
+          MANAGER_VERSION=v0.1.0-rc.1 docker compose -f deploy/compose.yaml config | grep -q 'image: ghcr.io/cryptos-pki/cryptos-manager:v0.1.0-rc.1'
+          MANAGER_IMAGE=manager:local docker compose -f deploy/compose.yaml config | grep -q 'image: manager:local'
 
       - name: 📥 Checkout web
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
