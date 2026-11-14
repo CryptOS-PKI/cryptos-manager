@@ -9,7 +9,7 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end -}}
 
 {{- define "fleet-manager.image" -}}
-{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}
+{{ .Values.image.repository }}:{{ .Values.image.tag | default (printf "v%s" (trimPrefix "v" .Chart.AppVersion)) }}
 {{- end -}}
 
 {{/*

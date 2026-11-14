@@ -316,3 +316,19 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           helm package chart/fleet-manager --version "$version" --app-version "$version"
           helm push "fleet-manager-${version}.tgz" oci://ghcr.io/cryptos-pki/charts
+
+      # The pushed chart has to pull with its defaults: render it from the
+      # registry, take the image it would run, and require that reference to
+      # exist (the publish job it needs has already pushed the image) (#227).
+      - name: Check the chart's default image exists
+        env:
+          IMAGE_REPO: ghcr.io/cryptos-pki/cryptos-manager
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          image="$(helm template check "oci://ghcr.io/cryptos-pki/charts/fleet-manager" --version "$version" \
+            --set database.existingSecret=pg-dsn | sed -n 's/^ *image: "\(.*\)"$/\1/p' | sort -u)"
+          echo "default image: $image"
+          [ "$image" = "$IMAGE_REPO:$GITHUB_REF_NAME" ]
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker buildx imagetools inspect "$image" > /dev/null

@@ -159,3 +159,15 @@ jobs:
           out="$(helm template test chart/fleet-manager --set storage.mode=memory --set serviceAccount.create=true)"
           subject="$(echo "$out" | sed -n '/kind: RoleBinding/,/^---/p' | sed -n '/^subjects:/,$p' | grep -m1 -E '^ +name:' | awk '{print $2}')"
           [ "$subject" = fleet-manager ] || { echo "RoleBinding binds '$subject', not the dedicated ServiceAccount" >&2; exit 1; }
+
+      # The release packages the chart with --app-version set to the tag minus
+      # its leading "v", and publishes the image under the tag with the "v".
+      # The default image reference has to line up with that (#227).
+      - name: helm template defaults the image tag to v plus appVersion
+        run: |
+          helm package chart/fleet-manager --version 0.1.0-rc.1 --app-version 0.1.0-rc.1 --destination "$RUNNER_TEMP"
+          out="$(helm template test "$RUNNER_TEMP/fleet-manager-0.1.0-rc.1.tgz" --set database.existingSecret=pg-dsn)"
+          echo "$out" | grep -q 'image: "ghcr.io/cryptos-pki/cryptos-manager:v0.1.0-rc.1"' \
+            || { echo "default image is not ghcr.io/cryptos-pki/cryptos-manager:v0.1.0-rc.1" >&2; echo "$out" | grep 'image:' >&2; exit 1; }
+          out="$(helm template test chart/fleet-manager --set database.existingSecret=pg-dsn --set image.tag=v9.9.9)"
+          echo "$out" | grep -q 'image: "ghcr.io/cryptos-pki/cryptos-manager:v9.9.9"'
