@@ -23,6 +23,9 @@ import (
 	"crypto/rand"
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	connect "connectrpc.com/connect"
@@ -32,6 +35,8 @@ import (
 	"github.com/CryptOS-PKI/cryptos-manager/internal/store"
 	"github.com/CryptOS-PKI/cryptos-manager/internal/store/memory"
 	nodev1 "github.com/CryptOS-PKI/cryptos-node/gen/go/cryptos/node/v1"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // operatorCtx returns a context carrying an authenticated identity at the
@@ -717,4 +722,54 @@ func issuedLeafDER(t *testing.T, subjectCN, issuerCN string) []byte {
 	_, issuerCert, issuerKey := signCert(t, issuerCN, nil, nil)
 	leafDER, _, _ := signCert(t, subjectCN, issuerCert, issuerKey)
 	return leafDER
+}
+
+// The operator sees only a masked error 1900 when a LINK approval fails after
+// the node was verified, so the log has to say why. A node that refuses the
+// management block (cryptos-node#418) left nothing in the manager's log at all.
+func TestApproveEnrollment_Link_SetManagementFailureIsLogged(t *testing.T) {
+	caPEM := linkCAPEM(t)
+	svc, _, id, key := linkFixture(t, "Example Root CA G1", "192.0.2.10:443", caPEM)
+	logs := captureLog(t)
+	nodeErr := status.Error(codes.InvalidArgument, "SetManagement: apply: node: Apply: validate: config: management.trust_pem: required when management is set")
+	svc.dialPEM = dialPEMFakeFor(&fakeConn{attestKey: key, setManagementErr: nodeErr})
+
+	_, err := approveLink(svc, id, "192.0.2.10:443", caPEM)
+	if err == nil {
+		t.Fatal("ApproveEnrollment succeeded against a node that refused the management block")
+	}
+	if connect.CodeOf(err) != connect.CodeInternal {
+		t.Fatalf("code = %v, want Internal (the response stays masked)", connect.CodeOf(err))
+	}
+	want := "fleet: LINK approval " + id + ": set management: "
+	got := logs.String()
+	if !strings.Contains(got, want) || !strings.Contains(got, "management.trust_pem: required when management is set") {
+		t.Fatalf("the log does not say why the approval failed, want %q and the node's error in:\n%s", want, got)
+	}
+}
+
+// Failing to save the node's credentials (an unwritable volume, say) is the
+// other way a verified node's approval fails, and it is logged the same way.
+func TestApproveEnrollment_Link_RegisterFailureIsLogged(t *testing.T) {
+	caPEM := linkCAPEM(t)
+	svc, _, id, key := linkFixture(t, "Example Root CA G1", "192.0.2.10:443", caPEM)
+	blocker := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	adoptCredsBaseDir = filepath.Join(blocker, "creds")
+	logs := captureLog(t)
+	svc.dialPEM = dialPEMFakeFor(&fakeConn{attestKey: key})
+
+	_, err := approveLink(svc, id, "192.0.2.10:443", caPEM)
+	if err == nil {
+		t.Fatal("ApproveEnrollment succeeded with an unwritable credentials directory")
+	}
+	if connect.CodeOf(err) != connect.CodeInternal {
+		t.Fatalf("code = %v, want Internal", connect.CodeOf(err))
+	}
+	want := "fleet: LINK approval " + id + ": register node: "
+	if got := logs.String(); !strings.Contains(got, want) || !strings.Contains(got, "save credentials") {
+		t.Fatalf("the log does not say why the approval failed, want %q and the cause in:\n%s", want, got)
+	}
 }

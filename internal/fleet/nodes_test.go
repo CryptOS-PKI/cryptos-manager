@@ -77,6 +77,9 @@ type fakeConn struct {
 	// gotManagement records the Management the fake received via
 	// SetManagement, so a test can assert what a LINK approval pushed.
 	gotManagement *nodev1.Management
+	// setManagementErr, when set, makes only SetManagement fail, as a node that
+	// refuses the management block does; err fails every call.
+	setManagementErr error
 	// gotCSRProfile records the profile name SignSubordinateCSR was called
 	// with, so a test can assert the ferry used the enrollment's profile.
 	gotCSRProfile string
@@ -450,6 +453,9 @@ func (f *fakeConn) GetConfig(context.Context) (*nodev1.GetConfigResponse, error)
 
 func (f *fakeConn) SetManagement(_ context.Context, m *nodev1.Management) (*nodev1.SetManagementResponse, error) {
 	f.gotManagement = m
+	if f.setManagementErr != nil {
+		return nil, f.setManagementErr
+	}
 	if f.err != nil {
 		return nil, f.err
 	}
