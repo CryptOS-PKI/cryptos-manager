@@ -243,6 +243,9 @@ func (s *Service) approveLinkEnrollment(ctx context.Context, id authz.Identity, 
 		ManagerCn:               id.CN,
 		OperatorSurfaceReadonly: true,
 	}); err != nil {
+		// The operator's response is masked to a bare error code, so the cause
+		// goes in the log, with the enrollment it belongs to.
+		log.Printf("fleet: LINK approval %s: set management: %v", e.ID, err)
 		return connect.NewError(connect.CodeInternal, fmt.Errorf("fleet: set management: %w", err))
 	}
 
@@ -250,6 +253,7 @@ func (s *Service) approveLinkEnrollment(ctx context.Context, id authz.Identity, 
 	// be retried; SetManagement only merges the same managed state again.
 	node, err := s.registerLinkedNode(ctx, conn, plan)
 	if err != nil {
+		log.Printf("fleet: LINK approval %s: register node: %v", e.ID, err)
 		return connect.NewError(connect.CodeInternal, err)
 	}
 	log.Printf("fleet: LINK approval %s: admitted node %q is inventory node %s", e.ID, node.Name, node.ID)
